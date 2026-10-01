@@ -98,7 +98,7 @@ class WebRtcPeer(
             MAX_PENDING_REMOTE_CANDIDATES
         )
     private val lastIceRestartAtMs = AtomicLong(0L)
-    private val controllerRelayRefreshAttempted = AtomicBoolean(false)
+    private val controllerRelayRefreshAttempts = AtomicLong(0L)
     private var bootstrapRecoveryAttempts = 0
 
     @Volatile
@@ -164,61 +164,98 @@ class WebRtcPeer(
     @Volatile
     private var activeIceFromBackend = false
 
-    private val controllerRelayRefresh = Runnable {
+    private val controllerRelayRefresh = object : Runnable {
+        override fun run() {
+            if (
+                closed.get() ||
+                role != PeerRole.CONTROLLER ||
+                connectivity.hasEverConnected() ||
+                activeIceFromBackend
+            ) {
+                return
+            }
+
+            val attempt =
+                controllerRelayRefreshAttempts.incrementAndGet()
+            if (attempt > MAX_CONTROLLER_RELAY_REFRESH_ATTEMPTS) {
+                return
+            }
+
+            scope.launch {
+                val refreshed = IceServerProvider.loadConfig(
+                    sessionId = sessionId,
+                    timeoutMs = PRELIVE_ICE_REFRESH_TIMEOUT_MS
+                )
+
+                if (!refreshed.fromBackend) {
+                    scheduleControllerRelayRefreshRetry(attempt)
+                    return@launch
+                }
+
+                handler.post {
+                    if (
+                        closed.get() ||
+                        connectivity.hasEverConnected()
+                    ) {
+                        return@post
+                    }
+
+                    val applied = runCatching {
+                        check(
+                            peerConnection.setConfiguration(
+                                createRtcConfiguration(
+                                    refreshed.servers
+                                )
+                            )
+                        ) {
+                            "Could not refresh controller ICE configuration"
+                        }
+                    }.isSuccess
+
+                    if (applied) {
+                        activeIceServers = refreshed.servers
+                        activeIceFromBackend = true
+
+                        /*
+                         * Do not overwrite controllerSignal here.
+                         *
+                         * During startup that single RTDB value may still hold
+                         * the SDP answer the host has not observed yet. Replacing
+                         * it with a restart hint can permanently lose the answer
+                         * and leave both phones stuck at Connecting.
+                         *
+                         * The host already owns bounded pre-live ICE restart
+                         * cadence, so once TURN is installed here the next host
+                         * recovery offer will gather relay-capable candidates
+                         * without corrupting offer/answer signaling.
+                         */
+                        return@post
+                    }
+
+                    scheduleControllerRelayRefreshRetry(attempt)
+                }
+            }
+        }
+    }
+
+    private fun scheduleControllerRelayRefreshRetry(
+        completedAttempt: Long
+    ) {
         if (
             closed.get() ||
             role != PeerRole.CONTROLLER ||
             connectivity.hasEverConnected() ||
             activeIceFromBackend ||
-            !controllerRelayRefreshAttempted.compareAndSet(
-                false,
-                true
-            )
+            completedAttempt >= MAX_CONTROLLER_RELAY_REFRESH_ATTEMPTS
         ) {
-            return@Runnable
+            return
         }
 
-        scope.launch {
-            val refreshed = IceServerProvider.loadConfig(
-                sessionId = sessionId,
-                timeoutMs = PRELIVE_ICE_REFRESH_TIMEOUT_MS
-            )
-            if (!refreshed.fromBackend) {
-                return@launch
-            }
-
-            handler.post {
-                if (
-                    closed.get() ||
-                    connectivity.hasEverConnected()
-                ) {
-                    return@post
-                }
-
-                runCatching {
-                    check(
-                        peerConnection.setConfiguration(
-                            createRtcConfiguration(
-                                refreshed.servers
-                            )
-                        )
-                    ) {
-                        "Could not refresh controller ICE configuration"
-                    }
-                }.onSuccess {
-                    activeIceServers = refreshed.servers
-                    activeIceFromBackend = true
-
-                    // setConfiguration() alone does not start a new ICE
-                    // generation. Ask the host for one fresh offer now that
-                    // this controller can gather relay candidates.
-                    signaling.requestRemoteIceRestart()
-                }
-                // This is an opportunistic pre-live relay refresh. Direct ICE
-                // remains valid if a device rejects a mid-start configuration
-                // refresh, so do not fail the whole session for this retry.
-            }
-        }
+        handler.removeCallbacks(controllerRelayRefresh)
+        handler.postDelayed(
+            controllerRelayRefresh,
+            CONTROLLER_RELAY_REFRESH_INTERVAL_MS
+        )
     }
 
     private val peerConnection: PeerConnection = checkNotNull(
@@ -953,7 +990,9 @@ class WebRtcPeer(
         private const val INITIAL_ICE_RESTART_DELAY_MS = 1_500L
         private const val BOOTSTRAP_RECOVERY_INITIAL_DELAY_MS = 8_000L
         private const val BOOTSTRAP_RECOVERY_INTERVAL_MS = 12_000L
-        private const val CONTROLLER_RELAY_REFRESH_DELAY_MS = 6_000L
-        private const val MAX_BOOTSTRAP_RECOVERY_ATTEMPTS = 2
+        private const val CONTROLLER_RELAY_REFRESH_DELAY_MS = 4_000L
+        private const val CONTROLLER_RELAY_REFRESH_INTERVAL_MS = 7_000L
+        private const val MAX_CONTROLLER_RELAY_REFRESH_ATTEMPTS = 3L
+        private const val MAX_BOOTSTRAP_RECOVERY_ATTEMPTS = 3
     }
 }
