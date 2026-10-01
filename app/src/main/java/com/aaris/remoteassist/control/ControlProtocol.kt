@@ -294,7 +294,7 @@ object ControlProtocol {
 
             is ControlPacket.CommandResult -> {
                 buffer.putLong(packet.sequence)
-                buffer.put(if (packet.applied) 1 else 0)
+                buffer.put((if (packet.applied) 1 else 0).toByte())
             }
 
             ControlPacket.Disconnect -> Unit
