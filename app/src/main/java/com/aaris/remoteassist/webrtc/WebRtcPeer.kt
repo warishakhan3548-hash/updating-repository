@@ -51,6 +51,16 @@ class WebRtcPeer(
             MAX_PENDING_REMOTE_CANDIDATES
         )
     private val connectivity = PeerConnectivityTracker()
+    private val initialIceRestart = Runnable {
+        if (
+            !closed.get() &&
+            role == PeerRole.HOST &&
+            !connectivity.hasEverConnected() &&
+            initialIceRestartAttempted.compareAndSet(false, true)
+        ) {
+            requestIceRestart()
+        }
+    }
 
     @Volatile
     private var controlChannel: DataChannel? = null
@@ -258,13 +268,25 @@ class WebRtcPeer(
         newState: PeerConnection.PeerConnectionState
     ) {
         when (newState) {
-            PeerConnection.PeerConnectionState.CONNECTED ->
+            PeerConnection.PeerConnectionState.CONNECTED -> {
+                handler.removeCallbacks(initialIceRestart)
                 publishPeerConnected()
+            }
 
-            PeerConnection.PeerConnectionState.DISCONNECTED ->
-                publishPeerDisconnected()
+            PeerConnection.PeerConnectionState.DISCONNECTED -> {
+                if (connectivity.hasEverConnected()) {
+                    publishPeerDisconnected()
+                } else if (role == PeerRole.HOST) {
+                    handler.removeCallbacks(initialIceRestart)
+                    handler.postDelayed(
+                        initialIceRestart,
+                        INITIAL_ICE_RESTART_DELAY_MS
+                    )
+                }
+            }
 
             PeerConnection.PeerConnectionState.FAILED -> {
+                handler.removeCallbacks(initialIceRestart)
                 if (connectivity.hasEverConnected()) {
                     publishPeerDisconnected()
                 } else if (
@@ -564,5 +586,6 @@ class WebRtcPeer(
         private const val MAX_VIDEO_BITRATE_BPS = 2_500_000
         private const val MAX_VIDEO_FRAMERATE = 30
         private const val RESTART_ICE_REFRESH_TIMEOUT_MS = 1_500L
+        private const val INITIAL_ICE_RESTART_DELAY_MS = 1_500L
     }
 }
