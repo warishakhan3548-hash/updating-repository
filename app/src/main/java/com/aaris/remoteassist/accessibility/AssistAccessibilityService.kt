@@ -19,6 +19,7 @@ import android.widget.Button
 import com.aaris.remoteassist.capture.ScreenShareService
 import com.aaris.remoteassist.control.CommandGate
 import com.aaris.remoteassist.control.GlobalAction
+import com.aaris.remoteassist.control.GesturePathCommand
 import com.aaris.remoteassist.control.GlobalActionCommand
 import com.aaris.remoteassist.control.LongPressCommand
 import com.aaris.remoteassist.control.RemoteCommand
@@ -91,6 +92,7 @@ class AssistAccessibilityService : AccessibilityService() {
             command is TapCommand ||
                 command is LongPressCommand ||
                 command is SwipeCommand ||
+                command is GesturePathCommand ||
                 command is TwoFingerCommand
 
         if (
@@ -122,6 +124,7 @@ class AssistAccessibilityService : AccessibilityService() {
                 command.toYPx,
                 command.durationMs.coerceIn(80L, 1500L)
             )
+            is GesturePathCommand -> gesturePath(command)
             is TwoFingerCommand -> twoFingerGesture(command)
             is GlobalActionCommand -> performGlobalAction(
                 when (command.action) {
@@ -279,6 +282,41 @@ class AssistAccessibilityService : AccessibilityService() {
         return dispatchGesture(
             GestureDescription.Builder()
                 .addStroke(stroke)
+                .build(),
+            null,
+            null
+        )
+    }
+
+    private fun gesturePath(command: GesturePathCommand): Boolean {
+        if (command.points.size < 2) return false
+        if (
+            command.points.any {
+                !it.xPx.isFinite() || !it.yPx.isFinite()
+            }
+        ) {
+            return false
+        }
+
+        val first = command.points.first()
+        val path = Path().apply {
+            moveTo(first.xPx, first.yPx)
+            for (index in 1 until command.points.size) {
+                val point = command.points[index]
+                lineTo(point.xPx, point.yPx)
+            }
+        }
+
+        val duration = command.durationMs.coerceIn(80L, 1_500L)
+        return dispatchGesture(
+            GestureDescription.Builder()
+                .addStroke(
+                    GestureDescription.StrokeDescription(
+                        path,
+                        0L,
+                        duration
+                    )
+                )
                 .build(),
             null,
             null
