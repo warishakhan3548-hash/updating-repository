@@ -97,6 +97,7 @@ class WebRtcPeer(
             MAX_PENDING_REMOTE_CANDIDATES
         )
     private val lastIceRestartAtMs = AtomicLong(0L)
+    private var bootstrapRecoveryAttempts = 0
 
     @Volatile
     private var preLiveDisconnected = false
@@ -110,6 +111,39 @@ class WebRtcPeer(
             initialIceRestartAttempted.compareAndSet(false, true)
         ) {
             requestIceRestart()
+        }
+    }
+
+    private val bootstrapRecovery = object : Runnable {
+        override fun run() {
+            if (
+                closed.get() ||
+                role != PeerRole.HOST ||
+                connectivity.hasEverConnected()
+            ) {
+                return
+            }
+
+            if (
+                peerConnection.signalingState() ==
+                PeerConnection.SignalingState.STABLE
+            ) {
+                if (requestIceRestart()) {
+                    bootstrapRecoveryAttempts += 1
+                }
+            }
+
+            if (
+                !closed.get() &&
+                !connectivity.hasEverConnected() &&
+                bootstrapRecoveryAttempts <
+                    MAX_BOOTSTRAP_RECOVERY_ATTEMPTS
+            ) {
+                handler.postDelayed(
+                    this,
+                    BOOTSTRAP_RECOVERY_INTERVAL_MS
+                )
+            }
         }
     }
 
@@ -170,6 +204,12 @@ class WebRtcPeer(
                 )
             )
             createOffer()
+            bootstrapRecoveryAttempts = 0
+            handler.removeCallbacks(bootstrapRecovery)
+            handler.postDelayed(
+                bootstrapRecovery,
+                BOOTSTRAP_RECOVERY_INITIAL_DELAY_MS
+            )
         }
     }
 
@@ -371,6 +411,7 @@ class WebRtcPeer(
         when (newState) {
             PeerConnection.PeerConnectionState.CONNECTED -> {
                 handler.removeCallbacks(initialIceRestart)
+                handler.removeCallbacks(bootstrapRecovery)
                 publishPeerConnected()
             }
 
@@ -397,9 +438,10 @@ class WebRtcPeer(
                         true
                     )
                 ) {
-                    // One bounded pre-live ICE restart covers transient
-                    // route/candidate failures. Higher-level 30s watchdogs
-                    // remain the final authority if the retry cannot recover.
+                    // One bounded event-driven pre-live ICE restart covers
+                    // transient route/candidate failures. The staged bootstrap
+                    // recovery and the 60s session watchdog remain the final
+                    // authority if the retry cannot recover.
                     requestIceRestart()
                 } else if (role == PeerRole.CONTROLLER) {
                     // Keep listening for the host's retry offer. The existing
@@ -725,5 +767,8 @@ class WebRtcPeer(
         private const val PRELIVE_ICE_REFRESH_TIMEOUT_MS = 5_000L
         private const val ICE_RESTART_MIN_INTERVAL_MS = 2_500L
         private const val INITIAL_ICE_RESTART_DELAY_MS = 1_500L
+        private const val BOOTSTRAP_RECOVERY_INITIAL_DELAY_MS = 8_000L
+        private const val BOOTSTRAP_RECOVERY_INTERVAL_MS = 12_000L
+        private const val MAX_BOOTSTRAP_RECOVERY_ATTEMPTS = 2
     }
 }
