@@ -1,0 +1,80 @@
+workflows:
+  aaris-remote-release-apk:
+    name: Aaris Remote - Release APK
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+
+    environment:
+      java: 17
+      android_signing:
+        - aarish_upload_keystore
+      vars:
+        PACKAGE_NAME: "com.aaris.remoteassist"
+        GRADLE_VERSION: "9.6.0"
+
+    scripts:
+      - name: Validate native Android project
+        script: |
+          set -euo pipefail
+          test -f "$CM_BUILD_DIR/settings.gradle.kts"
+          test -f "$CM_BUILD_DIR/app/build.gradle.kts"
+          echo "Native Android project detected: $PACKAGE_NAME"
+
+      - name: Set Android SDK location
+        script: |
+          set -euo pipefail
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/local.properties"
+
+      - name: Restore Firebase config when configured
+        script: |
+          set -euo pipefail
+          if [ -n "${GOOGLE_SERVICES_JSON_B64:-}" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON_B64" | base64 --decode > "$CM_BUILD_DIR/app/google-services.json"
+            echo "Firebase Android config restored."
+          else
+            echo "GOOGLE_SERVICES_JSON_B64 is not configured; continuing without generated Firebase resources."
+          fi
+
+      - name: Validate release signing
+        script: |
+          set -euo pipefail
+          test -n "${CM_KEYSTORE_PATH:-}" || { echo "Missing CM_KEYSTORE_PATH"; exit 1; }
+          test -f "$CM_KEYSTORE_PATH" || { echo "Keystore file not found"; exit 1; }
+          test -n "${CM_KEYSTORE_PASSWORD:-}" || { echo "Missing CM_KEYSTORE_PASSWORD"; exit 1; }
+          test -n "${CM_KEY_ALIAS:-}" || { echo "Missing CM_KEY_ALIAS"; exit 1; }
+          test -n "${CM_KEY_PASSWORD:-}" || { echo "Missing CM_KEY_PASSWORD"; exit 1; }
+          if [ "$CM_KEY_ALIAS" != "upload" ]; then
+            echo "Expected keystore alias 'upload', got '$CM_KEY_ALIAS'."
+            exit 1
+          fi
+          echo "Release signing identity is available."
+
+      - name: Build signed release APK
+        script: |
+          set -euo pipefail
+          GRADLE_HOME="/tmp/gradle-$GRADLE_VERSION"
+          if [ ! -x "$GRADLE_HOME/bin/gradle" ]; then
+            curl -fsSL "https://services.gradle.org/distributions/gradle-$GRADLE_VERSION-bin.zip" -o /tmp/gradle.zip
+            rm -rf "$GRADLE_HOME"
+            unzip -q /tmp/gradle.zip -d /tmp
+          fi
+          "$GRADLE_HOME/bin/gradle" \
+            :app:testDebugUnitTest \
+            :app:lintRelease \
+            :app:assembleRelease \
+            --stacktrace
+
+      - name: Verify signed APK
+        script: |
+          set -euo pipefail
+          APK="$(find "$CM_BUILD_DIR/app/build/outputs/apk/release" -type f -name '*.apk' ! -name '*unsigned*' | head -1)"
+          test -n "$APK" || { echo "Signed release APK was not produced."; exit 1; }
+          BUILD_TOOLS="$(find "$ANDROID_SDK_ROOT/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK"
+          "$BUILD_TOOLS/aapt" dump badging "$APK" | head -20
+          shasum -a 256 "$APK"
+          echo "Final release APK: $APK"
+
+    artifacts:
+      - app/build/outputs/apk/release/*.apk
+      - app/build/reports/lint-results-release.*
