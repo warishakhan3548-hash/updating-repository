@@ -5,6 +5,8 @@ workflows:
     instance_type: mac_mini_m2
 
     environment:
+      groups:
+        - "Firebase credentials"
       java: 17
       android_signing:
         - aarish_upload_keystore
