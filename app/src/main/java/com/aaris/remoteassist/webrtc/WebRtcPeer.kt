@@ -47,6 +47,7 @@ class WebRtcPeer(
     private val closed = AtomicBoolean(false)
     private val started = AtomicBoolean(false)
     private val initialIceRestartAttempted = AtomicBoolean(false)
+    private val offerPreparationInFlight = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val connectivity = PeerConnectivityTracker()
@@ -271,7 +272,22 @@ class WebRtcPeer(
                     }
                 )
             )
-            createOffer()
+            check(
+                offerPreparationInFlight.compareAndSet(
+                    false,
+                    true
+                )
+            ) {
+                "Initial WebRTC offer already in progress"
+            }
+            createOffer(
+                onLocalDescriptionSet = {
+                    offerPreparationInFlight.set(false)
+                },
+                onFailure = {
+                    offerPreparationInFlight.set(false)
+                }
+            )
             bootstrapRecoveryAttempts = 0
             handler.removeCallbacks(bootstrapRecovery)
             handler.postDelayed(
@@ -301,6 +317,28 @@ class WebRtcPeer(
     ): Boolean {
         if (closed.get() || role != PeerRole.HOST) return false
 
+        /*
+         * Only one host offer may own negotiation at a time. The same gate
+         * covers the initial offer plus TURN refresh, bootstrap recovery,
+         * route handoff and disconnect recovery. Starting a second
+         * createOffer() while another local offer is being prepared is enough
+         * to poison the SDP/ICE generation and leave both phones "connecting".
+         */
+        if (
+            peerConnection.signalingState() !=
+            PeerConnection.SignalingState.STABLE
+        ) {
+            return false
+        }
+        if (
+            !offerPreparationInFlight.compareAndSet(
+                false,
+                true
+            )
+        ) {
+            return false
+        }
+
         val nowMs = System.nanoTime() / 1_000_000L
         while (true) {
             val previous = lastIceRestartAtMs.get()
@@ -308,6 +346,7 @@ class WebRtcPeer(
                 previous != 0L &&
                 nowMs - previous < ICE_RESTART_MIN_INTERVAL_MS
             ) {
+                offerPreparationInFlight.set(false)
                 return false
             }
             if (lastIceRestartAtMs.compareAndSet(previous, nowMs)) {
@@ -339,7 +378,18 @@ class WebRtcPeer(
                     }
 
             handler.post {
-                if (closed.get()) return@post
+                if (closed.get()) {
+                    offerPreparationInFlight.set(false)
+                    return@post
+                }
+
+                if (
+                    peerConnection.signalingState() !=
+                    PeerConnection.SignalingState.STABLE
+                ) {
+                    offerPreparationInFlight.set(false)
+                    return@post
+                }
 
                 runCatching {
                     if (refreshed.fromBackend) {
@@ -358,8 +408,18 @@ class WebRtcPeer(
                         "Could not refresh ICE server configuration"
                     }
                     peerConnection.restartIce()
-                    createOffer()
-                }.onFailure(listener::onError)
+                    createOffer(
+                        onLocalDescriptionSet = {
+                            offerPreparationInFlight.set(false)
+                        },
+                        onFailure = {
+                            offerPreparationInFlight.set(false)
+                        }
+                    )
+                }.onFailure {
+                    offerPreparationInFlight.set(false)
+                    listener.onError(it)
+                }
             }
         }
         return true
@@ -412,13 +472,11 @@ class WebRtcPeer(
             peerConnection.signalingState() !=
                 PeerConnection.SignalingState.HAVE_LOCAL_OFFER
         ) {
-            // A controller republishes its last answer under a fresh signaling
-            // identity only when it needs the host to open a new ICE round
-            // (for example, after TURN became available). Honor that request
-            // before first LIVE as well as during reconnects.
-            requestIceRestart(
-                forceRelay = !connectivity.hasEverConnected()
-            )
+            /*
+             * An answer is valid only while this peer owns a local offer.
+             * Ignore delayed/duplicate answers rather than treating them as a
+             * restart command. ICE restart now has its own explicit signal.
+             */
             return
         }
 
@@ -451,6 +509,23 @@ class WebRtcPeer(
             },
             sessionDescription
         )
+    }
+
+    override fun onRemoteIceRestartRequested() {
+        if (closed.get() || role != PeerRole.HOST) return
+
+        /*
+         * If an offer is already pending, it is already the authoritative
+         * recovery negotiation, so no second offer is needed.
+         */
+        if (
+            peerConnection.signalingState() ==
+            PeerConnection.SignalingState.STABLE
+        ) {
+            requestIceRestart(
+                forceRelay = !connectivity.hasEverConnected()
+            )
+        }
     }
 
     override fun onRemoteCandidate(candidate: SignalCandidate) {
@@ -656,7 +731,10 @@ class WebRtcPeer(
         }
     }
 
-    private fun createOffer() {
+    private fun createOffer(
+        onLocalDescriptionSet: (() -> Unit)? = null,
+        onFailure: (() -> Unit)? = null
+    ) {
         val negotiationEpoch =
             signaling.beginLocalDescription()
         peerConnection.createOffer(
@@ -665,18 +743,23 @@ class WebRtcPeer(
                     description: SessionDescription?
                 ) {
                     if (description == null) {
+                        onFailure?.invoke()
                         listener.onError(
                             IllegalStateException("Offer was null")
                         )
                         return
                     }
                     setLocalAndSignal(
-                        description,
-                        negotiationEpoch
+                        description = description,
+                        negotiationEpoch = negotiationEpoch,
+                        onLocalDescriptionSet =
+                            onLocalDescriptionSet,
+                        onFailure = onFailure
                     )
                 }
 
                 override fun onCreateFailure(error: String?) {
+                    onFailure?.invoke()
                     listener.onError(
                         IllegalStateException(
                             error ?: "Could not create offer"
@@ -722,11 +805,14 @@ class WebRtcPeer(
 
     private fun setLocalAndSignal(
         description: SessionDescription,
-        negotiationEpoch: Long
+        negotiationEpoch: Long,
+        onLocalDescriptionSet: (() -> Unit)? = null,
+        onFailure: (() -> Unit)? = null
     ) {
         peerConnection.setLocalDescription(
             object : SdpObserverAdapter() {
                 override fun onSetSuccess() {
+                    onLocalDescriptionSet?.invoke()
                     signaling.sendDescription(
                         description = SignalDescription(
                             type = description.type.canonicalForm(),
@@ -737,6 +823,7 @@ class WebRtcPeer(
                 }
 
                 override fun onSetFailure(error: String?) {
+                    onFailure?.invoke()
                     listener.onError(
                         IllegalStateException(
                             error ?: "Could not set local description"

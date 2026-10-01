@@ -385,6 +385,15 @@ class RemoteControlActivity : ComponentActivity() {
             listener = object : ControllerWebRtcSession.Listener {
                 override fun onLive(geometry: RemoteGeometry) {
                     runOnUiThread {
+                        /*
+                         * WebRTC + control-channel HELLO is stronger liveness
+                         * proof than a lagging backend state write. Do not let
+                         * the setup deadline tear down an already-live session
+                         * if Firebase briefly delays the host's LIVE update.
+                         */
+                        sessionDeadlineJob?.cancel()
+                        sessionDeadlineJob = null
+
                         runCatching {
                             val local =
                                 SessionCoordinator.snapshot()

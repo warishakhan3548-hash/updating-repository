@@ -68,7 +68,9 @@ class AssistAccessibilityService : AccessibilityService() {
                     snapshot.state == SessionState.LIVE
 
             if (sharingOnThisPhone && sharingState) {
-                showStopOverlay()
+                showStopOverlay(
+                    isLive = snapshot.state == SessionState.LIVE
+                )
             } else {
                 hideStopOverlay()
             }
@@ -572,12 +574,24 @@ class AssistAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun showStopOverlay() {
-        if (stopOverlay != null) return
+    private fun showStopOverlay(isLive: Boolean) {
+        val label =
+            if (isLive) {
+                "STOP • SHARING"
+            } else {
+                "STOP • CONNECTING"
+            }
+
+        (stopOverlay as? Button)?.let { existing ->
+            if (existing.text.toString() != label) {
+                existing.text = label
+            }
+            return
+        }
 
         val windowManager = getSystemService(WindowManager::class.java)
         val button = Button(this).apply {
-            text = "STOP • SHARING"
+            text = label
             isAllCaps = false
             setOnClickListener {
                 startService(
