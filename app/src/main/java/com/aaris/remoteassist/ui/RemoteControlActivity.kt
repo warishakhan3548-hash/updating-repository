@@ -570,15 +570,16 @@ class RemoteControlActivity : ComponentActivity() {
         statusPanel.addView(
             status,
             LinearLayout.LayoutParams(
+                0,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
+                1f
             )
         )
 
         root.addView(
             statusPanel,
             FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP or Gravity.CENTER_HORIZONTAL
             ).apply {
@@ -601,41 +602,48 @@ class RemoteControlActivity : ComponentActivity() {
             elevation = dp(6).toFloat()
         }
 
-        controlDock.addView(
-            compactButton("Back") {
-                rtcSession?.sendBack()
-            }
-        )
-        controlDock.addView(
-            compactButton("Home") {
-                rtcSession?.sendHome()
-            }
-        )
-        controlDock.addView(
-            compactButton("Apps") {
-                rtcSession?.sendRecents()
-            }
-        )
-        controlDock.addView(
-            compactButton("Type") {
-                showTextDialog()
-            }
-        )
-        controlDock.addView(
-            compactButton("Hide") {
-                setControlDockVisible(false)
-            }
-        )
-        controlDock.addView(
-            compactButton("End", danger = true) {
-                disconnect()
-            }
-        )
+        fun addDockControl(
+            label: String,
+            danger: Boolean = false,
+            action: () -> Unit
+        ) {
+            controlDock.addView(
+                compactButton(
+                    label = label,
+                    danger = danger,
+                    action = action
+                ),
+                LinearLayout.LayoutParams(
+                    0,
+                    dp(44),
+                    1f
+                )
+            )
+        }
+
+        addDockControl("Back") {
+            rtcSession?.sendBack()
+        }
+        addDockControl("Home") {
+            rtcSession?.sendHome()
+        }
+        addDockControl("Apps") {
+            rtcSession?.sendRecents()
+        }
+        addDockControl("Type") {
+            showTextDialog()
+        }
+        addDockControl("Hide") {
+            setControlDockVisible(false)
+        }
+        addDockControl("End", danger = true) {
+            disconnect()
+        }
 
         root.addView(
             controlDock,
             FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             ).apply {
