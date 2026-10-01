@@ -112,9 +112,15 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(
             ActivityResultContracts.RequestPermission()
         ) {
-            val sessionId = pendingNotificationSessionId
+            val sessionId =
+                pendingNotificationSessionId
+                    ?: prefs.getString(
+                        KEY_PENDING_NOTIFICATION_SESSION,
+                        null
+                    )
             pendingNotificationSessionId = null
             prefs.edit()
+                .remove(KEY_PENDING_NOTIFICATION_SESSION)
                 .putBoolean(KEY_NOTIFICATION_PERMISSION_ASKED, true)
                 .apply()
 
@@ -941,6 +947,12 @@ class MainActivity : ComponentActivity() {
             shouldAskNotificationPermission()
         ) {
             pendingNotificationSessionId = sessionId
+            prefs.edit()
+                .putString(
+                    KEY_PENDING_NOTIFICATION_SESSION,
+                    sessionId
+                )
+                .apply()
             status.text =
                 "Allow session alerts so STOP stays easy to reach."
             notificationPermissionLauncher.launch(
@@ -1318,6 +1330,7 @@ class MainActivity : ComponentActivity() {
         prefs.edit()
             .remove(KEY_ACTIVE_HOST_SESSION)
             .remove(KEY_PENDING_PROJECTION_SESSION)
+            .remove(KEY_PENDING_NOTIFICATION_SESSION)
             .remove(KEY_PENDING_HOST_START_SESSION)
             .remove(KEY_ACTIVE_HOST_CODE)
             .remove(KEY_ACTIVE_HOST_EXPIRES_AT)
@@ -1345,6 +1358,10 @@ class MainActivity : ComponentActivity() {
         activeHostSessionId = sessionId
         pendingProjectionSessionId = prefs.getString(
             KEY_PENDING_PROJECTION_SESSION,
+            null
+        )
+        pendingNotificationSessionId = prefs.getString(
+            KEY_PENDING_NOTIFICATION_SESSION,
             null
         )
         setButtonsEnabled(false)
@@ -1799,6 +1816,8 @@ class MainActivity : ComponentActivity() {
             "active_host_session"
         private const val KEY_PENDING_PROJECTION_SESSION =
             "pending_projection_session"
+        private const val KEY_PENDING_NOTIFICATION_SESSION =
+            "pending_notification_session"
         private const val KEY_PENDING_HOST_START_SESSION =
             "pending_host_start_session"
         private const val KEY_PENDING_SHARE_AFTER_ACCESSIBILITY =
