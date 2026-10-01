@@ -371,16 +371,22 @@ class ControllerWebRtcSession(
     }
 
     override fun close() {
+        close(notifyRemote = true)
+    }
+
+    fun close(notifyRemote: Boolean) {
         if (!closed.compareAndSet(false, true)) return
 
         handler.removeCallbacks(helloWatchdog)
         handler.removeCallbacks(heartbeat)
-        runCatching {
-            peer.sendControl(
-                ControlProtocol.encode(
-                    ControlPacket.Disconnect
+        if (notifyRemote) {
+            runCatching {
+                peer.sendControl(
+                    ControlProtocol.encode(
+                        ControlPacket.Disconnect
+                    )
                 )
-            )
+            }
         }
         runCatching { peer.close() }
 

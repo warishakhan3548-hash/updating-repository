@@ -16,6 +16,7 @@ import org.webrtc.SessionDescription
 import org.webrtc.VideoTrack
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -51,6 +52,7 @@ class WebRtcPeer(
             MAX_PENDING_REMOTE_CANDIDATES
         )
     private val connectivity = PeerConnectivityTracker()
+    private val lastIceRestartAtMs = AtomicLong(0L)
 
     @Volatile
     private var preLiveDisconnected = false
@@ -133,6 +135,20 @@ class WebRtcPeer(
     fun requestIceRestart(): Boolean {
         if (closed.get() || role != PeerRole.HOST) return false
 
+        val nowMs = System.nanoTime() / 1_000_000L
+        while (true) {
+            val previous = lastIceRestartAtMs.get()
+            if (
+                previous != 0L &&
+                nowMs - previous < ICE_RESTART_MIN_INTERVAL_MS
+            ) {
+                return false
+            }
+            if (lastIceRestartAtMs.compareAndSet(previous, nowMs)) {
+                break
+            }
+        }
+
         scope.launch {
             val refreshed = IceServerProvider.loadConfig(
                 sessionId = sessionId,
@@ -202,6 +218,18 @@ class WebRtcPeer(
                         sessionDescription.type
                 )
             )
+            return
+        }
+
+        if (
+            role == PeerRole.HOST &&
+            sessionDescription.type == SessionDescription.Type.ANSWER &&
+            peerConnection.signalingState() !=
+                PeerConnection.SignalingState.HAVE_LOCAL_OFFER
+        ) {
+            if (connectivity.hasEverConnected()) {
+                requestIceRestart()
+            }
             return
         }
 
@@ -599,6 +627,7 @@ class WebRtcPeer(
         private const val MAX_VIDEO_BITRATE_BPS = 2_500_000
         private const val MAX_VIDEO_FRAMERATE = 30
         private const val RESTART_ICE_REFRESH_TIMEOUT_MS = 1_500L
+        private const val ICE_RESTART_MIN_INTERVAL_MS = 2_500L
         private const val INITIAL_ICE_RESTART_DELAY_MS = 1_500L
     }
 }

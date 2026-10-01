@@ -80,6 +80,7 @@ class RemoteControlActivity : ComponentActivity() {
         ArrayList<Pair<Float, Float>>(MAX_GESTURE_PATH_POINTS)
     private var singleGestureGeneration = -1
     private var singleGestureInvalid = false
+    private var singleGestureExceededSlop = false
 
     private var twoFingerActive = false
     private var suppressSingleUp = false
@@ -138,7 +139,7 @@ class RemoteControlActivity : ComponentActivity() {
         sessionDeadlineJob?.cancel()
         sessionDeadlineJob = null
 
-        rtcSession?.close()
+        rtcSession?.close(notifyRemote = false)
         rtcSession = null
 
         if (::renderer.isInitialized) {
@@ -223,16 +224,36 @@ class RemoteControlActivity : ComponentActivity() {
 
                             "LIVE" -> {
                                 if (rtcSession == null) {
-                                    finishController(
-                                        "Session was interrupted. Connect again with a new code."
-                                    )
+                                    advanceControllerState(id)
+                                    val local =
+                                        SessionCoordinator.snapshot()
+                                    val resumable =
+                                        local.sessionId == id &&
+                                            (
+                                                local.state ==
+                                                    SessionState.CONNECTING ||
+                                                local.state ==
+                                                    SessionState.LIVE
+                                            )
+
+                                    if (!resumable) {
+                                        finishController(
+                                            "Session was interrupted. Connect again with a new code."
+                                        )
+                                        return@runOnUiThread
+                                    }
+
+                                    ensureRtcStarted(id)
                                     return@runOnUiThread
                                 }
 
                                 runCatching {
+                                    val local =
+                                        SessionCoordinator.snapshot()
                                     if (
-                                        SessionCoordinator.snapshot().state ==
-                                        SessionState.CONNECTING
+                                        local.sessionId == id &&
+                                        local.state ==
+                                            SessionState.CONNECTING
                                     ) {
                                         SessionCoordinator.transition(
                                             id,
@@ -344,6 +365,21 @@ class RemoteControlActivity : ComponentActivity() {
             listener = object : ControllerWebRtcSession.Listener {
                 override fun onLive(geometry: RemoteGeometry) {
                     runOnUiThread {
+                        runCatching {
+                            val local =
+                                SessionCoordinator.snapshot()
+                            if (
+                                local.sessionId == id &&
+                                local.state ==
+                                    SessionState.CONNECTING
+                            ) {
+                                SessionCoordinator.transition(
+                                    id,
+                                    SessionState.LIVE
+                                )
+                            }
+                        }
+
                         if (
                             singleGestureGeneration >= 0 &&
                             singleGestureGeneration != geometry.generation
@@ -859,6 +895,7 @@ class RemoteControlActivity : ComponentActivity() {
                 downY = event.y
                 downAtMs = SystemClock.elapsedRealtime()
                 singleGestureGeneration = geometry.generation
+                singleGestureExceededSlop = false
                 singleGestureInvalid =
                     !appendSingleGesturePoint(
                         event.x,
@@ -885,10 +922,21 @@ class RemoteControlActivity : ComponentActivity() {
                 }
 
                 for (index in 0 until event.historySize) {
+                    val historicalX = event.getHistoricalX(index)
+                    val historicalY = event.getHistoricalY(index)
+                    if (
+                        !singleGestureExceededSlop &&
+                        hypot(
+                            historicalX - downX,
+                            historicalY - downY
+                        ) > touchSlop
+                    ) {
+                        singleGestureExceededSlop = true
+                    }
                     if (
                         !appendSingleGesturePoint(
-                            event.getHistoricalX(index),
-                            event.getHistoricalY(index),
+                            historicalX,
+                            historicalY,
                             geometry,
                             clampToContent = true
                         )
@@ -896,6 +944,16 @@ class RemoteControlActivity : ComponentActivity() {
                         singleGestureInvalid = true
                         return true
                     }
+                }
+
+                if (
+                    !singleGestureExceededSlop &&
+                    hypot(
+                        event.x - downX,
+                        event.y - downY
+                    ) > touchSlop
+                ) {
+                    singleGestureExceededSlop = true
                 }
 
                 if (
@@ -1062,8 +1120,12 @@ class RemoteControlActivity : ComponentActivity() {
                     event.y - downY
                 )
 
+                if (distance > touchSlop) {
+                    singleGestureExceededSlop = true
+                }
+
                 val generation = singleGestureGeneration
-                if (distance <= touchSlop) {
+                if (!singleGestureExceededSlop) {
                     if (duration >= 500L) {
                         if (
                             !session.sendLongPress(
@@ -1196,6 +1258,7 @@ class RemoteControlActivity : ComponentActivity() {
         singleGesturePoints.clear()
         singleGestureGeneration = -1
         singleGestureInvalid = false
+        singleGestureExceededSlop = false
     }
 
     private fun normalizedPointer(
