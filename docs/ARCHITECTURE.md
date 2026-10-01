@@ -37,9 +37,9 @@ WebRTC peer connectivity alone is not treated as usable remote control. The cont
 
 ## Recovery
 
-After a previously-live peer disconnects, the host performs a bounded ICE restart. The Spark build intentionally uses public Google STUN servers and does not depend on Cloud Functions or billing-backed TURN credential minting.
+After a previously-live peer disconnects, the host performs a bounded ICE restart. A host-side default-network change triggers that restart proactively. A controller-side default-network change publishes a small authenticated advisory RTDB restart hint; the host deduplicates the hint and starts the same rate-limited ICE restart rather than waiting only for WebRTC disconnect detection. The hint is not transport truth and its failure never tears down an otherwise healthy peer.
 
-STUN-only operation works on many ordinary Wi-Fi and mobile networks, but restrictive carrier-grade or symmetric NAT can still require a separately operated TURN relay for high connection coverage.
+The Spark build intentionally uses provider-diverse public STUN servers and does not depend on Cloud Functions or billing-backed TURN credential minting. STUN-only operation works on many ordinary Wi-Fi and mobile networks, but restrictive carrier-grade or symmetric NAT can still require a separately operated TURN relay for high connection coverage.
 
 ## Coordinate policy
 

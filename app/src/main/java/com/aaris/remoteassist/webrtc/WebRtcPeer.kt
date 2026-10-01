@@ -73,10 +73,13 @@ class WebRtcPeer(
 
                 if (
                     changed &&
-                    role == PeerRole.HOST &&
                     connectivity.hasEverConnected()
                 ) {
-                    requestIceRestart()
+                    when (role) {
+                        PeerRole.HOST -> requestIceRestart()
+                        PeerRole.CONTROLLER ->
+                            signaling.requestRemoteIceRestart()
+                    }
                 }
             }
 
@@ -327,6 +330,15 @@ class WebRtcPeer(
     // peer connection and ordered control channel are still healthy.
     // Connectivity is therefore driven only by WebRTC + DataChannel.
     override fun onRemotePresence(online: Boolean) = Unit
+
+    override fun onRemoteIceRestartRequested() {
+        if (
+            role == PeerRole.HOST &&
+            connectivity.hasEverConnected()
+        ) {
+            requestIceRestart()
+        }
+    }
 
     override fun onError(error: Throwable) {
         listener.onError(error)

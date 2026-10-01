@@ -20,6 +20,7 @@ class FirebaseSignalingClient(
 ) : SignalingClient {
     private val closed = AtomicBoolean(false)
     private val candidateSequence = AtomicLong(0L)
+    private val restartRequestSequence = AtomicLong(0L)
     private val clientInstanceId =
         java.util.UUID.randomUUID().toString()
     private val candidateGate =
@@ -54,7 +55,10 @@ class FirebaseSignalingClient(
     private var presenceListener: ValueEventListener? = null
     private var remotePresenceReference: DatabaseReference? = null
     private var remotePresenceListener: ValueEventListener? = null
+    private var restartRequestListener: ValueEventListener? = null
     private var lastRemoteDescription: String? = null
+    private var lastRemoteRestartRequest: String? = null
+    private var remoteRestartSnapshotSeen = false
 
     override fun start(listener: SignalingClient.Listener) {
         check(!closed.get()) { "Signaling client is closed" }
@@ -171,6 +175,41 @@ class FirebaseSignalingClient(
             root.child(remoteUidField).addValueEventListener(presenceListener)
         }
 
+        if (role == PeerRole.HOST) {
+            val restartListener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val request = snapshot.getValue(String::class.java)
+
+                    // Ignore the first cached value from a previous transport.
+                    // Only a fresh controller-side network handoff should
+                    // trigger a new host ICE negotiation.
+                    if (!remoteRestartSnapshotSeen) {
+                        remoteRestartSnapshotSeen = true
+                        lastRemoteRestartRequest = request
+                        return
+                    }
+
+                    if (
+                        request.isNullOrBlank() ||
+                        request == lastRemoteRestartRequest
+                    ) {
+                        return
+                    }
+
+                    lastRemoteRestartRequest = request
+                    listener.onRemoteIceRestartRequested()
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    // Advisory recovery hint only. The existing WebRTC
+                    // watchdog remains authoritative if RTDB is unavailable.
+                }
+            }
+            restartRequestListener = restartListener
+            root.child(CONTROLLER_RESTART_REQUEST)
+                .addValueEventListener(restartListener)
+        }
+
         setPresence(true)
     }
 
@@ -227,6 +266,19 @@ class FirebaseSignalingClient(
             ?.let(::publishCandidate)
     }
 
+    override fun requestRemoteIceRestart() {
+        if (closed.get() || role != PeerRole.CONTROLLER) return
+
+        val requestId =
+            "$clientInstanceId:${restartRequestSequence.incrementAndGet()}"
+
+        // Do not make this advisory hint fatal. Firebase may be briefly
+        // offline during the Wi-Fi/mobile handoff; its local write queue
+        // can publish the request after connectivity returns.
+        root.child(CONTROLLER_RESTART_REQUEST)
+            .setValue(requestId)
+    }
+
     override fun setPresence(online: Boolean) {
         if (closed.get()) return
         val uid = auth.currentUser?.uid ?: return
@@ -265,8 +317,18 @@ class FirebaseSignalingClient(
         if (remoteRef != null && remoteListener != null) {
             remoteRef.removeEventListener(remoteListener)
         }
+
+        val restartListener = restartRequestListener
+        if (restartListener != null) {
+            root.child(CONTROLLER_RESTART_REQUEST)
+                .removeEventListener(restartListener)
+        }
+
         remotePresenceReference = null
         remotePresenceListener = null
+        restartRequestListener = null
+        lastRemoteRestartRequest = null
+        remoteRestartSnapshotSeen = false
         candidateGate.reset()
 
         val uid = auth.currentUser?.uid
@@ -337,6 +399,8 @@ class FirebaseSignalingClient(
 
 
     companion object {
+        private const val CONTROLLER_RESTART_REQUEST =
+            "controllerRestartRequest"
         private const val MAX_CANDIDATE_SLOTS = 96
         private const val CANDIDATE_SLOT_WIDTH = 3
     }
