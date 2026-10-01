@@ -331,15 +331,6 @@ class WebRtcPeer(
     // Connectivity is therefore driven only by WebRTC + DataChannel.
     override fun onRemotePresence(online: Boolean) = Unit
 
-    override fun onRemoteIceRestartRequested() {
-        if (
-            role == PeerRole.HOST &&
-            connectivity.hasEverConnected()
-        ) {
-            requestIceRestart()
-        }
-    }
-
     override fun onError(error: Throwable) {
         listener.onError(error)
     }
