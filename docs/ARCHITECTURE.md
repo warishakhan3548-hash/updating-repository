@@ -50,6 +50,14 @@ The controller can encode two simultaneous normalized pointer paths in one gener
 
 WebRTC may deliver DataChannel callbacks off the Android main looper. Remote commands are therefore serialized onto the AccessibilityService main handler before gesture, global-action, or text APIs are invoked. A destroyed service clears the static instance only when it is still the registered instance, preventing a stale lifecycle callback from disconnecting a newer service instance.
 
+## Frictionless pairing input
+
+Connect still requires an explicit user action and START confirmation, but clipboard assistance accepts either a raw six-digit code or one unique code embedded in the complete Aaris Remote share message. If copied text contains multiple different six-digit candidates, the app refuses to guess and leaves the field for the user.
+
+## ICE restart credential refresh
+
+The host reloads session-authorized ICE configuration before every ICE restart, using a short refresh budget so recovery is not blocked by a slow backend. A successful refresh renews short-lived coturn REST credentials and is applied before `restartIce()` and the new offer. If that refresh fails, the peer preserves its last-known-good ICE/TURN configuration instead of replacing working relay routes with a transient fallback; initial setup still fails safely to STUN-only when no backend ICE configuration is available.
+
 ## Production network boundary
 
 The client first requests session-bound ICE configuration from the `asia-south1` `getIceConfig` callable. The function always supplies STUN and, when relay configuration is deployed, mints short-lived coturn REST credentials only for the authenticated host/controller of an active `SCREEN_READY` or `LIVE` session.

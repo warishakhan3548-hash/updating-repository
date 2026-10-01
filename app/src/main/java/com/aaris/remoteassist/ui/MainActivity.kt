@@ -324,7 +324,7 @@ class MainActivity : ComponentActivity() {
             ?.toString()
             ?: return null
 
-        return PairingCode.normalize(raw)
+        return PairingCode.extract(raw)
     }
 
     private fun connect(code: String) {

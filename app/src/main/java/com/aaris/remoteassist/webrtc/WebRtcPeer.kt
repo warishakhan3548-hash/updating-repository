@@ -55,9 +55,12 @@ class WebRtcPeer(
     @Volatile
     private var controlChannel: DataChannel? = null
 
+    @Volatile
+    private var activeIceServers = IceServerProvider.fallbackServers()
+
     private val peerConnection: PeerConnection = checkNotNull(
         factory.createPeerConnection(
-            createRtcConfiguration(IceServerProvider.fallbackServers()),
+            createRtcConfiguration(activeIceServers),
             this
         )
     ) {
@@ -71,13 +74,14 @@ class WebRtcPeer(
         }
 
         scope.launch {
-            val iceServers = IceServerProvider.load(sessionId)
+            val loaded = IceServerProvider.loadConfig(sessionId)
             handler.post {
                 if (closed.get()) return@post
 
                 runCatching {
+                    activeIceServers = loaded.servers
                     peerConnection.setConfiguration(
-                        createRtcConfiguration(iceServers)
+                        createRtcConfiguration(activeIceServers)
                     )
                     startSignaling()
                 }.onFailure(listener::onError)
@@ -114,15 +118,37 @@ class WebRtcPeer(
     fun requestIceRestart(): Boolean {
         if (closed.get() || role != PeerRole.HOST) return false
 
-        return runCatching {
-            remoteDescriptionReady = false
-            peerConnection.restartIce()
-            createOffer()
-            true
-        }.getOrElse {
-            listener.onError(it)
-            false
+        scope.launch {
+            val refreshed = IceServerProvider.loadConfig(
+                sessionId = sessionId,
+                timeoutMs = RESTART_ICE_REFRESH_TIMEOUT_MS
+            )
+            val selectedServers =
+                if (refreshed.fromBackend) {
+                    refreshed.servers
+                } else {
+                    activeIceServers
+                }
+
+            handler.post {
+                if (closed.get()) return@post
+
+                runCatching {
+                    if (refreshed.fromBackend) {
+                        activeIceServers = refreshed.servers
+                    }
+                    synchronized(pendingRemoteCandidates) {
+                        remoteDescriptionReady = false
+                    }
+                    peerConnection.setConfiguration(
+                        createRtcConfiguration(selectedServers)
+                    )
+                    peerConnection.restartIce()
+                    createOffer()
+                }.onFailure(listener::onError)
+            }
         }
+        return true
     }
 
     fun sendControl(bytes: ByteArray): Boolean {
@@ -497,5 +523,6 @@ class WebRtcPeer(
         private const val SCREEN_STREAM_ID = "remote-screen"
         private const val MAX_VIDEO_BITRATE_BPS = 2_500_000
         private const val MAX_VIDEO_FRAMERATE = 30
+        private const val RESTART_ICE_REFRESH_TIMEOUT_MS = 1_500L
     }
 }
