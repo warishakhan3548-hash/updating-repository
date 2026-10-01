@@ -545,6 +545,21 @@ class WebRtcPeer(
         }
 
         if (
+            role == PeerRole.CONTROLLER &&
+            sessionDescription.type == SessionDescription.Type.OFFER &&
+            peerConnection.signalingState() !=
+                PeerConnection.SignalingState.STABLE
+        ) {
+            /*
+             * Startup redelivery may arrive while the controller is still
+             * finishing the first copy of the same offer. Do not run two
+             * concurrent setRemoteDescription/createAnswer pipelines.
+             * The host will redeliver again if the answer never lands.
+             */
+            return
+        }
+
+        if (
             role == PeerRole.HOST &&
             sessionDescription.type == SessionDescription.Type.ANSWER &&
             peerConnection.signalingState() !=
