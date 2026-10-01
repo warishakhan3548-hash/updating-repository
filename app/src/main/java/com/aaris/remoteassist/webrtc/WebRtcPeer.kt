@@ -297,9 +297,17 @@ class WebRtcPeer(
     override fun onRemoveStream(stream: MediaStream) = Unit
 
     override fun onDataChannel(dataChannel: DataChannel) {
-        if (dataChannel.label() == CONTROL_CHANNEL) {
+        if (
+            role == PeerRole.CONTROLLER &&
+            dataChannel.label() == CONTROL_CHANNEL
+        ) {
             bindControlChannel(dataChannel)
+            return
         }
+
+        runCatching { dataChannel.unregisterObserver() }
+        runCatching { dataChannel.close() }
+        runCatching { dataChannel.dispose() }
     }
 
     override fun onRenegotiationNeeded() = Unit
