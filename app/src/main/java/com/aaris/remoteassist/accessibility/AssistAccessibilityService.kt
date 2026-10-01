@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.graphics.Path
+import android.text.InputType
 import android.graphics.PixelFormat
 import android.view.Gravity
 import android.view.View
@@ -110,7 +111,7 @@ class AssistAccessibilityService : AccessibilityService() {
             ?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
             ?: return false
 
-        if (!node.isEditable || node.isPassword) return false
+        if (!node.isEditable || isSensitiveInput(node)) return false
 
         val current = node.text?.toString().orEmpty()
         val selectionStart = node.textSelectionStart
@@ -171,6 +172,43 @@ class AssistAccessibilityService : AccessibilityService() {
             selection
         )
         return true
+    }
+
+    private fun isSensitiveInput(
+        node: AccessibilityNodeInfo
+    ): Boolean {
+        if (node.isPassword) return true
+
+        val inputType = node.inputType
+        val inputClass =
+            inputType and InputType.TYPE_MASK_CLASS
+        val variation =
+            inputType and InputType.TYPE_MASK_VARIATION
+
+        if (inputClass == InputType.TYPE_CLASS_TEXT) {
+            if (
+                variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD ||
+                variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            ) {
+                return true
+            }
+        }
+
+        if (
+            inputClass == InputType.TYPE_CLASS_NUMBER &&
+            variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        ) {
+            return true
+        }
+
+        val metadata = listOfNotNull(
+            node.hintText?.toString(),
+            node.contentDescription?.toString(),
+            node.viewIdResourceName
+        ).joinToString(" ")
+
+        return SENSITIVE_INPUT_HINT.containsMatchIn(metadata)
     }
 
     private fun gesture(
@@ -327,6 +365,9 @@ class AssistAccessibilityService : AccessibilityService() {
     companion object {
         private const val MAX_REMOTE_TEXT_CHARS = 1000
         private const val MAX_REMOTE_FIELD_CHARS = 4000
+        private val SENSITIVE_INPUT_HINT = Regex(
+            "(?i)\\b(otp|one[- ]?time|verification[- ]?code|passcode|pin|cvv|cvc|security[- ]?code)\\b"
+        )
         private var instance = WeakReference<AssistAccessibilityService>(null)
 
         fun dispatch(command: RemoteCommand): Boolean =

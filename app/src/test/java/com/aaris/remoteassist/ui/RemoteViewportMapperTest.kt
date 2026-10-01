@@ -53,6 +53,30 @@ class RemoteViewportMapperTest {
     }
 
     @Test
+    fun rejectsStaleRotatedFrameGeometry() {
+        org.junit.Assert.assertFalse(
+            RemoteViewportMapper.frameMatchesRemote(
+                remoteWidth = 1080,
+                remoteHeight = 2400,
+                frameWidth = 2400,
+                frameHeight = 1080
+            )
+        )
+    }
+
+    @Test
+    fun acceptsScaledFrameWithSameAspect() {
+        org.junit.Assert.assertTrue(
+            RemoteViewportMapper.frameMatchesRemote(
+                remoteWidth = 1080,
+                remoteHeight = 2400,
+                frameWidth = 576,
+                frameHeight = 1280
+            )
+        )
+    }
+
+    @Test
     fun rejectsInvalidGeometry() {
         assertNull(
             RemoteViewportMapper.normalize(

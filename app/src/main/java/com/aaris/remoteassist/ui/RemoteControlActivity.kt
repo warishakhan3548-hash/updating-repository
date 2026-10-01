@@ -50,6 +50,14 @@ class RemoteControlActivity : ComponentActivity() {
     private lateinit var statusPanel: LinearLayout
     private lateinit var statusProgress: ProgressBar
     private lateinit var status: TextView
+    private lateinit var controlDock: LinearLayout
+    private lateinit var controlHandle: Button
+
+    @Volatile
+    private var renderedFrameWidth = 0
+
+    @Volatile
+    private var renderedFrameHeight = 0
 
     private var observer: Closeable? = null
     private var rtcSession: ControllerWebRtcSession? = null
@@ -375,7 +383,21 @@ class RemoteControlActivity : ComponentActivity() {
             init(
                 WebRtcRuntime.eglBase(this@RemoteControlActivity)
                     .eglBaseContext,
-                null
+                object : RendererCommon.RendererEvents {
+                    override fun onFirstFrameRendered() = Unit
+
+                    override fun onFrameResolutionChanged(
+                        videoWidth: Int,
+                        videoHeight: Int,
+                        rotation: Int
+                    ) {
+                        val rotated = rotation % 180 != 0
+                        renderedFrameWidth =
+                            if (rotated) videoHeight else videoWidth
+                        renderedFrameHeight =
+                            if (rotated) videoWidth else videoHeight
+                    }
+                }
             )
             setScalingType(
                 RendererCommon.ScalingType.SCALE_ASPECT_FIT
@@ -461,7 +483,7 @@ class RemoteControlActivity : ComponentActivity() {
             }
         )
 
-        val controls = LinearLayout(this).apply {
+        controlDock = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(dp(6), dp(6), dp(6), dp(6))
@@ -474,34 +496,39 @@ class RemoteControlActivity : ComponentActivity() {
             elevation = dp(6).toFloat()
         }
 
-        controls.addView(
+        controlDock.addView(
             compactButton("Back") {
                 rtcSession?.sendBack()
             }
         )
-        controls.addView(
+        controlDock.addView(
             compactButton("Home") {
                 rtcSession?.sendHome()
             }
         )
-        controls.addView(
+        controlDock.addView(
             compactButton("Apps") {
                 rtcSession?.sendRecents()
             }
         )
-        controls.addView(
+        controlDock.addView(
             compactButton("Type") {
                 showTextDialog()
             }
         )
-        controls.addView(
+        controlDock.addView(
+            compactButton("Hide") {
+                setControlDockVisible(false)
+            }
+        )
+        controlDock.addView(
             compactButton("End", danger = true) {
                 disconnect()
             }
         )
 
         root.addView(
-            controls,
+            controlDock,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -513,7 +540,36 @@ class RemoteControlActivity : ComponentActivity() {
             }
         )
 
+        controlHandle = compactButton("Controls") {
+            setControlDockVisible(true)
+        }.apply {
+            visibility = View.GONE
+        }
+
+        root.addView(
+            controlHandle,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.END
+            ).apply {
+                bottomMargin = dp(18)
+                marginEnd = dp(14)
+            }
+        )
+
         return root
+    }
+
+    private fun setControlDockVisible(visible: Boolean) {
+        if (!::controlDock.isInitialized || !::controlHandle.isInitialized) {
+            return
+        }
+
+        controlDock.visibility =
+            if (visible) View.VISIBLE else View.GONE
+        controlHandle.visibility =
+            if (visible) View.GONE else View.VISIBLE
     }
 
     private fun showTextDialog() {
@@ -529,7 +585,7 @@ class RemoteControlActivity : ComponentActivity() {
         val dialog = AlertDialog.Builder(this)
             .setTitle("Type on remote phone")
             .setMessage(
-                "Text is sent only to the focused non-password field."
+                "Text is sent only to a focused non-sensitive field. Password, OTP, PIN, and verification fields stay local to the sharing phone."
             )
             .setView(input)
             .setPositiveButton("SEND", null)
@@ -771,13 +827,33 @@ class RemoteControlActivity : ComponentActivity() {
         y: Float,
         geometry: RemoteGeometry
     ): Pair<Float, Float>? {
+        val frameWidth =
+            renderedFrameWidth.takeIf { it > 0 }
+                ?: geometry.widthPx
+        val frameHeight =
+            renderedFrameHeight.takeIf { it > 0 }
+                ?: geometry.heightPx
+
+        if (
+            !RemoteViewportMapper.frameMatchesRemote(
+                remoteWidth = geometry.widthPx,
+                remoteHeight = geometry.heightPx,
+                frameWidth = frameWidth,
+                frameHeight = frameHeight
+            )
+        ) {
+            return null
+        }
+
         val point = RemoteViewportMapper.normalize(
             touchX = x,
             touchY = y,
             viewWidth = renderer.width.toFloat(),
             viewHeight = renderer.height.toFloat(),
             remoteWidth = geometry.widthPx,
-            remoteHeight = geometry.heightPx
+            remoteHeight = geometry.heightPx,
+            frameWidth = frameWidth,
+            frameHeight = frameHeight
         ) ?: return null
 
         return point.x to point.y
