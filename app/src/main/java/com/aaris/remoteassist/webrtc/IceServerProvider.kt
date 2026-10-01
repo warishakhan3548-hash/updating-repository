@@ -40,6 +40,7 @@ object IceServerProvider {
                     ?: return@withTimeout emptyList()
 
                 fetchTurnServers(
+                    sessionId = sessionId,
                     idToken = token,
                     connectTimeoutMs = timeoutMs.coerceAtMost(
                         MAX_HTTP_TIMEOUT_MS
@@ -124,6 +125,7 @@ object IceServerProvider {
     )
 
     private suspend fun fetchTurnServers(
+        sessionId: String,
         idToken: String,
         connectTimeoutMs: Int
     ): List<PeerConnection.IceServer> = withContext(Dispatchers.IO) {
@@ -135,7 +137,7 @@ object IceServerProvider {
             connection.connectTimeout = connectTimeoutMs
             connection.readTimeout = connectTimeoutMs
             connection.instanceFollowRedirects = false
-            connection.doOutput = false
+            connection.doOutput = true
             connection.setRequestProperty(
                 "Authorization",
                 "Bearer $idToken"
@@ -144,6 +146,20 @@ object IceServerProvider {
                 "Accept",
                 "application/json"
             )
+            connection.setRequestProperty(
+                "Content-Type",
+                "application/json; charset=utf-8"
+            )
+
+            val requestBody = JSONObject()
+                .put("sessionId", sessionId)
+                .toString()
+                .toByteArray(Charsets.UTF_8)
+
+            connection.setFixedLengthStreamingMode(requestBody.size)
+            connection.outputStream.use { output ->
+                output.write(requestBody)
+            }
 
             if (connection.responseCode !in 200..299) {
                 return@withContext emptyList()
