@@ -14,7 +14,8 @@ object RemoteViewportMapper {
         remoteWidth: Int,
         remoteHeight: Int,
         frameWidth: Int = remoteWidth,
-        frameHeight: Int = remoteHeight
+        frameHeight: Int = remoteHeight,
+        clampToContent: Boolean = false
     ): NormalizedRemotePoint? {
         if (
             viewWidth <= 0f ||
@@ -52,21 +53,34 @@ object RemoteViewportMapper {
             top = (viewHeight - contentHeight) / 2f
         }
 
-        if (
+        val outsideContent =
             touchX < left ||
-            touchX > left + contentWidth ||
-            touchY < top ||
-            touchY > top + contentHeight
-        ) {
+                touchX > left + contentWidth ||
+                touchY < top ||
+                touchY > top + contentHeight
+        if (outsideContent && !clampToContent) {
             return null
         }
 
+        val mappedX =
+            if (clampToContent) {
+                touchX.coerceIn(left, left + contentWidth)
+            } else {
+                touchX
+            }
+        val mappedY =
+            if (clampToContent) {
+                touchY.coerceIn(top, top + contentHeight)
+            } else {
+                touchY
+            }
+
         return NormalizedRemotePoint(
             x = (
-                (touchX - left) / contentWidth
+                (mappedX - left) / contentWidth
             ).coerceIn(0f, 1f),
             y = (
-                (touchY - top) / contentHeight
+                (mappedY - top) / contentHeight
             ).coerceIn(0f, 1f)
         )
     }

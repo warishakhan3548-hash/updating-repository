@@ -58,7 +58,10 @@ A native Android remote-support app with a deliberately tiny user interface and 
 23. Command execution truth: the host acknowledges each sequenced remote action only after Android accepts or completes it; cancellations and safety rejections are returned to the controller without adding another control surface.
 24. Captive-portal awareness: an explicitly captive Wi-Fi network is rejected up front, while merely unvalidated routes are still allowed to reach the bounded Firebase/WebRTC timeouts.
 25. Ordered remote execution: accessibility commands are executed one at a time with a bounded queue, preventing a rapid tap/swipe sequence from cancelling the gesture already in progress; stale result acknowledgements are ignored without adding any new UI.
-26. Startup ICE recovery: one bounded pre-live host ICE restart is attempted after an initial WebRTC transport failure while the controller keeps listening for the retry offer until the existing handshake timeout decides the session is unrecoverable.
+26. Startup ICE recovery: one bounded pre-live host ICE restart is attempted after an initial WebRTC transport failure or a short pre-live DISCONNECTED stall, while the controller keeps listening for the retry offer until the existing handshake timeout decides the session is unrecoverable.
+27. Edge-continuous gestures: a gesture must start inside the rendered remote screen, but an already-valid swipe or pinch may drift into local letterbox space and is clamped to the nearest remote edge instead of being silently discarded.
+28. Join-link ambiguity guard: deep links accept exactly one pairing-code parameter and reject unexpected authority/fragment forms so malformed shared links cannot select an unintended code.
+29. Signaling/transport separation: Firebase presence is advisory only; a transient RTDB presence drop cannot tear down an otherwise healthy WebRTC peer plus ordered control channel.
 
 ## Firebase setup
 

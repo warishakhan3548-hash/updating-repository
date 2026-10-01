@@ -31,6 +31,15 @@ class PairingCodeTest {
     }
 
     @Test
+    fun doesNotAggregateUnrelatedClipboardDigits() {
+        assertNull(
+            PairingCode.extract(
+                "Order 123456, ticket 789012"
+            )
+        )
+    }
+
+    @Test
     fun extractsHumanFormattedEmbeddedCode() {
         assertEquals(
             "654321098765",
@@ -93,6 +102,30 @@ class PairingCodeTest {
         assertNull(
             PairingLink.parse(
                 "aarisremote://connect?code=abc123456789012xyz"
+            )
+        )
+    }
+
+    @Test
+    fun rejectsAmbiguousOrUnexpectedJoinLinkAuthority() {
+        assertNull(
+            PairingLink.parse(
+                "aarisremote://connect?code=123456789012&code=654321098765"
+            )
+        )
+        assertNull(
+            PairingLink.parse(
+                "aarisremote://connect?code=123456789012&code=123456789012"
+            )
+        )
+        assertNull(
+            PairingLink.parse(
+                "aarisremote://connect:443?code=123456789012"
+            )
+        )
+        assertNull(
+            PairingLink.parse(
+                "aarisremote://connect?code=123456789012#unexpected"
             )
         )
     }

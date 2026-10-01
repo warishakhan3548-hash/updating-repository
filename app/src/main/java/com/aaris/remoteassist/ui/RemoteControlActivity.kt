@@ -682,13 +682,19 @@ class RemoteControlActivity : ComponentActivity() {
         }
 
         addDockControl("Back") {
-            rtcSession?.sendBack()
+            if (rtcSession?.sendBack() != true) {
+                showStatus(COMMAND_NOT_APPLIED_MESSAGE)
+            }
         }
         addDockControl("Home") {
-            rtcSession?.sendHome()
+            if (rtcSession?.sendHome() != true) {
+                showStatus(COMMAND_NOT_APPLIED_MESSAGE)
+            }
         }
         addDockControl("Apps") {
-            rtcSession?.sendRecents()
+            if (rtcSession?.sendRecents() != true) {
+                showStatus(COMMAND_NOT_APPLIED_MESSAGE)
+            }
         }
         addDockControl("Type") {
             showTextDialog()
@@ -883,7 +889,8 @@ class RemoteControlActivity : ComponentActivity() {
                         !appendSingleGesturePoint(
                             event.getHistoricalX(index),
                             event.getHistoricalY(index),
-                            geometry
+                            geometry,
+                            clampToContent = true
                         )
                     ) {
                         singleGestureInvalid = true
@@ -895,7 +902,8 @@ class RemoteControlActivity : ComponentActivity() {
                     !appendSingleGesturePoint(
                         event.x,
                         event.y,
-                        geometry
+                        geometry,
+                        clampToContent = true
                     )
                 ) {
                     singleGestureInvalid = true
@@ -964,12 +972,14 @@ class RemoteControlActivity : ComponentActivity() {
                 val firstEnd = normalizedPointer(
                     event,
                     firstPointerId,
-                    geometry
+                    geometry,
+                    clampToContent = true
                 )
                 val secondEnd = normalizedPointer(
                     event,
                     secondPointerId,
-                    geometry
+                    geometry,
+                    clampToContent = true
                 )
 
                 if (firstEnd != null && secondEnd != null) {
@@ -978,7 +988,7 @@ class RemoteControlActivity : ComponentActivity() {
                             twoFingerStartedAtMs
                     ).coerceIn(80L, 1_500L)
 
-                    session.sendTwoFingerGesture(
+                    val queued = session.sendTwoFingerGesture(
                         firstFromNx = firstStartNx,
                         firstFromNy = firstStartNy,
                         firstToNx = firstEnd.first,
@@ -991,6 +1001,9 @@ class RemoteControlActivity : ComponentActivity() {
                         expectedGeneration =
                             twoFingerGeneration
                     )
+                    if (!queued) {
+                        showStatus(COMMAND_NOT_APPLIED_MESSAGE)
+                    }
                 }
 
                 resetTwoFingerState(
@@ -1019,7 +1032,8 @@ class RemoteControlActivity : ComponentActivity() {
                 val end = normalizedPoint(
                     event.x,
                     event.y,
-                    geometry
+                    geometry,
+                    clampToContent = true
                 )
                 if (end == null) {
                     resetSingleGestureState()
@@ -1031,7 +1045,8 @@ class RemoteControlActivity : ComponentActivity() {
                         event.x,
                         event.y,
                         geometry,
-                        force = true
+                        force = true,
+                        clampToContent = true
                     )
                 ) {
                     resetSingleGestureState()
@@ -1050,28 +1065,40 @@ class RemoteControlActivity : ComponentActivity() {
                 val generation = singleGestureGeneration
                 if (distance <= touchSlop) {
                     if (duration >= 500L) {
-                        session.sendLongPress(
-                            end.first,
-                            end.second,
-                            duration.toInt(),
-                            expectedGeneration = generation
-                        )
+                        if (
+                            !session.sendLongPress(
+                                end.first,
+                                end.second,
+                                duration.toInt(),
+                                expectedGeneration = generation
+                            )
+                        ) {
+                            showStatus(COMMAND_NOT_APPLIED_MESSAGE)
+                        }
                     } else {
-                        session.sendTap(
-                            end.first,
-                            end.second,
-                            expectedGeneration = generation
-                        )
+                        if (
+                            !session.sendTap(
+                                end.first,
+                                end.second,
+                                expectedGeneration = generation
+                            )
+                        ) {
+                            showStatus(COMMAND_NOT_APPLIED_MESSAGE)
+                        }
                     }
                 } else {
                     val points = singleGesturePoints.toList()
                     if (points.size >= 2) {
-                        session.sendGesturePath(
-                            points = points,
-                            durationMs = duration.toInt()
-                                .coerceIn(80, 1_500),
-                            expectedGeneration = generation
-                        )
+                        if (
+                            !session.sendGesturePath(
+                                points = points,
+                                durationMs = duration.toInt()
+                                    .coerceIn(80, 1_500),
+                                expectedGeneration = generation
+                            )
+                        ) {
+                            showStatus(COMMAND_NOT_APPLIED_MESSAGE)
+                        }
                     }
                 }
 
@@ -1094,7 +1121,8 @@ class RemoteControlActivity : ComponentActivity() {
         x: Float,
         y: Float,
         geometry: RemoteGeometry,
-        force: Boolean = false
+        force: Boolean = false,
+        clampToContent: Boolean = false
     ): Boolean {
         if (
             geometry.generation != singleGestureGeneration
@@ -1105,7 +1133,8 @@ class RemoteControlActivity : ComponentActivity() {
         val point = normalizedPoint(
             x,
             y,
-            geometry
+            geometry,
+            clampToContent = clampToContent
         ) ?: return false
 
         val candidate = point.first to point.second
@@ -1172,7 +1201,8 @@ class RemoteControlActivity : ComponentActivity() {
     private fun normalizedPointer(
         event: MotionEvent,
         pointerId: Int,
-        geometry: RemoteGeometry
+        geometry: RemoteGeometry,
+        clampToContent: Boolean = false
     ): Pair<Float, Float>? {
         if (pointerId == MotionEvent.INVALID_POINTER_ID) {
             return null
@@ -1184,7 +1214,8 @@ class RemoteControlActivity : ComponentActivity() {
         return normalizedPoint(
             event.getX(index),
             event.getY(index),
-            geometry
+            geometry,
+            clampToContent = clampToContent
         )
     }
 
@@ -1209,7 +1240,8 @@ class RemoteControlActivity : ComponentActivity() {
     private fun normalizedPoint(
         x: Float,
         y: Float,
-        geometry: RemoteGeometry
+        geometry: RemoteGeometry,
+        clampToContent: Boolean = false
     ): Pair<Float, Float>? {
         val frameWidth =
             renderedFrameWidth.takeIf { it > 0 }
@@ -1237,7 +1269,8 @@ class RemoteControlActivity : ComponentActivity() {
             remoteWidth = geometry.widthPx,
             remoteHeight = geometry.heightPx,
             frameWidth = frameWidth,
-            frameHeight = frameHeight
+            frameHeight = frameHeight,
+            clampToContent = clampToContent
         ) ?: return null
 
         return point.x to point.y

@@ -153,7 +153,8 @@ class FirebaseSignalingClient(
                         }
 
                         override fun onCancelled(error: DatabaseError) {
-                            listener.onError(error.toException())
+                            // Presence is advisory. Signaling/media may remain
+                            // healthy even when this observer is unavailable.
                         }
                     }
 
@@ -163,7 +164,7 @@ class FirebaseSignalingClient(
                 }
 
                 override fun onCancelled(error: DatabaseError) {
-                    listener.onError(error.toException())
+                    // Participant lookup is advisory presence telemetry only.
                 }
             }
             this.presenceListener = presenceListener
@@ -234,7 +235,6 @@ class FirebaseSignalingClient(
         if (online) {
             ref.onDisconnect().setValue(false)
             ref.setValue(true)
-                .addOnFailureListener { listener?.onError(it) }
         } else {
             ref.setValue(false)
         }

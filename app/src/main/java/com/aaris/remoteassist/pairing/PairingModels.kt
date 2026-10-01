@@ -18,6 +18,8 @@ data class PairRequest(
 
 object PairingCode {
     private val nonDigits = Regex("\\D")
+    private val directCandidate =
+        Regex("^\\d{12}$|^\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4}$")
     private val embeddedCandidate =
         Regex("(?<!\\d)(\\d{4}[\\s-]?\\d{4}[\\s-]?\\d{4})(?!\\d)")
 
@@ -27,7 +29,10 @@ object PairingCode {
     }
 
     fun extract(raw: String): String? {
-        normalize(raw)?.let { return it }
+        val trimmed = raw.trim()
+        if (directCandidate.matches(trimmed)) {
+            return normalize(trimmed)
+        }
 
         val candidates = embeddedCandidate
             .findAll(raw)
@@ -68,7 +73,10 @@ object PairingLink {
 
         if (
             !parsed.scheme.equals(SCHEME, ignoreCase = true) ||
-            !parsed.host.equals(HOST, ignoreCase = true)
+            !parsed.host.equals(HOST, ignoreCase = true) ||
+            parsed.userInfo != null ||
+            parsed.port != -1 ||
+            parsed.rawFragment != null
         ) {
             return null
         }
@@ -77,7 +85,7 @@ object PairingLink {
         if (path.isNotEmpty() && path != "/") return null
 
         val rawQuery = parsed.rawQuery ?: return null
-        val encodedCode = rawQuery
+        val encodedCodes = rawQuery
             .split('&')
             .asSequence()
             .mapNotNull { part ->
@@ -89,11 +97,14 @@ object PairingLink {
                         part.substring(separator + 1)
                 }
             }
-            .firstOrNull { (key, _) ->
+            .filter { (key, _) ->
                 key.equals("code", ignoreCase = true)
             }
-            ?.second
-            ?: return null
+            .map { (_, value) -> value }
+            .toList()
+
+        if (encodedCodes.size != 1) return null
+        val encodedCode = encodedCodes.single()
 
         val decodedCode = runCatching {
             URLDecoder.decode(
