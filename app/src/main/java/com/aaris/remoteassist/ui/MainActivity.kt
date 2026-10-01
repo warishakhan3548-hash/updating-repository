@@ -30,6 +30,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.aaris.remoteassist.accessibility.PermissionGate
 import com.aaris.remoteassist.capture.ScreenShareService
 import com.aaris.remoteassist.pairing.BackendSession
+import com.aaris.remoteassist.pairing.BackendSessionCloser
 import com.aaris.remoteassist.pairing.FirebasePairingGateway
 import com.aaris.remoteassist.pairing.PairingCode
 import com.aaris.remoteassist.pairing.PairingLink
@@ -379,7 +380,10 @@ class MainActivity : ComponentActivity() {
             }.isSuccess
 
             if (!localStarted) {
-                runCatching { gateway.close(request.sessionId) }
+                BackendSessionCloser.close(
+                    this@MainActivity,
+                    request.sessionId
+                )
                 SessionCoordinator.close(request.sessionId)
                 setButtonsEnabled(true)
                 status.text = "Could not start this connection. Try again."
@@ -1035,9 +1039,7 @@ class MainActivity : ComponentActivity() {
         status.text = message
         setButtonsEnabled(true)
 
-        scope.launch {
-            runCatching { gateway.close(sessionId) }
-        }
+        BackendSessionCloser.close(this, sessionId)
     }
 
     private fun clearHostUi() {
@@ -1087,12 +1089,10 @@ class MainActivity : ComponentActivity() {
         setButtonsEnabled(false)
         status.text = "Cancelling share session…"
 
-        scope.launch {
-            runCatching { gateway.close(sessionId) }
-            SessionCoordinator.close(sessionId)
-            clearHostUi()
-            finish()
-        }
+        BackendSessionCloser.close(this, sessionId)
+        SessionCoordinator.close(sessionId)
+        clearHostUi()
+        finish()
     }
 
     private fun isIdleForNewSession(): Boolean {
