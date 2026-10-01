@@ -68,7 +68,10 @@ object PairingLink {
 
         if (
             !parsed.scheme.equals(SCHEME, ignoreCase = true) ||
-            !parsed.host.equals(HOST, ignoreCase = true)
+            !parsed.host.equals(HOST, ignoreCase = true) ||
+            parsed.userInfo != null ||
+            parsed.port != -1 ||
+            parsed.rawFragment != null
         ) {
             return null
         }
@@ -77,7 +80,7 @@ object PairingLink {
         if (path.isNotEmpty() && path != "/") return null
 
         val rawQuery = parsed.rawQuery ?: return null
-        val encodedCode = rawQuery
+        val encodedCodes = rawQuery
             .split('&')
             .asSequence()
             .mapNotNull { part ->
@@ -89,11 +92,14 @@ object PairingLink {
                         part.substring(separator + 1)
                 }
             }
-            .firstOrNull { (key, _) ->
+            .filter { (key, _) ->
                 key.equals("code", ignoreCase = true)
             }
-            ?.second
-            ?: return null
+            .map { (_, value) -> value }
+            .toList()
+
+        if (encodedCodes.size != 1) return null
+        val encodedCode = encodedCodes.single()
 
         val decodedCode = runCatching {
             URLDecoder.decode(
