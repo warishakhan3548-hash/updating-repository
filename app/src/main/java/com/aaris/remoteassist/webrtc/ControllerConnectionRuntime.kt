@@ -81,15 +81,25 @@ object ControllerConnectionRuntime {
         listener: ControllerWebRtcSession.Listener
     ): ControllerWebRtcSession {
         val active = ensureStarted(context, sessionId)
+        /*
+         * Do not synchronously replay cached media callbacks while the viewer
+         * Activity is still inside onCreate/onResume. Some OEM Surface/EGL
+         * stacks are fragile during that handoff. The Activity explicitly
+         * requests replay after its window is attached and laid out.
+         */
         uiListener = listener
+        return active
+    }
+
+    fun replayUiState(sessionId: String) {
+        if (activeSessionId != sessionId) return
+        val listener = uiListener ?: return
 
         if (connected) {
             listener.onConnectivityChanged(true)
         }
         geometry?.let(listener::onLive)
         remoteTrack?.let(listener::onRemoteVideoTrack)
-
-        return active
     }
 
     fun detachUi() {
