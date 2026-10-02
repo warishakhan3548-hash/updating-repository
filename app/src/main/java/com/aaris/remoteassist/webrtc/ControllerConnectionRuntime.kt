@@ -75,6 +75,27 @@ object ControllerConnectionRuntime {
         ownerListener = listener
     }
 
+    fun attachOrStart(
+        context: Context,
+        sessionId: String,
+        listener: ControllerWebRtcSession.Listener
+    ): ControllerWebRtcSession {
+        val active = ensureStarted(context, sessionId)
+        uiListener = listener
+
+        if (connected) {
+            listener.onConnectivityChanged(true)
+        }
+        geometry?.let(listener::onLive)
+        remoteTrack?.let(listener::onRemoteVideoTrack)
+
+        return active
+    }
+
+    fun detachUi() {
+        uiListener = null
+    }
+
     fun attach(
         sessionId: String,
         listener: ControllerWebRtcSession.Listener
