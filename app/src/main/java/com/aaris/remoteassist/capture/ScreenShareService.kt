@@ -262,11 +262,12 @@ class ScreenShareService : Service() {
                     }
 
                     override fun onError(error: Throwable) {
-                        mainHandler.post {
-                            stopActiveSession(
-                                "webrtc_transport_failed"
-                            )
-                        }
+                        /*
+                         * WebRTC owns bounded SDP/ICE/TURN recovery. Do not
+                         * tear down the whole session on an intermediate
+                         * transport error; the host connection watchdog is
+                         * the terminal authority if recovery never succeeds.
+                         */
                     }
                 }
             ).also {
