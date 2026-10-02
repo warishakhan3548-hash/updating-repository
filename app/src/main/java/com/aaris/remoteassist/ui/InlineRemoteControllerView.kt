@@ -152,6 +152,12 @@ class InlineRemoteControllerView(
         }
     }
 
+    private val interactionIdle = Runnable {
+        if (attached) {
+            session()?.setInteractionActive(false)
+        }
+    }
+
     private val renderSink = VideoSink { frame ->
         val rotatedWidth = frame.rotatedWidth
         val rotatedHeight = frame.rotatedHeight
@@ -403,6 +409,7 @@ class InlineRemoteControllerView(
 
     fun hide() {
         if (!attached) return
+        mainHandler.removeCallbacks(interactionIdle)
         session()?.setInteractionActive(false)
         attached = false
 
@@ -1161,8 +1168,12 @@ class InlineRemoteControllerView(
                 text = label
                 isAllCaps = false
                 setOnClickListener {
+                    if (autoHide) {
+                        beginRemoteMotion()
+                    }
                     action()
                     if (autoHide) {
+                        scheduleRemoteMotionIdle()
                         setControlsVisible(false)
                     }
                 }
@@ -1184,7 +1195,7 @@ class InlineRemoteControllerView(
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                s.setInteractionActive(true)
+                beginRemoteMotion()
                 suppressSingleGestureUntilUp = false
                 multiTouchActive = false
                 downX = event.x
@@ -1262,7 +1273,6 @@ class InlineRemoteControllerView(
             }
 
             MotionEvent.ACTION_UP -> {
-                s.setInteractionActive(false)
                 if (multiTouchActive) {
                     updateMultiTouch(event)
                     if (g.generation == gestureGeneration) {
@@ -1271,6 +1281,7 @@ class InlineRemoteControllerView(
                     resetMultiTouch()
                     gesturePoints.clear()
                     suppressSingleGestureUntilUp = false
+                    scheduleRemoteMotionIdle()
                     return true
                 }
 
@@ -1297,10 +1308,12 @@ class InlineRemoteControllerView(
                     upY = event.y
                 )
                 gesturePoints.clear()
+                scheduleRemoteMotionIdle()
                 return true
             }
 
             MotionEvent.ACTION_CANCEL -> {
+                mainHandler.removeCallbacks(interactionIdle)
                 s.setInteractionActive(false)
                 gesturePoints.clear()
                 resetMultiTouch()
@@ -1310,6 +1323,21 @@ class InlineRemoteControllerView(
         }
 
         return true
+    }
+
+    private fun beginRemoteMotion() {
+        mainHandler.removeCallbacks(interactionIdle)
+        session()?.setInteractionActive(true)
+    }
+
+    private fun scheduleRemoteMotionIdle() {
+        mainHandler.removeCallbacks(interactionIdle)
+        if (attached) {
+            mainHandler.postDelayed(
+                interactionIdle,
+                REMOTE_MOTION_TAIL_MS
+            )
+        }
     }
 
     private fun finishSingleGesture(
@@ -1629,6 +1657,7 @@ class InlineRemoteControllerView(
         private const val HANDLE_PEEK_ANIMATION_MS = 120L
         private const val HANDLE_PEEK_DP = 10
         private const val HANDLE_PEEK_ALPHA = 0.46f
+        private const val REMOTE_MOTION_TAIL_MS = 1_400L
 
         private const val TOUCH_SAMPLE_INTERVAL_MS = 24L
         private const val MAX_LOCAL_GESTURE_POINTS = 192
