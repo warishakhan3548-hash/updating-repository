@@ -294,7 +294,7 @@ class WebRtcPeer(
                         /*
                          * Do not overwrite controllerSignal here.
                          *
-                         * During startup that single RTDB value may still hold
+                         * During startup the most recent signaling value may still hold
                          * the SDP answer the host has not observed yet. Replacing
                          * it with a restart hint can permanently lose the answer
                          * and leave both phones stuck at Connecting.
@@ -614,7 +614,7 @@ class WebRtcPeer(
                 true
             )
         ) {
-            // The authoritative signal remains in RTDB. If this was a newer
+            // The authoritative signal remains replayable. If this was a newer
             // generation the host-side delivery watchdog will re-deliver it
             // after the current SDP application has settled.
             return
