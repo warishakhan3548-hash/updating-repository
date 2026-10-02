@@ -389,6 +389,17 @@ class HostWebRtcSession(
                 }
             }
 
+            is ControlPacket.VideoRecoveryRequest -> {
+                val currentLease = lease ?: return
+                if (
+                    packet.leaseSecret !=
+                    currentLease.leaseSecret
+                ) {
+                    return
+                }
+                handleMediaRecoveryRequest()
+            }
+
             is ControlPacket.CommandResult,
             is ControlPacket.Hello -> Unit
         }
@@ -397,6 +408,14 @@ class HostWebRtcSession(
     override fun onRemoteVideoTrack(track: VideoTrack) = Unit
 
     override fun onRemoteMediaRecoveryRequested() {
+        /*
+         * Legacy signaling-level recovery remains as a last resort when the
+         * control channel itself is unavailable.
+         */
+        handleMediaRecoveryRequest()
+    }
+
+    private fun handleMediaRecoveryRequest() {
         if (closed.get()) return
 
         listener.onDiagnostic(
@@ -406,8 +425,9 @@ class HostWebRtcSession(
 
         /*
          * Keep the authenticated/control session alive. Refreshing the capture
-         * format forces ScreenCapturerAndroid/VirtualDisplay to push fresh
-         * frames without requiring another Android screen-share consent.
+         * format nudges ScreenCapturerAndroid without asking for MediaProjection
+         * consent again. The fallback streamer consumes the same capture track,
+         * so Android 14's one-VirtualDisplay-per-projection rule is preserved.
          */
         runCatching {
             capture.videoTrack.setEnabled(false)
