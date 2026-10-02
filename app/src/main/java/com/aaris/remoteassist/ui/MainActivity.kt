@@ -850,7 +850,32 @@ class MainActivity : ComponentActivity() {
                                 ) {
                                     if (mainActivityResumed) {
                                         controllerViewerReadyPending = false
-                                        launchControllerViewer(sessionId)
+                                        status.text =
+                                            "Connected • opening remote screen…"
+
+                                        /*
+                                         * Let the service-owned PeerConnection,
+                                         * DataChannel and remote track settle
+                                         * before the heavy viewer window is
+                                         * created. The transport remains live
+                                         * during this short UI-only delay.
+                                         */
+                                        scope.launch {
+                                            delay(
+                                                VIEWER_LAUNCH_SETTLE_MS
+                                            )
+
+                                            if (
+                                                pendingControllerSessionId ==
+                                                    sessionId &&
+                                                mainActivityResumed &&
+                                                !controllerViewerLaunching
+                                            ) {
+                                                launchControllerViewer(
+                                                    sessionId
+                                                )
+                                            }
+                                        }
                                     } else {
                                         controllerViewerReadyPending = true
                                         status.text =
@@ -2432,6 +2457,7 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val VIEWER_LAUNCH_SETTLE_MS = 900L
         private const val CLIENT_DEADLINE_GRACE_MS = 2_000L
         private const val KEY_ACTIVE_HOST_SESSION =
             "active_host_session"
