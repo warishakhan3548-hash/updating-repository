@@ -86,6 +86,11 @@ class HostWebRtcSession(
     private val captureProbe = VideoSink {
         if (localCaptureFrameSeen.compareAndSet(false, true)) {
             displayHandler.removeCallbacks(captureFrameWatchdog)
+            displayHandler.post {
+                if (!closed.get()) {
+                    ensureLiveHandshake()
+                }
+            }
         }
     }
 
@@ -225,12 +230,13 @@ class HostWebRtcSession(
             displayHandler
         )
 
+        captureRecoveryAttempts = 0
+        localCaptureFrameSeen.set(false)
+
         capture.videoTrack.addSink(captureProbe)
         peer.addLocalVideoTrack(capture.videoTrack)
         capture.start(profile)
 
-        captureRecoveryAttempts = 0
-        localCaptureFrameSeen.set(false)
         displayHandler.removeCallbacks(captureFrameWatchdog)
         displayHandler.postDelayed(
             captureFrameWatchdog,
@@ -412,6 +418,7 @@ class HostWebRtcSession(
         if (
             !peerConnected ||
             !controlOpen ||
+            !localCaptureFrameSeen.get() ||
             closed.get() ||
             transportReady
         ) {
@@ -468,15 +475,15 @@ class HostWebRtcSession(
         )
     }
     companion object {
-        private const val CONNECT_TIMEOUT_MS = 60_000L
+        private const val CONNECT_TIMEOUT_MS = 90_000L
         private const val CONTROL_CHANNEL_GRACE_MS = 5_000L
         private const val ICE_RESTART_DELAY_MS = 1_500L
         private const val STARTUP_CONTROL_RECOVERY_INITIAL_DELAY_MS = 8_000L
         private const val STARTUP_CONTROL_RECOVERY_INTERVAL_MS = 8_000L
         private const val MAX_STARTUP_CONTROL_RECOVERY_ATTEMPTS = 2
-        private const val CAPTURE_FIRST_FRAME_TIMEOUT_MS = 8_000L
-        private const val CAPTURE_RECOVERY_INTERVAL_MS = 5_000L
-        private const val MAX_CAPTURE_RECOVERY_ATTEMPTS = 2
+        private const val CAPTURE_FIRST_FRAME_TIMEOUT_MS = 12_000L
+        private const val CAPTURE_RECOVERY_INTERVAL_MS = 8_000L
+        private const val MAX_CAPTURE_RECOVERY_ATTEMPTS = 3
         private const val LEASE_WATCHDOG_MS = 3_000L
     }
 }
