@@ -35,6 +35,7 @@ import com.aaris.remoteassist.accessibility.AssistAccessibilityService
 import com.aaris.remoteassist.accessibility.PermissionGate
 import com.aaris.remoteassist.capture.ScreenShareService
 import com.aaris.remoteassist.diagnostics.ConnectionFlightRecorder
+import com.aaris.remoteassist.diagnostics.CrashRecorder
 import com.aaris.remoteassist.pairing.BackendSession
 import com.aaris.remoteassist.pairing.BackendSessionCloser
 import com.aaris.remoteassist.pairing.CloudflarePairingGateway
@@ -171,6 +172,7 @@ class MainActivity : ComponentActivity() {
         ConnectionFlightRecorder.addListener(
             hostDiagnosticListener
         )
+        showPreviousCrashIfAny()
         installBackHandler()
 
         val restoredHostSession = recoverPersistedHostSession()
@@ -193,6 +195,18 @@ class MainActivity : ComponentActivity() {
         }
         refreshIdleUi()
         handleIncomingJoin(intent)
+    }
+
+    private fun showPreviousCrashIfAny() {
+        val crash = CrashRecorder.consume(this) ?: return
+        AlertDialog.Builder(this)
+            .setTitle("Aaris Remote stopped unexpectedly")
+            .setMessage(
+                "Last crash captured on this phone:\n\n" +
+                    crash.take(2_500)
+            )
+            .setPositiveButton("OK", null)
+            .show()
     }
 
     override fun onNewIntent(intent: Intent) {
