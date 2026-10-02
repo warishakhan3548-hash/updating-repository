@@ -234,13 +234,10 @@ class MainActivity : ComponentActivity() {
             pendingControllerSessionId = pendingController
             setButtonsEnabled(false)
 
-            if (
-                !controllerViewerLaunching &&
-                controllerObserver == null
-            ) {
+            if (!controllerViewerLaunching) {
                 status.text =
-                    "Restoring remote connection…"
-                observeControllerSession(pendingController)
+                    "Restoring connection monitor…"
+                launchControllerMonitor(pendingController)
             }
             return
         }
@@ -662,8 +659,53 @@ class MainActivity : ComponentActivity() {
                 .apply()
 
             status.text =
-                "Waiting for your friend to tap START…"
-            observeControllerSession(request.sessionId)
+                "Code verified • opening connection monitor…"
+            launchControllerMonitor(request.sessionId)
+        }
+    }
+
+    /*
+     * Keep the controller inside one Activity from the moment the code is
+     * redeemed until the WebRTC session is live. Previously MainActivity
+     * waited for SCREEN_READY and only then launched RemoteControlActivity.
+     * The physical-device trace showed the host publishing SCREEN_READY,
+     * TURN, SDP offer and ICE candidates while the controller never opened
+     * its signaling socket. Removing that late Activity handoff makes the
+     * controller observer authoritative and continuously alive across
+     * PAIR_PENDING -> HOST_APPROVED -> SCREEN_READY -> CONNECTING.
+     */
+    private fun launchControllerMonitor(sessionId: String) {
+        if (
+            pendingControllerSessionId != sessionId ||
+            controllerViewerLaunching
+        ) {
+            return
+        }
+
+        controllerViewerLaunching = true
+        controllerObserver?.close()
+        controllerObserver = null
+        controllerDeadlineJob?.cancel()
+        controllerDeadlineJob = null
+
+        runCatching {
+            remoteControlLauncher.launch(
+                Intent(
+                    this,
+                    RemoteControlActivity::class.java
+                ).putExtra(
+                    RemoteControlActivity.EXTRA_SESSION_ID,
+                    sessionId
+                )
+            )
+        }.onFailure {
+            controllerViewerLaunching = false
+            endPendingControllerSession(
+                sessionId = sessionId,
+                message =
+                    "Could not open the connection monitor. Try again.",
+                closeBackend = true
+            )
         }
     }
 
@@ -1814,8 +1856,8 @@ class MainActivity : ComponentActivity() {
         }
 
         setButtonsEnabled(false)
-        status.text = "Restoring remote connection…"
-        observeControllerSession(sessionId)
+        status.text = "Restoring connection monitor…"
+        launchControllerMonitor(sessionId)
         return true
     }
 
