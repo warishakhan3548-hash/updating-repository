@@ -27,10 +27,18 @@ mature remote-access systems:
   - creates/redeems one-time pairing codes;
   - persists pending controller/host session identity;
   - launches the controller connection monitor immediately after redeem.
+- `webrtc/ControllerConnectionService.kt`
+  - foreground controller connection owner started directly by the user's Connect action;
+  - survives Activity navigation and owns backend observation + controller WebRTC;
+  - prewarms TURN/WebSocket/RECV_ONLY peer at HOST_APPROVED;
+  - keeps signaling alive even when the remote-view Activity is not present.
+- `webrtc/ControllerConnectionRuntime.kt`
+  - process-scoped transport handoff between the foreground service and viewer UI;
+  - caches live geometry/video track/connection state for late UI attachment.
 - `ui/RemoteControlActivity.kt`
-  - persistent controller-side session monitor;
-  - observes backend states from PAIR_PENDING onward;
-  - prewarms WebRTC at HOST_APPROVED;
+  - presentation/control surface only;
+  - launches after backend LIVE instead of being required to establish transport;
+  - attaches to the already-running service-owned WebRTC session;
   - lazily creates the video renderer only after a remote track arrives;
   - exposes connection flight-recorder diagnostics.
 
@@ -105,9 +113,9 @@ Authoritative backend flow:
 ## Connection sequence
 
 1. Phone A creates a one-time code.
-2. Phone B redeems it and immediately opens the persistent controller monitor.
+2. Phone B redeems it and immediately starts the foreground controller connection service while MainActivity stays visible.
 3. Phone A explicitly approves.
-4. Phone B preloads TURN, creates RECV_ONLY video, and opens signaling.
+4. The service on Phone B preloads TURN, creates RECV_ONLY video, and opens signaling independently of any Activity.
 5. Phone A obtains MediaProjection consent.
 6. Backend becomes SCREEN_READY.
 7. Phone A creates one SEND_ONLY SDP offer and stores/publishes it.
