@@ -173,6 +173,53 @@ class ControlProtocolTest {
     }
 
     @Test
+    fun gestureStreamRoundTripsAndMapsToPixels() {
+        val source = ControlPacket.GestureStream(
+            leaseSecret = 71L,
+            generation = 12,
+            sequence = 103L,
+            streamId = 9L,
+            phase = GestureStreamPhase.CONTINUE,
+            points = listOf(
+                ControlPathPoint(0.25f, 0.40f),
+                ControlPathPoint(0.50f, 0.75f)
+            ),
+            durationMs = 48
+        )
+
+        val decoded = ControlProtocol.decode(
+            ControlProtocol.encode(source)
+        ) as ControlPacket.GestureStream
+
+        assertEquals(source.leaseSecret, decoded.leaseSecret)
+        assertEquals(source.generation, decoded.generation)
+        assertEquals(source.sequence, decoded.sequence)
+        assertEquals(source.streamId, decoded.streamId)
+        assertEquals(source.phase, decoded.phase)
+        assertEquals(source.points.size, decoded.points.size)
+        assertEquals(
+            source.points[1].ny,
+            decoded.points[1].ny,
+            0.00002f
+        )
+        assertEquals(source.durationMs, decoded.durationMs)
+
+        val command = ControlProtocol.toRemoteCommand(
+            sessionId = "s1",
+            packet = decoded,
+            widthPx = 1000,
+            heightPx = 2000
+        )
+        assertTrue(command is GestureStreamCommand)
+
+        val stream = command as GestureStreamCommand
+        assertEquals(source.streamId, stream.streamId)
+        assertEquals(source.phase, stream.phase)
+        assertEquals(499.5f, stream.points[1].xPx, 0.05f)
+        assertEquals(1499.25f, stream.points[1].yPx, 0.1f)
+    }
+
+    @Test
     fun twoFingerRoundTripsAndMapsToPixels() {
         val source = ControlPacket.TwoFinger(
             leaseSecret = 77L,

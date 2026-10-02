@@ -56,6 +56,27 @@ data class GesturePathCommand(
     }
 }
 
+enum class GestureStreamPhase {
+    START,
+    CONTINUE,
+    END
+}
+
+data class GestureStreamCommand(
+    override val sessionId: String,
+    override val leaseSecret: Long,
+    override val generation: Int,
+    override val sequence: Long,
+    val streamId: Long,
+    val phase: GestureStreamPhase,
+    val points: List<RemotePathPoint>,
+    val durationMs: Long
+) : RemoteCommand {
+    init {
+        require(points.isNotEmpty())
+    }
+}
+
 data class TwoFingerCommand(
     override val sessionId: String,
     override val leaseSecret: Long,
