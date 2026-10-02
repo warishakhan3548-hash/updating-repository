@@ -38,6 +38,7 @@ class ControllerWebRtcSession(
     private val started = AtomicBoolean(false)
     private val screenReadyArmed = AtomicBoolean(false)
     private val sequence = AtomicLong(0L)
+    private val gestureStreamIds = AtomicLong(0L)
     private val handler = Handler(Looper.getMainLooper())
     private val transport = ControlTransportTracker()
 
@@ -135,6 +136,7 @@ class ControllerWebRtcSession(
 
     fun setInteractionActive(active: Boolean): Boolean {
         if (closed.get()) return false
+        if (interactionActive == active) return true
 
         val lease = leaseSecret ?: return false
         val sent = peer.sendControl(
@@ -273,6 +275,48 @@ class ControllerWebRtcSession(
                     leaseSecret = lease,
                     generation = geometry.generation,
                     sequence = sequence.incrementAndGet(),
+                    points = controlPoints,
+                    durationMs = durationMs
+                )
+            )
+        )
+    }
+
+    fun newGestureStreamId(): Long =
+        gestureStreamIds.incrementAndGet()
+
+    fun sendGestureStreamSegment(
+        streamId: Long,
+        phase: com.aaris.remoteassist.control.GestureStreamPhase,
+        points: List<Pair<Float, Float>>,
+        durationMs: Int,
+        expectedGeneration: Int
+    ): Boolean {
+        if (
+            streamId <= 0L ||
+            points.size !in 1..MAX_GESTURE_STREAM_POINTS
+        ) {
+            return false
+        }
+
+        val lease = leaseSecret ?: return false
+        val geometry = currentGeometry(expectedGeneration) ?: return false
+        val controlPoints = points.map { (nx, ny) ->
+            if (!nx.isFinite() || !ny.isFinite()) return false
+            ControlPathPoint(
+                nx = nx.coerceIn(0f, 1f),
+                ny = ny.coerceIn(0f, 1f)
+            )
+        }
+
+        return peer.sendControl(
+            ControlProtocol.encode(
+                ControlPacket.GestureStream(
+                    leaseSecret = lease,
+                    generation = geometry.generation,
+                    sequence = sequence.incrementAndGet(),
+                    streamId = streamId,
+                    phase = phase,
                     points = controlPoints,
                     durationMs = durationMs
                 )
@@ -504,5 +548,6 @@ class ControllerWebRtcSession(
         private const val HELLO_TIMEOUT_MS = 90_000L
         private const val MAX_REMOTE_TEXT_CHARS = 500
         private const val MAX_GESTURE_PATH_POINTS = 96
+        private const val MAX_GESTURE_STREAM_POINTS = 16
     }
 }
