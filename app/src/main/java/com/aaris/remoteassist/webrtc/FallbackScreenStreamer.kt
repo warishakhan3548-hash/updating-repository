@@ -278,7 +278,7 @@ class FallbackScreenStreamer(
         private const val MAX_DIMENSION = 2560
         private const val FRAME_INTERVAL_MS = 450L
         private const val JPEG_QUALITY = 62
-        private const val MAX_JPEG_BYTES = 800_000
+        private const val MAX_JPEG_BYTES = 720_000
         private const val MAX_JPEG_ESTIMATE_BYTES = 320_000
     }
 }
