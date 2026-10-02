@@ -14,6 +14,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.TextureView
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
@@ -27,6 +28,8 @@ import com.aaris.remoteassist.webrtc.RemoteGeometry
 import com.aaris.remoteassist.webrtc.WebRtcRuntime
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.hypot
+import kotlin.math.roundToInt
 import org.webrtc.EglBase
 import org.webrtc.EglRenderer
 import org.webrtc.GlRectDrawer
@@ -47,6 +50,11 @@ class InlineRemoteControllerView(
     private val sessionId: String,
     private val onEnd: () -> Unit
 ) {
+    private data class LocalTouchPoint(
+        val x: Float,
+        val y: Float,
+        val atMs: Long
+    )
     private val root = FrameLayout(activity)
     private val status = TextView(activity)
     private val dock = LinearLayout(activity)
@@ -68,14 +76,46 @@ class InlineRemoteControllerView(
     private var eglRenderer: EglRenderer? = null
     private var remoteTrack: VideoTrack? = null
     private var sinkTrack: VideoTrack? = null
+
+    @Volatile
     private var geometry: RemoteGeometry? = null
+
+    @Volatile
     private var frameWidth = 0
+
+    @Volatile
     private var frameHeight = 0
+
+    private val touchSlop =
+        ViewConfiguration.get(activity).scaledTouchSlop.toFloat()
+    private val gesturePoints =
+        ArrayList<LocalTouchPoint>(MAX_LOCAL_GESTURE_POINTS)
 
     private var downX = 0f
     private var downY = 0f
     private var downAt = 0L
-    private var controlHandleOnRight = true
+    private var gestureGeneration = -1
+
+    private var multiTouchActive = false
+    private var suppressSingleGestureUntilUp = false
+    private var firstPointerId = -1
+    private var secondPointerId = -1
+    private var multiDownAt = 0L
+    private var firstStartX = 0f
+    private var firstStartY = 0f
+    private var secondStartX = 0f
+    private var secondStartY = 0f
+    private var firstEndX = 0f
+    private var firstEndY = 0f
+    private var secondEndX = 0f
+    private var secondEndY = 0f
+
+    private var handleDownRawX = 0f
+    private var handleDownRawY = 0f
+    private var handleStartX = 0f
+    private var handleStartY = 0f
+    private var handleDragging = false
+    private var controlHandleUserMoved = false
 
     private var attached = false
     @Volatile
@@ -88,9 +128,40 @@ class InlineRemoteControllerView(
     private val rawFrameSeen = AtomicBoolean(false)
     private val renderedFrameSeen = AtomicBoolean(false)
 
+    private val controlsAutoHide = Runnable {
+        if (attached) {
+            setControlsVisible(false)
+        }
+    }
+
     private val renderSink = VideoSink { frame ->
-        frameWidth = frame.rotatedWidth
-        frameHeight = frame.rotatedHeight
+        val rotatedWidth = frame.rotatedWidth
+        val rotatedHeight = frame.rotatedHeight
+        val currentGeometry = geometry
+        val geometryMatches =
+            currentGeometry == null ||
+                RemoteViewportMapper.frameMatchesRemote(
+                    remoteWidth = currentGeometry.widthPx,
+                    remoteHeight = currentGeometry.heightPx,
+                    frameWidth = rotatedWidth,
+                    frameHeight = rotatedHeight
+                )
+
+        if (
+            geometryMatches &&
+            (
+                frameWidth != rotatedWidth ||
+                    frameHeight != rotatedHeight
+                )
+        ) {
+            frameWidth = rotatedWidth
+            frameHeight = rotatedHeight
+            mainHandler.post {
+                if (attached) {
+                    updateVideoViewport()
+                }
+            }
+        }
 
         if (rawFrameSeen.compareAndSet(false, true)) {
             activity.runOnUiThread {
@@ -179,6 +250,7 @@ class InlineRemoteControllerView(
                 activity.runOnUiThread {
                     this@InlineRemoteControllerView.geometry =
                         geometry
+                    updateVideoViewport()
                     status.text =
                         if (remoteTrack == null) {
                             "Connected • waiting for screen video…"
@@ -196,6 +268,12 @@ class InlineRemoteControllerView(
                         status.visibility = View.VISIBLE
                         status.text =
                             "Connection interrupted • reconnecting…"
+                    } else if (renderedFrameSeen.get()) {
+                        status.visibility = View.GONE
+                    } else {
+                        status.visibility = View.VISIBLE
+                        status.text =
+                            "Reconnected • restoring remote screen…"
                     }
                 }
             }
@@ -290,6 +368,8 @@ class InlineRemoteControllerView(
 
         root.post {
             ensureRenderer()
+            updateVideoViewport()
+            positionControlHandleIfNeeded()
             ControllerConnectionRuntime.replayUiState(
                 sessionId
             )
@@ -301,6 +381,7 @@ class InlineRemoteControllerView(
         attached = false
 
         mainHandler.removeCallbacks(mediaWatchdog)
+        mainHandler.removeCallbacks(controlsAutoHide)
         ControllerConnectionRuntime.detach(listener)
         detachCurrentTrack()
         releaseRenderer()
@@ -471,48 +552,168 @@ class InlineRemoteControllerView(
             isAllCaps = false
             visibility = View.GONE
             contentDescription =
-                "Remote controls. Long press to move this button."
+                "Remote controls. Drag to move this button."
             setOnClickListener {
                 setControlsVisible(true)
             }
-            setOnLongClickListener {
-                controlHandleOnRight = !controlHandleOnRight
-                updateControlHandlePosition()
-                true
+            setOnTouchListener { view, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        handleDownRawX = event.rawX
+                        handleDownRawY = event.rawY
+                        handleStartX = view.x
+                        handleStartY = view.y
+                        handleDragging = false
+                        true
+                    }
+
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = event.rawX - handleDownRawX
+                        val dy = event.rawY - handleDownRawY
+                        if (
+                            !handleDragging &&
+                            dx * dx + dy * dy >=
+                            touchSlop * touchSlop
+                        ) {
+                            handleDragging = true
+                        }
+
+                        if (handleDragging) {
+                            val margin = dp(HANDLE_EDGE_MARGIN_DP).toFloat()
+                            val maxX =
+                                (root.width - view.width).toFloat() - margin
+                            val maxY =
+                                (root.height - view.height).toFloat() - margin
+
+                            view.x =
+                                (handleStartX + dx).coerceIn(
+                                    margin,
+                                    maxX.coerceAtLeast(margin)
+                                )
+                            view.y =
+                                (handleStartY + dy).coerceIn(
+                                    margin,
+                                    maxY.coerceAtLeast(margin)
+                                )
+                        }
+                        true
+                    }
+
+                    MotionEvent.ACTION_UP -> {
+                        if (handleDragging) {
+                            controlHandleUserMoved = true
+                            snapControlHandleToNearestEdge()
+                        } else {
+                            view.performClick()
+                        }
+                        true
+                    }
+
+                    MotionEvent.ACTION_CANCEL -> {
+                        handleDragging = false
+                        true
+                    }
+
+                    else -> true
+                }
             }
         }
         root.addView(
             controlHandle,
             FrameLayout.LayoutParams(
                 dp(48),
-                dp(48)
+                dp(48),
+                Gravity.TOP or Gravity.START
             )
         )
-        updateControlHandlePosition()
     }
 
     private fun setControlsVisible(visible: Boolean) {
+        mainHandler.removeCallbacks(controlsAutoHide)
         dock.visibility =
             if (visible) View.VISIBLE else View.GONE
         controlHandle.visibility =
             if (visible) View.GONE else View.VISIBLE
+
+        if (visible) {
+            mainHandler.postDelayed(
+                controlsAutoHide,
+                CONTROLS_AUTO_HIDE_MS
+            )
+        } else {
+            positionControlHandleIfNeeded()
+        }
     }
 
-    private fun updateControlHandlePosition() {
-        val params =
-            (controlHandle.layoutParams as? FrameLayout.LayoutParams)
-                ?: return
+    private fun positionControlHandleIfNeeded() {
+        if (
+            root.width <= 0 ||
+            root.height <= 0 ||
+            controlHandle.width <= 0 ||
+            controlHandle.height <= 0
+        ) {
+            return
+        }
 
-        params.gravity =
-            Gravity.CENTER_VERTICAL or
-                if (controlHandleOnRight) {
-                    Gravity.END
+        val margin = dp(HANDLE_EDGE_MARGIN_DP).toFloat()
+        val maxX =
+            (root.width - controlHandle.width).toFloat() - margin
+        val maxY =
+            (root.height - controlHandle.height).toFloat() - margin
+
+        if (!controlHandleUserMoved) {
+            controlHandle.x = maxX.coerceAtLeast(margin)
+            controlHandle.y =
+                ((root.height - controlHandle.height) / 2f)
+                    .coerceIn(
+                        margin,
+                        maxY.coerceAtLeast(margin)
+                    )
+        } else {
+            controlHandle.x =
+                controlHandle.x.coerceIn(
+                    margin,
+                    maxX.coerceAtLeast(margin)
+                )
+            controlHandle.y =
+                controlHandle.y.coerceIn(
+                    margin,
+                    maxY.coerceAtLeast(margin)
+                )
+        }
+    }
+
+    private fun snapControlHandleToNearestEdge() {
+        if (
+            root.width <= 0 ||
+            controlHandle.width <= 0
+        ) {
+            return
+        }
+
+        val margin = dp(HANDLE_EDGE_MARGIN_DP).toFloat()
+        val left = margin
+        val right =
+            (
+                root.width -
+                    controlHandle.width -
+                    margin
+                ).toFloat()
+                .coerceAtLeast(left)
+        val center =
+            controlHandle.x +
+                controlHandle.width / 2f
+
+        controlHandle.animate()
+            .x(
+                if (center < root.width / 2f) {
+                    left
                 } else {
-                    Gravity.START
+                    right
                 }
-        params.marginStart = dp(8)
-        params.marginEnd = dp(8)
-        controlHandle.layoutParams = params
+            )
+            .setDuration(HANDLE_SNAP_MS)
+            .start()
     }
 
     private fun ensureRenderer(): Boolean {
@@ -634,6 +835,79 @@ class InlineRemoteControllerView(
         )
     }
 
+    private fun updateVideoViewport() {
+        val containerWidth = rendererContainer.width
+        val containerHeight = rendererContainer.height
+        if (containerWidth <= 0 || containerHeight <= 0) return
+
+        val currentGeometry = geometry
+        val useFrame =
+            currentGeometry != null &&
+                frameWidth > 0 &&
+                frameHeight > 0 &&
+                RemoteViewportMapper.frameMatchesRemote(
+                    remoteWidth = currentGeometry.widthPx,
+                    remoteHeight = currentGeometry.heightPx,
+                    frameWidth = frameWidth,
+                    frameHeight = frameHeight
+                )
+
+        val contentWidth =
+            if (useFrame) {
+                frameWidth
+            } else {
+                currentGeometry?.widthPx ?: return
+            }
+        val contentHeight =
+            if (useFrame) {
+                frameHeight
+            } else {
+                currentGeometry?.heightPx ?: return
+            }
+        if (contentWidth <= 0 || contentHeight <= 0) return
+
+        val contentAspect =
+            contentWidth.toFloat() / contentHeight.toFloat()
+        val containerAspect =
+            containerWidth.toFloat() / containerHeight.toFloat()
+
+        val targetWidth: Int
+        val targetHeight: Int
+        if (containerAspect > contentAspect) {
+            targetHeight = containerHeight
+            targetWidth =
+                (targetHeight * contentAspect)
+                    .roundToInt()
+                    .coerceAtLeast(1)
+        } else {
+            targetWidth = containerWidth
+            targetHeight =
+                (targetWidth / contentAspect)
+                    .roundToInt()
+                    .coerceAtLeast(1)
+        }
+
+        val params =
+            (textureView.layoutParams as? FrameLayout.LayoutParams)
+                ?: FrameLayout.LayoutParams(
+                    targetWidth,
+                    targetHeight
+                )
+        if (
+            params.width != targetWidth ||
+            params.height != targetHeight ||
+            params.gravity != Gravity.CENTER
+        ) {
+            params.width = targetWidth
+            params.height = targetHeight
+            params.gravity = Gravity.CENTER
+            textureView.layoutParams = params
+        }
+
+        updateRendererAspect(targetWidth, targetHeight)
+        positionControlHandleIfNeeded()
+    }
+
     private fun decodeFallbackFrame(
         frame: FallbackVideoFrame
     ) {
@@ -691,9 +965,24 @@ class InlineRemoteControllerView(
                     return@runOnUiThread
                 }
 
+                val currentGeometry = geometry
+                if (
+                    currentGeometry != null &&
+                    !RemoteViewportMapper.frameMatchesRemote(
+                        remoteWidth = currentGeometry.widthPx,
+                        remoteHeight = currentGeometry.heightPx,
+                        frameWidth = oriented.width,
+                        frameHeight = oriented.height
+                    )
+                ) {
+                    oriented.recycle()
+                    return@runOnUiThread
+                }
+
                 fallbackActive = true
                 frameWidth = oriented.width
                 frameHeight = oriented.height
+                updateVideoViewport()
 
                 val previous = fallbackBitmap
                 fallbackBitmap = oriented
@@ -743,82 +1032,403 @@ class InlineRemoteControllerView(
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                suppressSingleGestureUntilUp = false
+                multiTouchActive = false
                 downX = event.x
                 downY = event.y
                 downAt = SystemClock.elapsedRealtime()
+                gestureGeneration = g.generation
+                gesturePoints.clear()
+                appendGesturePoint(
+                    event.x,
+                    event.y,
+                    event.eventTime
+                )
                 return true
             }
 
-            MotionEvent.ACTION_UP -> {
-                val start =
-                    normalize(
-                        downX,
-                        downY,
-                        g
-                    ) ?: return true
-                val end =
-                    normalize(
-                        event.x,
-                        event.y,
-                        g
-                    ) ?: return true
-
-                val duration =
-                    (
-                        SystemClock.elapsedRealtime() -
-                            downAt
-                        ).toInt()
-                        .coerceIn(80, 2_500)
-
-                val dx = event.x - downX
-                val dy = event.y - downY
-                val distanceSq = dx * dx + dy * dy
-
+            MotionEvent.ACTION_POINTER_DOWN -> {
                 if (
-                    distanceSq <
-                        dp(18).toFloat()
-                            .let { it * it }
+                    event.pointerCount >= 2 &&
+                    !multiTouchActive
                 ) {
-                    if (duration >= 600) {
-                        s.sendLongPress(
-                            start.x,
-                            start.y,
-                            duration,
-                            g.generation
-                        )
-                    } else {
-                        s.sendTap(
-                            end.x,
-                            end.y,
-                            g.generation
+                    val firstIndex = 0
+                    val secondIndex = event.actionIndex
+                    firstPointerId =
+                        event.getPointerId(firstIndex)
+                    secondPointerId =
+                        event.getPointerId(secondIndex)
+                    firstStartX = event.getX(firstIndex)
+                    firstStartY = event.getY(firstIndex)
+                    secondStartX = event.getX(secondIndex)
+                    secondStartY = event.getY(secondIndex)
+                    firstEndX = firstStartX
+                    firstEndY = firstStartY
+                    secondEndX = secondStartX
+                    secondEndY = secondStartY
+                    multiDownAt =
+                        SystemClock.elapsedRealtime()
+                    gestureGeneration = g.generation
+                    multiTouchActive = true
+                    suppressSingleGestureUntilUp = true
+                    gesturePoints.clear()
+                }
+                return true
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                if (multiTouchActive) {
+                    updateMultiTouch(event)
+                } else if (!suppressSingleGestureUntilUp) {
+                    for (index in 0 until event.historySize) {
+                        appendGesturePoint(
+                            event.getHistoricalX(index),
+                            event.getHistoricalY(index),
+                            event.getHistoricalEventTime(index)
                         )
                     }
-                } else {
-                    s.sendSwipe(
-                        start.x,
-                        start.y,
-                        end.x,
-                        end.y,
-                        duration,
-                        g.generation
+                    appendGesturePoint(
+                        event.x,
+                        event.y,
+                        event.eventTime
                     )
                 }
                 return true
             }
 
-            MotionEvent.ACTION_CANCEL ->
+            MotionEvent.ACTION_POINTER_UP -> {
+                if (multiTouchActive) {
+                    updateMultiTouch(event)
+                    if (g.generation == gestureGeneration) {
+                        sendMultiTouchGesture(s, g)
+                    }
+                    resetMultiTouch()
+                    suppressSingleGestureUntilUp = true
+                }
                 return true
+            }
+
+            MotionEvent.ACTION_UP -> {
+                if (multiTouchActive) {
+                    updateMultiTouch(event)
+                    if (g.generation == gestureGeneration) {
+                        sendMultiTouchGesture(s, g)
+                    }
+                    resetMultiTouch()
+                    gesturePoints.clear()
+                    suppressSingleGestureUntilUp = false
+                    return true
+                }
+
+                if (suppressSingleGestureUntilUp) {
+                    suppressSingleGestureUntilUp = false
+                    gesturePoints.clear()
+                    return true
+                }
+
+                if (g.generation != gestureGeneration) {
+                    gesturePoints.clear()
+                    return true
+                }
+
+                appendGesturePoint(
+                    event.x,
+                    event.y,
+                    event.eventTime
+                )
+                finishSingleGesture(
+                    session = s,
+                    geometry = g,
+                    upX = event.x,
+                    upY = event.y
+                )
+                gesturePoints.clear()
+                return true
+            }
+
+            MotionEvent.ACTION_CANCEL -> {
+                gesturePoints.clear()
+                resetMultiTouch()
+                suppressSingleGestureUntilUp = false
+                return true
+            }
         }
 
         return true
     }
 
+    private fun finishSingleGesture(
+        session: ControllerWebRtcSession,
+        geometry: RemoteGeometry,
+        upX: Float,
+        upY: Float
+    ) {
+        val rawDuration =
+            (
+                SystemClock.elapsedRealtime() -
+                    downAt
+                ).toInt()
+                .coerceIn(1, 2_500)
+        val dx = upX - downX
+        val dy = upY - downY
+        val distance = hypot(dx, dy)
+
+        if (distance < touchSlop) {
+            val point =
+                normalize(
+                    x = upX,
+                    y = upY,
+                    geometry = geometry,
+                    clampToContent = false
+                ) ?: return
+
+            if (
+                rawDuration >=
+                ViewConfiguration.getLongPressTimeout()
+            ) {
+                session.sendLongPress(
+                    point.x,
+                    point.y,
+                    rawDuration.coerceIn(450, 1_500),
+                    geometry.generation
+                )
+            } else {
+                session.sendTap(
+                    point.x,
+                    point.y,
+                    geometry.generation
+                )
+            }
+            return
+        }
+
+        val start =
+            normalize(
+                x = downX,
+                y = downY,
+                geometry = geometry,
+                clampToContent = false
+            ) ?: return
+        val end =
+            normalize(
+                x = upX,
+                y = upY,
+                geometry = geometry,
+                clampToContent = true
+            ) ?: return
+        val duration =
+            latencyOptimizedGestureDuration(rawDuration)
+
+        val path = sampledGesturePoints()
+            .mapNotNullIndexed { index, point ->
+                normalize(
+                    x = point.x,
+                    y = point.y,
+                    geometry = geometry,
+                    clampToContent = index != 0
+                )
+            }
+
+        if (path.size >= 3) {
+            session.sendGesturePath(
+                points = path.map { it.x to it.y },
+                durationMs = duration,
+                expectedGeneration = geometry.generation
+            )
+        } else {
+            session.sendSwipe(
+                fromNx = start.x,
+                fromNy = start.y,
+                toNx = end.x,
+                toNy = end.y,
+                durationMs = duration,
+                expectedGeneration = geometry.generation
+            )
+        }
+    }
+
+    private inline fun <T, R : Any> Iterable<T>.mapNotNullIndexed(
+        transform: (Int, T) -> R?
+    ): List<R> {
+        val destination = ArrayList<R>()
+        var index = 0
+        for (item in this) {
+            transform(index++, item)?.let(destination::add)
+        }
+        return destination
+    }
+
+    private fun appendGesturePoint(
+        x: Float,
+        y: Float,
+        atMs: Long
+    ) {
+        if (!x.isFinite() || !y.isFinite()) return
+
+        val previous = gesturePoints.lastOrNull()
+        if (previous != null) {
+            val distance =
+                hypot(
+                    x - previous.x,
+                    y - previous.y
+                )
+            val elapsed = atMs - previous.atMs
+            if (
+                distance < touchSlop * 0.45f &&
+                elapsed < TOUCH_SAMPLE_INTERVAL_MS
+            ) {
+                return
+            }
+        }
+
+        if (gesturePoints.size < MAX_LOCAL_GESTURE_POINTS) {
+            gesturePoints +=
+                LocalTouchPoint(
+                    x = x,
+                    y = y,
+                    atMs = atMs
+                )
+        } else {
+            gesturePoints[gesturePoints.lastIndex] =
+                LocalTouchPoint(
+                    x = x,
+                    y = y,
+                    atMs = atMs
+                )
+        }
+    }
+
+    private fun sampledGesturePoints(): List<LocalTouchPoint> {
+        if (gesturePoints.size <= MAX_GESTURE_POINTS) {
+            return gesturePoints.toList()
+        }
+
+        val result =
+            ArrayList<LocalTouchPoint>(MAX_GESTURE_POINTS)
+        val lastIndex = gesturePoints.lastIndex
+        for (index in 0 until MAX_GESTURE_POINTS) {
+            val sourceIndex =
+                (
+                    index.toLong() *
+                        lastIndex /
+                        (MAX_GESTURE_POINTS - 1)
+                    ).toInt()
+            result += gesturePoints[sourceIndex]
+        }
+        return result
+    }
+
+    private fun updateMultiTouch(event: MotionEvent) {
+        val firstIndex =
+            event.findPointerIndex(firstPointerId)
+        val secondIndex =
+            event.findPointerIndex(secondPointerId)
+
+        if (firstIndex >= 0) {
+            firstEndX = event.getX(firstIndex)
+            firstEndY = event.getY(firstIndex)
+        }
+        if (secondIndex >= 0) {
+            secondEndX = event.getX(secondIndex)
+            secondEndY = event.getY(secondIndex)
+        }
+    }
+
+    private fun sendMultiTouchGesture(
+        session: ControllerWebRtcSession,
+        geometry: RemoteGeometry
+    ) {
+        val firstStart =
+            normalize(
+                firstStartX,
+                firstStartY,
+                geometry,
+                clampToContent = false
+            ) ?: return
+        val secondStart =
+            normalize(
+                secondStartX,
+                secondStartY,
+                geometry,
+                clampToContent = false
+            ) ?: return
+        val firstEnd =
+            normalize(
+                firstEndX,
+                firstEndY,
+                geometry,
+                clampToContent = true
+            ) ?: return
+        val secondEnd =
+            normalize(
+                secondEndX,
+                secondEndY,
+                geometry,
+                clampToContent = true
+            ) ?: return
+
+        val rawDuration =
+            (
+                SystemClock.elapsedRealtime() -
+                    multiDownAt
+                ).toInt()
+                .coerceIn(80, 2_500)
+
+        session.sendTwoFingerGesture(
+            firstFromNx = firstStart.x,
+            firstFromNy = firstStart.y,
+            firstToNx = firstEnd.x,
+            firstToNy = firstEnd.y,
+            secondFromNx = secondStart.x,
+            secondFromNy = secondStart.y,
+            secondToNx = secondEnd.x,
+            secondToNy = secondEnd.y,
+            durationMs =
+                latencyOptimizedGestureDuration(rawDuration),
+            expectedGeneration = geometry.generation
+        )
+    }
+
+    private fun resetMultiTouch() {
+        multiTouchActive = false
+        firstPointerId = -1
+        secondPointerId = -1
+    }
+
+    private fun latencyOptimizedGestureDuration(
+        rawDurationMs: Int
+    ): Int =
+        rawDurationMs.coerceIn(
+            MIN_REMOTE_GESTURE_MS,
+            MAX_REMOTE_GESTURE_MS
+        )
+
     private fun normalize(
         x: Float,
         y: Float,
-        geometry: RemoteGeometry
-    ): NormalizedRemotePoint? =
-        RemoteViewportMapper.normalize(
+        geometry: RemoteGeometry,
+        clampToContent: Boolean = false
+    ): NormalizedRemotePoint? {
+        val candidateFrameWidth =
+            frameWidth.takeIf {
+                it > 0 &&
+                    RemoteViewportMapper.frameMatchesRemote(
+                        remoteWidth = geometry.widthPx,
+                        remoteHeight = geometry.heightPx,
+                        frameWidth = it,
+                        frameHeight =
+                            frameHeight.takeIf { value -> value > 0 }
+                                ?: geometry.heightPx
+                    )
+            } ?: geometry.widthPx
+        val candidateFrameHeight =
+            if (candidateFrameWidth == geometry.widthPx) {
+                geometry.heightPx
+            } else {
+                frameHeight
+            }
+
+        return RemoteViewportMapper.normalize(
             touchX = x,
             touchY = y,
             viewWidth =
@@ -827,14 +1437,11 @@ class InlineRemoteControllerView(
                 rendererContainer.height.toFloat(),
             remoteWidth = geometry.widthPx,
             remoteHeight = geometry.heightPx,
-            frameWidth =
-                frameWidth.takeIf { it > 0 }
-                    ?: geometry.widthPx,
-            frameHeight =
-                frameHeight.takeIf { it > 0 }
-                    ?: geometry.heightPx,
-            clampToContent = false
+            frameWidth = candidateFrameWidth,
+            frameHeight = candidateFrameHeight,
+            clampToContent = clampToContent
         )
+    }
 
     private fun session(): ControllerWebRtcSession? =
         ControllerConnectionRuntime.activeSession(
@@ -850,5 +1457,15 @@ class InlineRemoteControllerView(
         private const val RENDER_RECOVERY_RETRY_MS = 2_500L
         private const val MAX_MEDIA_RECOVERY_ATTEMPTS = 2
         private const val MAX_RENDERER_RECOVERY_ATTEMPTS = 2
+
+        private const val CONTROLS_AUTO_HIDE_MS = 5_000L
+        private const val HANDLE_EDGE_MARGIN_DP = 8
+        private const val HANDLE_SNAP_MS = 140L
+
+        private const val TOUCH_SAMPLE_INTERVAL_MS = 24L
+        private const val MAX_LOCAL_GESTURE_POINTS = 192
+        private const val MAX_GESTURE_POINTS = 64
+        private const val MIN_REMOTE_GESTURE_MS = 80
+        private const val MAX_REMOTE_GESTURE_MS = 650
     }
 }
