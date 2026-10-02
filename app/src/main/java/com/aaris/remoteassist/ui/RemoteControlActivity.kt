@@ -329,6 +329,7 @@ class RemoteControlActivity : ComponentActivity() {
                 }
 
                 ensureRtcStarted(id)
+                rtcSession?.onScreenReady()
             }
 
             "LIVE" -> {
@@ -351,8 +352,11 @@ class RemoteControlActivity : ComponentActivity() {
                     }
 
                     ensureRtcStarted(id)
+                    rtcSession?.onScreenReady()
                     return
                 }
+
+                rtcSession?.onScreenReady()
 
                 runCatching {
                     val local = SessionCoordinator.snapshot()
