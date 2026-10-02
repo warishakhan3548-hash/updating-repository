@@ -40,6 +40,7 @@ class WebRtcPeer(
         fun onControlChannelClosed()
         fun onControlMessage(bytes: ByteArray)
         fun onRemoteVideoTrack(track: VideoTrack)
+        fun onFallbackVideoFrame(frame: FallbackVideoFrame) = Unit
         fun onRemoteMediaRecoveryRequested() = Unit
         fun onDiagnostic(message: String) = Unit
         fun onError(error: Throwable)
@@ -248,6 +249,12 @@ class WebRtcPeer(
     @Volatile
     private var controlChannel: DataChannel? = null
 
+    @Volatile
+    private var fallbackVideoChannel: DataChannel? = null
+
+    private val fallbackReassembler =
+        FallbackVideoProtocol.Reassembler()
+
     /*
      * Keep the one-way screen media contract explicit on both peers.
      *
@@ -444,6 +451,15 @@ class WebRtcPeer(
                     CONTROL_CHANNEL,
                     DataChannel.Init().apply {
                         ordered = true
+                    }
+                )
+            )
+            bindFallbackVideoChannel(
+                peerConnection.createDataChannel(
+                    FALLBACK_VIDEO_CHANNEL,
+                    DataChannel.Init().apply {
+                        ordered = false
+                        maxRetransmits = 0
                     }
                 )
             )
@@ -734,6 +750,36 @@ class WebRtcPeer(
     fun sendControl(bytes: ByteArray): Boolean {
         val channel = controlChannel ?: return false
         if (channel.state() != DataChannel.State.OPEN) return false
+
+        return channel.send(
+            DataChannel.Buffer(
+                ByteBuffer.wrap(bytes),
+                true
+            )
+        )
+    }
+
+    fun sendFallbackVideo(bytes: ByteArray): Boolean {
+        if (
+            closed.get() ||
+            role != PeerRole.HOST ||
+            bytes.isEmpty() ||
+            bytes.size > MAX_FALLBACK_PACKET_BYTES
+        ) {
+            return false
+        }
+
+        val channel = fallbackVideoChannel ?: return false
+        if (channel.state() != DataChannel.State.OPEN) {
+            return false
+        }
+
+        if (
+            channel.bufferedAmount() >
+            MAX_FALLBACK_BUFFERED_BYTES
+        ) {
+            return false
+        }
 
         return channel.send(
             DataChannel.Buffer(
@@ -1113,12 +1159,18 @@ class WebRtcPeer(
     override fun onRemoveStream(stream: MediaStream) = Unit
 
     override fun onDataChannel(dataChannel: DataChannel) {
-        if (
-            role == PeerRole.CONTROLLER &&
-            dataChannel.label() == CONTROL_CHANNEL
-        ) {
-            bindControlChannel(dataChannel)
-            return
+        if (role == PeerRole.CONTROLLER) {
+            when (dataChannel.label()) {
+                CONTROL_CHANNEL -> {
+                    bindControlChannel(dataChannel)
+                    return
+                }
+
+                FALLBACK_VIDEO_CHANNEL -> {
+                    bindFallbackVideoChannel(dataChannel)
+                    return
+                }
+            }
         }
 
         runCatching { dataChannel.unregisterObserver() }
@@ -1157,6 +1209,15 @@ class WebRtcPeer(
             runCatching { it.dispose() }
         }
         controlChannel = null
+
+        fallbackVideoChannel?.let {
+            runCatching { it.unregisterObserver() }
+            runCatching { it.close() }
+            runCatching { it.dispose() }
+        }
+        fallbackVideoChannel = null
+        fallbackReassembler.reset()
+
         publishedRemoteVideoTrack = null
         controllerVideoTransceiver = null
         localScreenTransceiver = null
@@ -1398,6 +1459,77 @@ class WebRtcPeer(
         }
     }
 
+    private fun bindFallbackVideoChannel(
+        channel: DataChannel
+    ) {
+        fallbackVideoChannel?.let { existing ->
+            if (existing !== channel) {
+                runCatching { existing.unregisterObserver() }
+                runCatching { existing.close() }
+                runCatching { existing.dispose() }
+            }
+        }
+
+        fallbackVideoChannel = channel
+        channel.registerObserver(
+            object : DataChannel.Observer {
+                override fun onBufferedAmountChange(
+                    previousAmount: Long
+                ) = Unit
+
+                override fun onStateChange() {
+                    if (channel.state() == DataChannel.State.OPEN) {
+                        listener.onDiagnostic(
+                            "fallback-video-v1 DataChannel OPEN"
+                        )
+                    }
+                }
+
+                override fun onMessage(
+                    buffer: DataChannel.Buffer
+                ) {
+                    if (
+                        role != PeerRole.CONTROLLER ||
+                        !buffer.binary
+                    ) {
+                        return
+                    }
+
+                    val source = buffer.data.slice()
+                    val size = source.remaining()
+                    if (
+                        size <= 0 ||
+                        size > MAX_FALLBACK_PACKET_BYTES
+                    ) {
+                        return
+                    }
+
+                    val bytes = ByteArray(size)
+                    source.get(bytes)
+
+                    fallbackReassembler
+                        .offer(bytes)
+                        ?.let { frame ->
+                            listener.onDiagnostic(
+                                "Compatibility video frame received (" +
+                                    frame.jpeg.size +
+                                    " bytes)"
+                            )
+                            listener.onFallbackVideoFrame(
+                                frame
+                            )
+                        }
+                }
+            }
+        )
+
+        if (channel.state() == DataChannel.State.OPEN) {
+            listener.onDiagnostic(
+                "fallback-video-v1 DataChannel OPEN"
+            )
+        }
+    }
+
     private fun publishPeerConnected() {
         if (connectivity.onConnected()) {
             listener.onPeerConnected()
@@ -1523,10 +1655,13 @@ class WebRtcPeer(
     companion object {
         private const val MAX_PENDING_REMOTE_CANDIDATES = 192
         private const val MAX_CONTROL_PACKET_BYTES = 4_096
+        private const val MAX_FALLBACK_PACKET_BYTES = 12_500
+        private const val MAX_FALLBACK_BUFFERED_BYTES = 900_000L
         private const val CONTROL_CHANNEL = "control-v1"
+        private const val FALLBACK_VIDEO_CHANNEL = "fallback-video-v1"
         private const val SCREEN_STREAM_ID = "remote-screen"
-        private const val MAX_VIDEO_BITRATE_BPS = 2_500_000
-        private const val MAX_VIDEO_FRAMERATE = 30
+        private const val MAX_VIDEO_BITRATE_BPS = 1_500_000
+        private const val MAX_VIDEO_FRAMERATE = 20
         private const val RESTART_ICE_REFRESH_TIMEOUT_MS = 1_500L
         private const val PRELIVE_ICE_REFRESH_TIMEOUT_MS = 5_000L
         private const val ICE_RESTART_MIN_INTERVAL_MS = 2_500L
