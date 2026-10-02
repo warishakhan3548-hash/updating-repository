@@ -45,18 +45,58 @@ class CaptureQualityGovernorTest {
     }
 
     @Test
-    fun severeRttDowngradesImmediately() {
+    fun isolatedSevereRttSpikeDoesNotBlurCaptureImmediately() {
         val governor =
             CaptureQualityGovernor(
                 initialTier = CaptureTier.STANDARD,
                 maxTier = CaptureTier.STANDARD
             )
 
+        assertNull(
+            governor.observeQualityLimitation(
+                reason = "none",
+                roundTripTimeMs = 950,
+                packetLossRatio = 0.0
+            )
+        )
+        assertEquals(
+            CaptureTier.STANDARD,
+            governor.currentTier()
+        )
+
+        assertNull(
+            governor.observeQualityLimitation(
+                reason = "none",
+                roundTripTimeMs = 140,
+                packetLossRatio = 0.0
+            )
+        )
+        assertEquals(
+            CaptureTier.STANDARD,
+            governor.currentTier()
+        )
+    }
+
+    @Test
+    fun sustainedSevereRttStillDowngradesAfterHysteresis() {
+        val governor =
+            CaptureQualityGovernor(
+                initialTier = CaptureTier.STANDARD,
+                maxTier = CaptureTier.STANDARD
+            )
+
+        assertNull(
+            governor.observeQualityLimitation(
+                reason = "none",
+                roundTripTimeMs = 950,
+                packetLossRatio = 0.0
+            )
+        )
         assertEquals(
             CaptureTier.BALANCED,
             governor.observeQualityLimitation(
                 reason = "none",
-                roundTripTimeMs = 950,
+                roundTripTimeMs = 980,
                 packetLossRatio = 0.0
             )
         )
