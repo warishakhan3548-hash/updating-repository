@@ -42,7 +42,8 @@ class ControllerWebRtcSession(
     @Volatile
     private var geometry: RemoteGeometry? = null
 
-    private val signaling = FirebaseSignalingClient(
+    private val signaling = CloudflareSignalingClient(
+        context = appContext,
         sessionId = sessionId,
         role = PeerRole.CONTROLLER
     )

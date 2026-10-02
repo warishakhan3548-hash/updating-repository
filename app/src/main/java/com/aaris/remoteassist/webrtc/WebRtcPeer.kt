@@ -257,6 +257,7 @@ class WebRtcPeer(
 
             scope.launch {
                 val refreshed = IceServerProvider.loadConfig(
+                    context = appContext,
                     sessionId = sessionId,
                     timeoutMs = PRELIVE_ICE_REFRESH_TIMEOUT_MS
                 )
@@ -293,7 +294,7 @@ class WebRtcPeer(
                         /*
                          * Do not overwrite controllerSignal here.
                          *
-                         * During startup that single RTDB value may still hold
+                         * During startup the most recent signaling value may still hold
                          * the SDP answer the host has not observed yet. Replacing
                          * it with a restart hint can permanently lose the answer
                          * and leave both phones stuck at Connecting.
@@ -350,7 +351,7 @@ class WebRtcPeer(
         registerNetworkHandoffObserver()
 
         scope.launch {
-            val loaded = IceServerProvider.loadConfig(sessionId)
+            val loaded = IceServerProvider.loadConfig(appContext, sessionId)
             handler.post {
                 if (closed.get()) return@post
 
@@ -473,6 +474,7 @@ class WebRtcPeer(
                     PRELIVE_ICE_REFRESH_TIMEOUT_MS
                 }
             val refreshed = IceServerProvider.loadConfig(
+                context = appContext,
                 sessionId = sessionId,
                 timeoutMs = refreshTimeoutMs
             )
@@ -612,7 +614,7 @@ class WebRtcPeer(
                 true
             )
         ) {
-            // The authoritative signal remains in RTDB. If this was a newer
+            // The authoritative signal remains replayable. If this was a newer
             // generation the host-side delivery watchdog will re-deliver it
             // after the current SDP application has settled.
             return
@@ -736,10 +738,9 @@ class WebRtcPeer(
         )?.let(peerConnection::addIceCandidate)
     }
 
-    // RTDB presence is signaling-plane telemetry, not transport truth.
-    // A temporary Firebase disconnect can flip presence false while the
-    // peer connection and ordered control channel are still healthy.
-    // Connectivity is therefore driven only by WebRTC + DataChannel.
+    // Backend presence is advisory signaling telemetry, not transport truth.
+    // A temporary signaling disconnect must not override a healthy WebRTC
+    // peer connection and ordered control channel.
     override fun onRemotePresence(online: Boolean) = Unit
 
     override fun onError(error: Throwable) {

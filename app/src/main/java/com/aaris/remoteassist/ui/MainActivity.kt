@@ -36,7 +36,7 @@ import com.aaris.remoteassist.accessibility.PermissionGate
 import com.aaris.remoteassist.capture.ScreenShareService
 import com.aaris.remoteassist.pairing.BackendSession
 import com.aaris.remoteassist.pairing.BackendSessionCloser
-import com.aaris.remoteassist.pairing.FirebasePairingGateway
+import com.aaris.remoteassist.pairing.CloudflarePairingGateway
 import com.aaris.remoteassist.pairing.PairingCode
 import com.aaris.remoteassist.pairing.PairingLink
 import com.aaris.remoteassist.pairing.PairingShareText
@@ -56,7 +56,7 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val gateway by lazy { FirebasePairingGateway(this) }
+    private val gateway by lazy { CloudflarePairingGateway(this) }
 
     private lateinit var status: TextView
     private lateinit var statusProgress: ProgressBar
@@ -1834,15 +1834,13 @@ class MainActivity : ComponentActivity() {
             .lowercase()
 
         status.text = when {
-            "wrong firebase project" in detail ->
-                "This build is connected to the wrong Aaris Remote service."
-
-            "not configured" in detail ->
-                "Aaris Remote service is not configured on this build."
-
-            "permission denied" in detail ||
-                "permission_denied" in detail ->
+            "backend_not_configured" in detail ||
+                "turn_not_configured" in detail ->
                 "Aaris Remote service setup needs attention. Try the latest build."
+
+            "unauthorized" in detail ||
+                "missing_session_token" in detail ->
+                "This connection expired. Create a new one-time code."
 
             "network" in detail ||
                 "timeout" in detail ||
@@ -1882,7 +1880,7 @@ class MainActivity : ComponentActivity() {
         }
 
         // Do not require NET_CAPABILITY_VALIDATED here. Android validation can
-        // lag behind a usable route; Firebase's bounded timeout remains the
+        // lag behind a usable route; the backend's bounded timeout remains the
         // authority for uncertain-but-potentially-working networks.
         return null
     }

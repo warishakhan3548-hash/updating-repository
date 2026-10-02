@@ -13,7 +13,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import com.aaris.remoteassist.pairing.BackendSessionCloser
-import com.aaris.remoteassist.pairing.FirebasePairingGateway
+import com.aaris.remoteassist.pairing.CloudflarePairingGateway
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionState
 import com.aaris.remoteassist.ui.MainActivity
@@ -156,7 +156,7 @@ class ScreenShareService : Service() {
         grant: ProjectionGrant
     ) {
         scope.launch {
-            val gateway = FirebasePairingGateway(
+            val gateway = CloudflarePairingGateway(
                 this@ScreenShareService
             )
             var attempt = 0
@@ -289,7 +289,7 @@ class ScreenShareService : Service() {
                 attempt < BACKEND_LIVE_PUBLISH_ATTEMPTS
             ) {
                 val published = runCatching {
-                    FirebasePairingGateway(
+                    CloudflarePairingGateway(
                         this@ScreenShareService
                     ).markLive(sessionId)
                 }.isSuccess
