@@ -85,6 +85,13 @@ class HostWebRtcSession(
         onProjectionStopped = listener::onProjectionStopped
     )
 
+    private val fallbackStreamer =
+        FallbackScreenStreamer(
+            track = capture.videoTrack,
+            sendPacket = peer::sendFallbackVideo,
+            onDiagnostic = listener::onDiagnostic
+        )
+
     private val captureProbe = VideoSink {
         if (localCaptureFrameSeen.compareAndSet(false, true)) {
             listener.onDiagnostic("MediaProjection produced first capture frame")
@@ -393,8 +400,9 @@ class HostWebRtcSession(
         if (closed.get()) return
 
         listener.onDiagnostic(
-            "Controller requested video recovery • refreshing MediaProjection"
+            "Controller requested video recovery • enabling compatibility stream"
         )
+        fallbackStreamer.enable()
 
         /*
          * Keep the authenticated/control session alive. Refreshing the capture
@@ -443,6 +451,7 @@ class HostWebRtcSession(
         runCatching {
             capture.videoTrack.removeSink(captureProbe)
         }
+        runCatching { fallbackStreamer.close() }
         runCatching { peer.close() }
         runCatching { capture.close() }
 
