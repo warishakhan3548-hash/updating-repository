@@ -282,6 +282,41 @@ class ControlProtocolTest {
     }
 
     @Test
+    fun interactionStateRoundTripsWithoutBecomingACommand() {
+        val active =
+            ControlPacket.InteractionState(
+                leaseSecret = 99L,
+                active = true
+            )
+        val idle =
+            ControlPacket.InteractionState(
+                leaseSecret = 99L,
+                active = false
+            )
+
+        assertEquals(
+            active,
+            ControlProtocol.decode(
+                ControlProtocol.encode(active)
+            )
+        )
+        assertEquals(
+            idle,
+            ControlProtocol.decode(
+                ControlProtocol.encode(idle)
+            )
+        )
+        org.junit.Assert.assertNull(
+            ControlProtocol.toRemoteCommand(
+                sessionId = "s1",
+                packet = active,
+                widthPx = 1080,
+                heightPx = 2400
+            )
+        )
+    }
+
+    @Test
     fun rejectsWrongProtocolVersion() {
         val encoded = ControlProtocol.encode(
             ControlPacket.Heartbeat(7L)
