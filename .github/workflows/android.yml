@@ -130,10 +130,10 @@ jobs:
                       return data
               raise AssertionError("Expected WebSocket event was not delivered")
 
-          def post_presence():
-              payload = json.dumps({
-                  "kind": "presence",
-                  "payload": {"online": True, "probe": "ci-websocket"}
+          def post_event(token, kind, payload):
+              body = json.dumps({
+                  "kind": kind,
+                  "payload": payload
               })
               completed = subprocess.run(
                   [
@@ -143,9 +143,9 @@ jobs:
                       "-fsS",
                       "-X", "POST",
                       f"{base}/v1/sessions/{sid}/events",
-                      "-H", f"authorization: Bearer {host_token}",
+                      "-H", f"authorization: Bearer {token}",
                       "-H", "content-type: application/json",
-                      "-d", payload,
+                      "-d", body,
                   ],
                   check=False,
                   capture_output=True,
@@ -172,16 +172,16 @@ jobs:
                   open_timeout=8,
                   close_timeout=3,
               ) as controller_ws:
-                  await recv_match(
-                      host_ws,
-                      lambda x: x.get("kind") == "session"
+                  await recv_match(host_ws, lambda x: x.get("kind") == "session")
+                  await recv_match(controller_ws, lambda x: x.get("kind") == "session")
+
+                  await asyncio.to_thread(
+                      post_event,
+                      host_token,
+                      "presence",
+                      {"online": True, "probe": "ci-websocket"},
                   )
-                  await recv_match(
-                      controller_ws,
-                      lambda x: x.get("kind") == "session"
-                  )
-                  await asyncio.to_thread(post_presence)
-                  event = await recv_match(
+                  presence = await recv_match(
                       controller_ws,
                       lambda x: (
                           x.get("kind") == "signal_event"
@@ -191,13 +191,107 @@ jobs:
                               == "ci-websocket"
                       ),
                   )
-                  assert event["event"]["seq"] > 0
+                  assert presence["event"]["seq"] > 0
+
+                  offer_id = "ci-host-offer:1"
+                  answer_id = "ci-controller-answer:1"
+
+                  await asyncio.to_thread(
+                      post_event,
+                      host_token,
+                      "description",
+                      {
+                          "type": "offer",
+                          "sdp": "v=0\\r\\n",
+                          "negotiationId": offer_id,
+                      },
+                  )
+                  offer = await recv_match(
+                      controller_ws,
+                      lambda x: (
+                          x.get("kind") == "signal_event"
+                          and x.get("event", {}).get("kind") == "description"
+                          and x.get("event", {}).get("senderRole") == "host"
+                          and x.get("event", {}).get("payload", {}).get("negotiationId")
+                              == offer_id
+                      ),
+                  )
+                  assert offer["event"]["payload"]["type"] == "offer"
+
+                  await asyncio.to_thread(
+                      post_event,
+                      controller_token,
+                      "description",
+                      {
+                          "type": "answer",
+                          "sdp": "v=0\\r\\n",
+                          "negotiationId": answer_id,
+                          "replyToNegotiationId": offer_id,
+                      },
+                  )
+                  answer = await recv_match(
+                      host_ws,
+                      lambda x: (
+                          x.get("kind") == "signal_event"
+                          and x.get("event", {}).get("kind") == "description"
+                          and x.get("event", {}).get("senderRole") == "controller"
+                          and x.get("event", {}).get("payload", {}).get("negotiationId")
+                              == answer_id
+                      ),
+                  )
+                  assert answer["event"]["payload"]["replyToNegotiationId"] == offer_id
+
+                  await asyncio.to_thread(
+                      post_event,
+                      host_token,
+                      "candidate",
+                      {
+                          "mid": "0",
+                          "mLine": 0,
+                          "sdp": "candidate:ci-host 1 udp 1 192.0.2.1 9 typ host",
+                          "negotiationId": offer_id,
+                      },
+                  )
+                  await recv_match(
+                      controller_ws,
+                      lambda x: (
+                          x.get("kind") == "signal_event"
+                          and x.get("event", {}).get("kind") == "candidate"
+                          and x.get("event", {}).get("senderRole") == "host"
+                          and x.get("event", {}).get("payload", {}).get("negotiationId")
+                              == offer_id
+                      ),
+                  )
+
+                  await asyncio.to_thread(
+                      post_event,
+                      controller_token,
+                      "candidate",
+                      {
+                          "mid": "0",
+                          "mLine": 0,
+                          "sdp": "candidate:ci-controller 1 udp 1 192.0.2.2 9 typ host",
+                          "negotiationId": answer_id,
+                      },
+                  )
+                  await recv_match(
+                      host_ws,
+                      lambda x: (
+                          x.get("kind") == "signal_event"
+                          and x.get("event", {}).get("kind") == "candidate"
+                          and x.get("event", {}).get("senderRole") == "controller"
+                          and x.get("event", {}).get("payload", {}).get("negotiationId")
+                              == answer_id
+                      ),
+                  )
 
           asyncio.run(main())
           PY
 
-          ICE="$(curl --retry 3 --retry-all-errors -fsS -X POST "$BASE/v1/sessions/$SID/ice"             -H "authorization: Bearer $CONTROLLER_TOKEN"             -H "content-type: application/json" -d "{}")"
-          printf '%s' "$ICE" | python3 -c '
+          check_turn() {
+            TOKEN="$1"
+            ICE="$(curl --retry 3 --retry-all-errors -fsS -X POST "$BASE/v1/sessions/$SID/ice"               -H "authorization: Bearer $TOKEN"               -H "content-type: application/json" -d "{}")"
+            printf '%s' "$ICE" | python3 -c '
           import json,sys
           d=json.load(sys.stdin)
           servers=d.get("iceServers",[])
@@ -207,6 +301,10 @@ jobs:
               urls.extend(value if isinstance(value,list) else [value])
           assert any(isinstance(u,str) and (u.startswith("turn:") or u.startswith("turns:")) for u in urls)
           '
+          }
+
+          check_turn "$HOST_TOKEN"
+          check_turn "$CONTROLLER_TOKEN"
 
           curl -fsS -X POST "$BASE/v1/sessions/$SID/state"             -H "authorization: Bearer $HOST_TOKEN"             -H "content-type: application/json"             -d '{"target":"LIVE"}' >/dev/null
           test "$(state "$CONTROLLER_TOKEN")" = "LIVE"
