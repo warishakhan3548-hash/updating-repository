@@ -272,7 +272,8 @@ class HostWebRtcSession(
         peer.addLocalVideoTrack(
             track = capture.videoTrack,
             maxBitrateBps = profile.maxVideoBitrateBps,
-            maxFramerate = profile.fps
+            maxFramerate = profile.fps,
+            preserveResolution = profile.prefersSharpness()
         )
         capture.start(profile)
 
@@ -306,7 +307,8 @@ class HostWebRtcSession(
         capture.update(latest)
         peer.updateInteractiveVideoPolicy(
             maxBitrateBps = latest.maxVideoBitrateBps,
-            maxFramerate = latest.fps
+            maxFramerate = latest.fps,
+            preserveResolution = latest.prefersSharpness()
         )
 
         /*
@@ -352,7 +354,8 @@ class HostWebRtcSession(
         capture.update(next)
         peer.updateInteractiveVideoPolicy(
             maxBitrateBps = next.maxVideoBitrateBps,
-            maxFramerate = next.fps
+            maxFramerate = next.fps,
+            preserveResolution = next.prefersSharpness()
         )
 
         listener.onDiagnostic(
@@ -563,10 +566,20 @@ class HostWebRtcSession(
             if (closed.get()) return@post
 
             captureQualityGovernor
-                .observeQualityLimitation(reason)
+                .observeQualityLimitation(
+                    reason = reason,
+                    roundTripTimeMs =
+                        snapshot.roundTripTimeMs,
+                    packetLossRatio =
+                        snapshot.packetLossRatio
+                )
                 ?.let(::applyCaptureTier)
         }
     }
+
+    private fun CaptureProfile.prefersSharpness(): Boolean =
+        tier == CaptureTier.STANDARD ||
+            tier == CaptureTier.HIGH
 
     override fun onDiagnostic(message: String) {
         listener.onDiagnostic(message)
