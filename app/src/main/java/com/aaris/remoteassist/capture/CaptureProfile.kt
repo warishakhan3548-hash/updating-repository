@@ -50,10 +50,17 @@ data class CaptureProfile(
         private const val STANDARD_FPS = 30
         private const val HIGH_FPS = 30
 
+        /*
+         * These are encoder ceilings, not forced send rates. WebRTC congestion
+         * control still chooses the real bitrate from current path capacity.
+         * Keep a little more headroom at the tiers used by healthy 4 GB+ phones
+         * so text-heavy screens do not become needlessly blocky during motion.
+         * Constrained links are still protected by CaptureQualityGovernor.
+         */
         private const val LOW_BITRATE_BPS = 1_200_000
-        private const val BALANCED_BITRATE_BPS = 2_800_000
-        private const val STANDARD_BITRATE_BPS = 5_200_000
-        private const val HIGH_BITRATE_BPS = 7_500_000
+        private const val BALANCED_BITRATE_BPS = 3_000_000
+        private const val STANDARD_BITRATE_BPS = 6_000_000
+        private const val HIGH_BITRATE_BPS = 8_000_000
 
         private const val LOW_MEMORY_BYTES = 3L * 1024L * 1024L * 1024L
         private const val HIGH_MEMORY_BYTES = 6L * 1024L * 1024L * 1024L

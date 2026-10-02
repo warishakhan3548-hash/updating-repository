@@ -40,6 +40,35 @@ class FallbackVideoProtocolTest {
     }
 
     @Test
+    fun highTierRecoveryFrameFitsGeometryAndBudget() {
+        val jpeg = ByteArray(720_000) { index ->
+            (index % 239).toByte()
+        }
+
+        val packets = FallbackVideoProtocol.encodeFrame(
+            frameId = 8L,
+            width = 1080,
+            height = 2400,
+            rotation = 0,
+            jpeg = jpeg
+        )
+
+        assertEquals(60, packets.size)
+
+        val reassembler =
+            FallbackVideoProtocol.Reassembler()
+        var result: FallbackVideoFrame? = null
+        packets.forEach { packet ->
+            result = reassembler.offer(packet) ?: result
+        }
+
+        val frame = checkNotNull(result)
+        assertEquals(1080, frame.width)
+        assertEquals(2400, frame.height)
+        assertArrayEquals(jpeg, frame.jpeg)
+    }
+
+    @Test
     fun incompleteOldFrameIsDroppedWhenNewerFrameArrives() {
         val oldPackets =
             FallbackVideoProtocol.encodeFrame(
