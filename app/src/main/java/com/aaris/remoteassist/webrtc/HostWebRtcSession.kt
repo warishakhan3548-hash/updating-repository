@@ -283,11 +283,17 @@ class HostWebRtcSession(
                 profile.tier.name
         )
         capture.videoTrack.addSink(captureProbe)
+        val initialVideoPolicy =
+            InteractiveVideoPolicy.forState(
+                tier = profile.tier,
+                interactionActive = false
+            )
         peer.addLocalVideoTrack(
             track = capture.videoTrack,
             maxBitrateBps = profile.maxVideoBitrateBps,
             maxFramerate = profile.fps,
-            preserveResolution = profile.prefersSharpness()
+            preserveResolution =
+                initialVideoPolicy.preserveResolution
         )
         capture.start(profile)
 
@@ -472,6 +478,10 @@ class HostWebRtcSession(
             is ControlPacket.Home,
             is ControlPacket.Recents,
             is ControlPacket.Text -> {
+                if (packet is ControlPacket.GestureStream) {
+                    refreshInteractionPriorityTimeout()
+                }
+
                 val currentProfile = profile
                 val command = ControlProtocol.toRemoteCommand(
                     sessionId = sessionId,
@@ -620,35 +630,52 @@ class HostWebRtcSession(
         if (interactionActive != active) {
             interactionActive = active
             applyVideoPolicy(profile)
+            val policy =
+                InteractiveVideoPolicy.forState(
+                    tier = profile.tier,
+                    interactionActive = active
+                )
             listener.onDiagnostic(
-                if (active) {
-                    "Remote interaction active • prioritizing fresh motion frames"
-                } else {
-                    "Remote interaction ended • restoring clarity-first video policy"
+                when {
+                    !active ->
+                        "Remote interaction ended • restoring clarity-first video policy"
+                    policy.motionPriority ->
+                        "Remote interaction active • prioritizing fresh motion frames"
+                    else ->
+                        "Remote interaction active • balancing motion smoothness and screen clarity"
                 }
             )
         }
 
-        if (active && !closed.get()) {
-            displayHandler.postDelayed(
-                interactionPriorityTimeout,
-                INTERACTION_PRIORITY_TIMEOUT_MS
-            )
+        if (active) {
+            refreshInteractionPriorityTimeout()
         }
     }
 
-    private fun applyVideoPolicy(target: CaptureProfile) {
-        peer.updateInteractiveVideoPolicy(
-            maxBitrateBps = target.maxVideoBitrateBps,
-            maxFramerate = target.fps,
-            preserveResolution = target.prefersSharpness(),
-            motionPriority = interactionActive
+    private fun refreshInteractionPriorityTimeout() {
+        if (closed.get() || !interactionActive) return
+
+        displayHandler.removeCallbacks(interactionPriorityTimeout)
+        displayHandler.postDelayed(
+            interactionPriorityTimeout,
+            INTERACTION_PRIORITY_TIMEOUT_MS
         )
     }
 
-    private fun CaptureProfile.prefersSharpness(): Boolean =
-        tier == CaptureTier.STANDARD ||
-            tier == CaptureTier.HIGH
+    private fun applyVideoPolicy(target: CaptureProfile) {
+        val policy =
+            InteractiveVideoPolicy.forState(
+                tier = target.tier,
+                interactionActive = interactionActive
+            )
+
+        peer.updateInteractiveVideoPolicy(
+            maxBitrateBps = target.maxVideoBitrateBps,
+            maxFramerate = target.fps,
+            preserveResolution = policy.preserveResolution,
+            motionPriority = policy.motionPriority
+        )
+    }
 
     override fun onDiagnostic(message: String) {
         listener.onDiagnostic(message)

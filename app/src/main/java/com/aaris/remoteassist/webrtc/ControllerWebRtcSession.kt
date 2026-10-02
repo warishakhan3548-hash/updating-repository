@@ -41,6 +41,8 @@ class ControllerWebRtcSession(
     private val gestureStreamIds = AtomicLong(0L)
     private val handler = Handler(Looper.getMainLooper())
     private val transport = ControlTransportTracker()
+    private val inboundVideoLiveness =
+        InboundVideoLivenessMonitor()
 
     @Volatile
     private var leaseSecret: Long? = null
@@ -446,6 +448,7 @@ class ControllerWebRtcSession(
     }
 
     override fun onPeerDisconnected() {
+        inboundVideoLiveness.reset()
         transport.onPeerDisconnected()
             ?.let(listener::onConnectivityChanged)
     }
@@ -474,6 +477,7 @@ class ControllerWebRtcSession(
 
                 leaseSecret = packet.leaseSecret
                 interactionActive = false
+                inboundVideoLiveness.reset()
                 handler.removeCallbacks(helloWatchdog)
                 val geometry = RemoteGeometry(
                     generation = packet.generation,
@@ -499,6 +503,7 @@ class ControllerWebRtcSession(
     }
 
     override fun onRemoteVideoTrack(track: VideoTrack) {
+        inboundVideoLiveness.reset()
         listener.onRemoteVideoTrack(track)
     }
 
@@ -512,6 +517,42 @@ class ControllerWebRtcSession(
         snapshot: VideoHealthSnapshot
     ) {
         listener.onDiagnostic(snapshot.compact())
+
+        if (
+            snapshot.direction != "inbound" ||
+            leaseSecret == null
+        ) {
+            return
+        }
+
+        when (
+            inboundVideoLiveness.observe(
+                framesReceived = snapshot.frames,
+                framesDecoded = snapshot.framesSecondary
+            )
+        ) {
+            InboundVideoLivenessAction.NONE -> Unit
+
+            InboundVideoLivenessAction.REQUEST_RECOVERY -> {
+                listener.onDiagnostic(
+                    "Primary video stalled • requesting in-session media recovery"
+                )
+                if (!requestMediaRecovery()) {
+                    inboundVideoLiveness
+                        .markRecoveryRequestFailed()
+                }
+            }
+
+            InboundVideoLivenessAction.CONFIRM_PRIMARY_RECOVERED -> {
+                if (confirmPrimaryVideoRendered()) {
+                    inboundVideoLiveness
+                        .markPrimaryRecoveredConfirmed()
+                    listener.onDiagnostic(
+                        "Primary video resumed • compatibility stream can stop"
+                    )
+                }
+            }
+        }
     }
 
     override fun onDiagnostic(message: String) {
@@ -532,6 +573,7 @@ class ControllerWebRtcSession(
         screenReadyArmed.set(false)
         handler.removeCallbacks(helloWatchdog)
         handler.removeCallbacks(heartbeat)
+        inboundVideoLiveness.reset()
         if (notifyRemote) {
             runCatching {
                 peer.sendControl(
