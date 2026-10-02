@@ -17,11 +17,11 @@ class CaptureQualityGovernorTest {
             governor.observeQualityLimitation("bandwidth")
         )
         assertEquals(
-            CaptureTier.LOW,
+            CaptureTier.BALANCED,
             governor.observeQualityLimitation("bandwidth")
         )
         assertEquals(
-            CaptureTier.LOW,
+            CaptureTier.BALANCED,
             governor.currentTier()
         )
     }
@@ -33,6 +33,23 @@ class CaptureQualityGovernorTest {
                 initialTier = CaptureTier.LOW,
                 maxTier = CaptureTier.STANDARD
             )
+
+        repeat(
+            CaptureQualityGovernor.UPGRADE_SAMPLE_COUNT - 1
+        ) {
+            assertNull(
+                governor.observeQualityLimitation("none")
+            )
+        }
+
+        assertEquals(
+            CaptureTier.BALANCED,
+            governor.observeQualityLimitation("none")
+        )
+        assertEquals(
+            CaptureTier.BALANCED,
+            governor.currentTier()
+        )
 
         repeat(
             CaptureQualityGovernor.UPGRADE_SAMPLE_COUNT - 1
@@ -90,7 +107,7 @@ class CaptureQualityGovernorTest {
             governor.observeQualityLimitation("cpu")
         )
         assertEquals(
-            CaptureTier.LOW,
+            CaptureTier.BALANCED,
             governor.observeQualityLimitation("cpu")
         )
     }

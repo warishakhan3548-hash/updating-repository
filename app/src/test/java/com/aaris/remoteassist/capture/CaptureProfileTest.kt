@@ -34,6 +34,21 @@ class CaptureProfileTest {
     }
 
     @Test
+    fun balancedTierAvoidsHarshQualityCliff() {
+        val profile =
+            CaptureProfile.forDisplay(
+                displayWidthPx = 1080,
+                displayHeightPx = 2400,
+                tier = CaptureTier.BALANCED
+            )
+
+        assertEquals(486, profile.captureWidthPx)
+        assertEquals(1080, profile.captureHeightPx)
+        assertEquals(24, profile.fps)
+        assertEquals(2_400_000, profile.maxVideoBitrateBps)
+    }
+
+    @Test
     fun lowTierProtectsLowRamDevices() {
         val profile =
             CaptureProfile.forDisplay(
