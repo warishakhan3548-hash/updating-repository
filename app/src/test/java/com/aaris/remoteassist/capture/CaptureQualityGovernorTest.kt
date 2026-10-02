@@ -6,7 +6,7 @@ import org.junit.Test
 
 class CaptureQualityGovernorTest {
     @Test
-    fun persistentPressureDowngradesOnlyAfterHysteresis() {
+    fun persistentBandwidthPressureDowngradesOnlyAfterHysteresis() {
         val governor =
             CaptureQualityGovernor(
                 initialTier = CaptureTier.STANDARD,
@@ -19,6 +19,24 @@ class CaptureQualityGovernorTest {
         assertEquals(
             CaptureTier.BALANCED,
             governor.observeQualityLimitation("bandwidth")
+        )
+        assertEquals(
+            CaptureTier.BALANCED,
+            governor.currentTier()
+        )
+    }
+
+    @Test
+    fun cpuPressureDowngradesImmediatelyToProtectFramePacing() {
+        val governor =
+            CaptureQualityGovernor(
+                initialTier = CaptureTier.STANDARD,
+                maxTier = CaptureTier.STANDARD
+            )
+
+        assertEquals(
+            CaptureTier.BALANCED,
+            governor.observeQualityLimitation("cpu")
         )
         assertEquals(
             CaptureTier.BALANCED,
@@ -233,7 +251,7 @@ class CaptureQualityGovernorTest {
     }
 
     @Test
-    fun unknownReasonResetsPressureStreak() {
+    fun unknownReasonResetsBandwidthPressureStreak() {
         val governor =
             CaptureQualityGovernor(
                 initialTier = CaptureTier.STANDARD,
@@ -241,17 +259,17 @@ class CaptureQualityGovernorTest {
             )
 
         assertNull(
-            governor.observeQualityLimitation("cpu")
+            governor.observeQualityLimitation("bandwidth")
         )
         assertNull(
             governor.observeQualityLimitation("other")
         )
         assertNull(
-            governor.observeQualityLimitation("cpu")
+            governor.observeQualityLimitation("bandwidth")
         )
         assertEquals(
             CaptureTier.BALANCED,
-            governor.observeQualityLimitation("cpu")
+            governor.observeQualityLimitation("bandwidth")
         )
     }
 }
