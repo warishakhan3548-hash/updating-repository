@@ -1,73 +1,44 @@
 # Aaris Remote
 
-Aaris Remote is a native Android remote-support app with explicit host approval, Android screen-share consent, a persistent STOP control, WebRTC video, and an ordered remote-control DataChannel.
+Aaris Remote is a native Android remote-support app. The sharing phone explicitly enables Accessibility and grants Android screen-capture permission; the controller phone does not need Accessibility.
 
 ## 1.8 architecture
 
-Aaris Remote 1.8 uses one Cloudflare control plane. The Android app no longer requires Firebase, `google-services.json`, Google Services Gradle plugins, Firebase Authentication, or Realtime Database.
+Aaris Remote 1.8 uses Cloudflare as its complete internet control plane:
 
-### Session flow
+- **Pairing/session authority:** SQLite-backed Durable Objects.
+- **One-time pairing:** random 12-digit code, five-minute expiry, single redemption.
+- **Signaling:** hibernatable Cloudflare WebSockets with a bounded sequence replay log for SDP/ICE recovery.
+- **TURN:** short-lived Cloudflare Realtime TURN credentials, available only to authenticated participants after `SCREEN_READY`.
+- **Media/control:** direct WebRTC between the phones; ordered `control-v1` DataChannel carries remote commands.
+- **Android state:** deterministic local state machine remains the UI/lifecycle authority on each phone.
+
+Firebase is not used by the Android runtime, build, pairing, signaling, session state, or TURN authorization.
+
+## Session flow
+
+Local/UI flow:
 
 `IDLE -> READY -> CODE_ACTIVE -> PAIR_PENDING -> HOST_APPROVED -> SCREEN_CONSENT -> CONNECTING -> LIVE -> CLOSED`
 
-Cloudflare authoritatively stores the remote portion:
+Cloudflare authoritative states:
 
 `CODE_ACTIVE -> PAIR_PENDING -> HOST_APPROVED -> SCREEN_READY -> LIVE -> CLOSED`
 
-The Android-only `SCREEN_CONSENT` state represents the mandatory MediaProjection approval UI.
+Backend transitions are monotonic and idempotent for already-completed forward states.
 
-### Cloudflare components
+## Security
 
-- Worker deployment: `aaris-remote-ice`
-- Worker source: `cloudflare/core-worker.js`
-- Pairing lookup: SQLite-backed Durable Object `PairingDirectory`
-- Per-session authority: SQLite-backed Durable Object `AarisSession`
-- Signaling receive path: hibernatable WebSocket with sequence replay
-- Signaling publish path: authenticated HTTP events with bounded client retry
-- Relay: Cloudflare Realtime TURN
-- Media/control transport: WebRTC between the two Android peers
+The 12-digit code is stored only as a SHA-256 lookup key inside the private pairing Durable Object and is deleted on redemption. Host and controller get independent random opaque session tokens; only SHA-256 token hashes persist in the session Durable Object. TURN account secrets remain Cloudflare Worker secrets and never ship in the APK.
 
-The Worker name is retained from the earlier TURN-only deployment so the already-provisioned TURN secrets stay server-side. Its runtime role is now the complete Cloudflare control plane, not a separate Firebase bridge.
+Screen frames and remote-control commands are not proxied through the Worker. They stay on the WebRTC peer connection.
 
-## Pairing and authorization
+## Reliability
 
-Share creates a random 12-digit one-time code with a five-minute TTL. The Worker stores only a SHA-256 lookup key in `PairingDirectory`, mapped to a random 256-bit session identifier.
-
-The host and controller receive different random opaque session tokens. Durable Object storage keeps only SHA-256 token hashes. The raw pairing code and raw session tokens are not persisted server-side.
-
-Redeeming a code consumes the directory entry before the controller is attached, preventing a second controller from claiming the same code.
-
-## WebRTC signaling
-
-Every signaling event has:
-
-- a monotonic sequence number
-- sender role
-- event kind
-- payload
-- creation time
-
-A reconnecting WebSocket supplies its last received sequence and the Durable Object replays the bounded missing event window before continuing live delivery.
-
-Existing WebRTC negotiation protections remain in place: generation IDs, answer-to-offer correlation, stale-generation rejection, bounded description/candidate retries, bounded startup recovery, and relay preference escalation.
-
-## TURN
-
-The long-lived Cloudflare TURN key remains only in Worker secret bindings. After a session reaches `SCREEN_READY` or `LIVE`, either authenticated participant may request short-lived ICE credentials. The APK never contains the long-lived TURN secret.
-
-If TURN temporarily cannot be loaded, WebRTC retains provider-diverse STUN fallback and the existing bounded recovery path.
-
-## Android permissions
-
-Accessibility is required only on the sharing/controlled phone because that phone executes gestures. The controller phone does not need Accessibility.
-
-Screen capture always requires Android MediaProjection consent from the sharing phone.
+Signaling events receive monotonic sequence numbers. A reconnecting WebSocket requests replay after its last sequence so a short signaling disconnect does not silently lose SDP/ICE state. Android keeps bounded SDP/candidate retries and bounded ICE-restart/relay escalation. Transport truth remains the WebRTC peer plus ordered DataChannel.
 
 ## Build
 
-Version 1.8.0 uses:
+No `google-services.json` or Firebase build secret is required.
 
-- `versionCode 48`
-- `versionName 1.8.0`
-
-No backend configuration file is injected into the APK. GitHub CI runs unit tests, debug/release lint, and debug/release assembly. Codemagic may sign release builds with the configured Android keystore.
+GitHub CI runs unit tests, debug/release lint, debug/release assembly, and a live Cloudflare backend smoke test. Codemagic can create the signed release APK using the configured Android signing identity.

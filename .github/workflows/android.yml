@@ -1,10 +1,13 @@
 name: CI
+
 permissions:
   contents: read
+
 on:
   push:
     branches: [ main ]
   pull_request:
+
 jobs:
   android:
     runs-on: ubuntu-latest
@@ -32,3 +35,83 @@ jobs:
           name: AarisRemote-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+  cloudflare-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify live Cloudflare control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://aaris-remote-ice.aaris-remote-wk3548.workers.dev"
+
+          HEALTH="$(curl --retry 3 --retry-all-errors -fsS "$BASE/healthz")"
+          printf '%s' "$HEALTH" | python3 -c '
+          import json,sys
+          d=json.load(sys.stdin)
+          assert d.get("ok") is True
+          assert d.get("backend") == "cloudflare-durable-objects"
+          assert d.get("version") == 2
+          '
+
+          HOST="$(curl --retry 3 --retry-all-errors -fsS -X POST "$BASE/v1/sessions" -H "content-type: application/json" -d "{}")"
+          export HOST
+          CODE="$(python3 -c 'import json,os; d=json.loads(os.environ["HOST"]); print(d["code"])')"
+          SID="$(python3 -c 'import json,os; d=json.loads(os.environ["HOST"]); print(d["sessionId"])')"
+          HOST_TOKEN="$(python3 -c 'import json,os; d=json.loads(os.environ["HOST"]); print(d["hostToken"])')"
+          export SID HOST_TOKEN
+          [[ "$CODE" =~ ^[0-9]{12}$ ]]
+          [[ "$SID" =~ ^[a-f0-9]{64}$ ]]
+
+          cleanup() {
+            curl -fsS -X POST "$BASE/v1/sessions/$SID/close"               -H "authorization: Bearer $HOST_TOKEN"               -H "content-type: application/json"               -d "{}" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          CONTROLLER="$(curl --retry 3 --retry-all-errors -fsS -X POST "$BASE/v1/sessions/redeem" -H "content-type: application/json" -d "{\"code\":\"$CODE\"}")"
+          export CONTROLLER
+          CONTROLLER_TOKEN="$(python3 -c 'import json,os; d=json.loads(os.environ["CONTROLLER"]); print(d["controllerToken"])')"
+          export CONTROLLER_TOKEN
+
+          state() {
+            curl --retry 3 --retry-all-errors -fsS "$BASE/v1/sessions/$SID"               -H "authorization: Bearer $1" |
+              python3 -c 'import json,sys; print(json.load(sys.stdin)["session"]["state"])'
+          }
+
+          test "$(state "$CONTROLLER_TOKEN")" = "PAIR_PENDING"
+
+          curl -fsS -X POST "$BASE/v1/sessions/$SID/state"             -H "authorization: Bearer $HOST_TOKEN"             -H "content-type: application/json"             -d '{"target":"HOST_APPROVED"}' >/dev/null
+          test "$(state "$CONTROLLER_TOKEN")" = "HOST_APPROVED"
+
+          curl -fsS -X POST "$BASE/v1/sessions/$SID/state"             -H "authorization: Bearer $HOST_TOKEN"             -H "content-type: application/json"             -d '{"target":"SCREEN_READY"}' >/dev/null
+          test "$(state "$CONTROLLER_TOKEN")" = "SCREEN_READY"
+
+          curl -fsS -X POST "$BASE/v1/sessions/$SID/events"             -H "authorization: Bearer $HOST_TOKEN"             -H "content-type: application/json"             -d '{"kind":"description","payload":{"type":"offer","sdp":"v=0","negotiationId":"smoke:1"}}' >/dev/null
+
+          EVENTS="$(curl -fsS "$BASE/v1/sessions/$SID/events?after=0" -H "authorization: Bearer $CONTROLLER_TOKEN")"
+          printf '%s' "$EVENTS" | python3 -c '
+          import json,sys
+          d=json.load(sys.stdin)
+          events=d.get("events",[])
+          assert any(e.get("kind")=="description" and e.get("senderRole")=="host" for e in events)
+          '
+
+          ICE="$(curl --retry 3 --retry-all-errors -fsS -X POST "$BASE/v1/sessions/$SID/ice"             -H "authorization: Bearer $CONTROLLER_TOKEN"             -H "content-type: application/json" -d "{}")"
+          printf '%s' "$ICE" | python3 -c '
+          import json,sys
+          d=json.load(sys.stdin)
+          servers=d.get("iceServers",[])
+          urls=[]
+          for item in servers:
+              value=item.get("urls",[])
+              urls.extend(value if isinstance(value,list) else [value])
+          assert any(isinstance(u,str) and (u.startswith("turn:") or u.startswith("turns:")) for u in urls)
+          '
+
+          curl -fsS -X POST "$BASE/v1/sessions/$SID/state"             -H "authorization: Bearer $HOST_TOKEN"             -H "content-type: application/json"             -d '{"target":"LIVE"}' >/dev/null
+          test "$(state "$CONTROLLER_TOKEN")" = "LIVE"
+
+          cleanup
+          trap - EXIT
+          test "$(state "$CONTROLLER_TOKEN")" = "CLOSED"

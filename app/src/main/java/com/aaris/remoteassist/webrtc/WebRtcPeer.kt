@@ -738,10 +738,9 @@ class WebRtcPeer(
         )?.let(peerConnection::addIceCandidate)
     }
 
-    // RTDB presence is signaling-plane telemetry, not transport truth.
-    // A temporary Firebase disconnect can flip presence false while the
-    // peer connection and ordered control channel are still healthy.
-    // Connectivity is therefore driven only by WebRTC + DataChannel.
+    // Backend presence is advisory signaling telemetry, not transport truth.
+    // A temporary signaling disconnect must not override a healthy WebRTC
+    // peer connection and ordered control channel.
     override fun onRemotePresence(online: Boolean) = Unit
 
     override fun onError(error: Throwable) {
