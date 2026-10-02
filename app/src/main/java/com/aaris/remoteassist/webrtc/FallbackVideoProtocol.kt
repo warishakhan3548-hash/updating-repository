@@ -71,7 +71,7 @@ object FallbackVideoProtocol {
         }
     }
 
-    internal fun decodeChunk(
+    private fun decodeChunk(
         bytes: ByteArray
     ): FallbackVideoChunk? {
         if (bytes.size < HEADER_BYTES) return null
