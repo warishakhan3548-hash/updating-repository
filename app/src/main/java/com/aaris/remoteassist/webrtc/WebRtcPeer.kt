@@ -1426,6 +1426,13 @@ class WebRtcPeer(
         private const val CONTROLLER_RELAY_REFRESH_INTERVAL_MS = 4_000L
         private const val MAX_CONTROLLER_RELAY_REFRESH_ATTEMPTS = 4L
         private const val MAX_BOOTSTRAP_RECOVERY_ATTEMPTS = 5
-        private const val MAX_OFFER_REDELIVERY_ATTEMPTS = 6
+        /*
+         * Backend CONNECT_TTL is 180 s. Keep re-delivering the exact same
+         * pending offer for ~2.5 minutes (initial 4 s + 29 * 5 s), so the host
+         * does not give up long before the authoritative session expires.
+         * The same negotiationId is reused; this is waiting/replay, not a
+         * second negotiation.
+         */
+        private const val MAX_OFFER_REDELIVERY_ATTEMPTS = 30
     }
 }
