@@ -2,11 +2,14 @@ package com.aaris.remoteassist.ui
 
 import android.app.Activity
 import android.graphics.Color
+import android.graphics.SurfaceTexture
 import android.graphics.Typeface
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.MotionEvent
-import android.view.SurfaceHolder
+import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -17,16 +20,21 @@ import com.aaris.remoteassist.webrtc.ControllerConnectionRuntime
 import com.aaris.remoteassist.webrtc.ControllerWebRtcSession
 import com.aaris.remoteassist.webrtc.RemoteGeometry
 import com.aaris.remoteassist.webrtc.WebRtcRuntime
-import org.webrtc.RendererCommon
-import org.webrtc.SurfaceViewRenderer
+import java.util.concurrent.atomic.AtomicBoolean
+import org.webrtc.EglBase
+import org.webrtc.EglRenderer
+import org.webrtc.GlRectDrawer
+import org.webrtc.VideoFrame
+import org.webrtc.VideoSink
 import org.webrtc.VideoTrack
 
 /**
  * Full-screen controller UI that lives inside MainActivity.
  *
- * The foreground ControllerConnectionService owns WebRTC. This view only
- * presents the already-established session, avoiding the fragile Activity
- * handoff that repeatedly crashed/finished on physical devices.
+ * WebRTC remains owned by ControllerConnectionService. This view uses a
+ * TextureView-backed EglRenderer so the remote video participates in the same
+ * Android view hierarchy as the controls instead of depending on a separate
+ * SurfaceView window/layer.
  */
 class InlineRemoteControllerView(
     private val activity: Activity,
@@ -37,9 +45,10 @@ class InlineRemoteControllerView(
     private val status = TextView(activity)
     private val dock = LinearLayout(activity)
     private val rendererContainer = FrameLayout(activity)
+    private val textureView = TextureView(activity)
+    private val mainHandler = Handler(Looper.getMainLooper())
 
-    private var renderer: SurfaceViewRenderer? = null
-    private var rendererInitialized = false
+    private var eglRenderer: EglRenderer? = null
     private var remoteTrack: VideoTrack? = null
     private var sinkTrack: VideoTrack? = null
     private var geometry: RemoteGeometry? = null
@@ -51,6 +60,71 @@ class InlineRemoteControllerView(
     private var downAt = 0L
 
     private var attached = false
+    private var mediaRecoveryAttempts = 0
+    private var rendererRecoveryAttempts = 0
+    private val rawFrameSeen = AtomicBoolean(false)
+    private val renderedFrameSeen = AtomicBoolean(false)
+
+    private val renderSink = VideoSink { frame ->
+        frameWidth = frame.rotatedWidth
+        frameHeight = frame.rotatedHeight
+
+        if (rawFrameSeen.compareAndSet(false, true)) {
+            activity.runOnUiThread {
+                if (attached) {
+                    status.visibility = View.VISIBLE
+                    status.text =
+                        "Remote video frames received • rendering…"
+                }
+            }
+        }
+
+        eglRenderer?.onFrame(frame)
+    }
+
+    private val mediaWatchdog = Runnable {
+        if (!attached) return@Runnable
+
+        if (!rawFrameSeen.get()) {
+            if (mediaRecoveryAttempts < MAX_MEDIA_RECOVERY_ATTEMPTS) {
+                mediaRecoveryAttempts += 1
+                status.visibility = View.VISIBLE
+                status.text =
+                    "Connected • video stream recovering…"
+                session()?.requestMediaRecovery()
+                mainHandler.postDelayed(
+                    mediaWatchdog,
+                    MEDIA_RECOVERY_RETRY_MS
+                )
+            } else {
+                status.visibility = View.VISIBLE
+                status.text =
+                    "Connected • controls work • waiting for video frames…"
+            }
+            return@Runnable
+        }
+
+        if (!renderedFrameSeen.get()) {
+            if (
+                rendererRecoveryAttempts <
+                    MAX_RENDERER_RECOVERY_ATTEMPTS
+            ) {
+                rendererRecoveryAttempts += 1
+                status.visibility = View.VISIBLE
+                status.text =
+                    "Video frames are here • rebuilding display…"
+                rebuildRenderer()
+                mainHandler.postDelayed(
+                    mediaWatchdog,
+                    RENDER_RECOVERY_RETRY_MS
+                )
+            } else {
+                status.visibility = View.VISIBLE
+                status.text =
+                    "Video received • display retrying…"
+            }
+        }
+    }
 
     private val listener =
         object : ControllerWebRtcSession.Listener {
@@ -82,18 +156,27 @@ class InlineRemoteControllerView(
             override fun onRemoteVideoTrack(track: VideoTrack) {
                 activity.runOnUiThread {
                     if (remoteTrack !== track) {
-                        sinkTrack?.let { old ->
-                            renderer?.let(old::removeSink)
-                        }
-                        sinkTrack = null
+                        detachCurrentTrack()
                         remoteTrack = track
                         track.setEnabled(true)
+                        rawFrameSeen.set(false)
+                        renderedFrameSeen.set(false)
+                        mediaRecoveryAttempts = 0
+                        rendererRecoveryAttempts = 0
                     }
 
                     status.visibility = View.VISIBLE
                     status.text =
                         "Video connected • opening remote screen…"
-                    scheduleRendererAttach()
+
+                    ensureRenderer()
+                    attachTrack(track)
+
+                    mainHandler.removeCallbacks(mediaWatchdog)
+                    mainHandler.postDelayed(
+                        mediaWatchdog,
+                        FIRST_FRAME_DEADLINE_MS
+                    )
                 }
             }
 
@@ -153,10 +236,10 @@ class InlineRemoteControllerView(
         )
 
         root.post {
+            ensureRenderer()
             ControllerConnectionRuntime.replayUiState(
                 sessionId
             )
-            scheduleRendererAttach()
         }
     }
 
@@ -164,22 +247,12 @@ class InlineRemoteControllerView(
         if (!attached) return
         attached = false
 
+        mainHandler.removeCallbacks(mediaWatchdog)
         ControllerConnectionRuntime.detach(listener)
+        detachCurrentTrack()
+        releaseRenderer()
 
-        sinkTrack?.let { track ->
-            renderer?.let(track::removeSink)
-        }
-        sinkTrack = null
         remoteTrack = null
-
-        renderer?.let { view ->
-            if (rendererInitialized) {
-                runCatching { view.release() }
-            }
-        }
-        renderer = null
-        rendererInitialized = false
-
         (root.parent as? ViewGroup)?.removeView(root)
     }
 
@@ -188,10 +261,52 @@ class InlineRemoteControllerView(
     private fun buildUi() {
         root.setBackgroundColor(Color.BLACK)
 
+        textureView.isOpaque = true
+        textureView.surfaceTextureListener =
+            object : TextureView.SurfaceTextureListener {
+                override fun onSurfaceTextureAvailable(
+                    surface: SurfaceTexture,
+                    width: Int,
+                    height: Int
+                ) {
+                    ensureRenderer()
+                    eglRenderer?.createEglSurface(surface)
+                    updateRendererAspect(width, height)
+                    remoteTrack?.let(::attachTrack)
+                }
+
+                override fun onSurfaceTextureSizeChanged(
+                    surface: SurfaceTexture,
+                    width: Int,
+                    height: Int
+                ) {
+                    updateRendererAspect(width, height)
+                }
+
+                override fun onSurfaceTextureDestroyed(
+                    surface: SurfaceTexture
+                ): Boolean {
+                    eglRenderer?.releaseEglSurface {}
+                    return true
+                }
+
+                override fun onSurfaceTextureUpdated(
+                    surface: SurfaceTexture
+                ) = Unit
+            }
+
         rendererContainer.setBackgroundColor(Color.BLACK)
         rendererContainer.setOnTouchListener { _, event ->
             handleTouch(event)
         }
+        rendererContainer.addView(
+            textureView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+
         root.addView(
             rendererContainer,
             FrameLayout.LayoutParams(
@@ -272,6 +387,109 @@ class InlineRemoteControllerView(
         )
     }
 
+    private fun ensureRenderer(): Boolean {
+        if (eglRenderer != null) return true
+
+        return runCatching {
+            val renderer = EglRenderer("AarisInlineRemote")
+            renderer.init(
+                WebRtcRuntime.eglBase(activity)
+                    .eglBaseContext,
+                EglBase.CONFIG_PLAIN,
+                GlRectDrawer()
+            )
+            renderer.setMirror(false)
+            renderer.disableFpsReduction()
+            updateRendererAspect(
+                textureView.width,
+                textureView.height,
+                renderer
+            )
+            renderer.addFrameListener(
+                {
+                    if (
+                        renderedFrameSeen.compareAndSet(
+                            false,
+                            true
+                        )
+                    ) {
+                        activity.runOnUiThread {
+                            if (attached) {
+                                status.visibility = View.GONE
+                            }
+                        }
+                    }
+                },
+                0f
+            )
+
+            eglRenderer = renderer
+
+            if (textureView.isAvailable) {
+                textureView.surfaceTexture?.let(
+                    renderer::createEglSurface
+                )
+            }
+
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun rebuildRenderer() {
+        detachCurrentTrack()
+        releaseRenderer()
+        renderedFrameSeen.set(false)
+
+        rendererContainer.postDelayed(
+            {
+                if (!attached) return@postDelayed
+                ensureRenderer()
+                remoteTrack?.let(::attachTrack)
+            },
+            250L
+        )
+    }
+
+    private fun releaseRenderer() {
+        val renderer = eglRenderer ?: return
+        eglRenderer = null
+        runCatching {
+            renderer.releaseEglSurface {}
+        }
+        runCatching { renderer.release() }
+    }
+
+    private fun attachTrack(track: VideoTrack) {
+        if (!attached) return
+        if (!ensureRenderer()) return
+        if (sinkTrack === track) return
+
+        detachCurrentTrack()
+        sinkTrack = track
+        track.addSink(renderSink)
+    }
+
+    private fun detachCurrentTrack() {
+        val track = sinkTrack
+        if (track != null) {
+            runCatching {
+                track.removeSink(renderSink)
+            }
+        }
+        sinkTrack = null
+    }
+
+    private fun updateRendererAspect(
+        width: Int,
+        height: Int,
+        renderer: EglRenderer? = eglRenderer
+    ) {
+        if (width <= 0 || height <= 0) return
+        renderer?.setLayoutAspectRatio(
+            width.toFloat() / height.toFloat()
+        )
+    }
+
     private fun addButton(
         label: String,
         action: () -> Unit
@@ -291,151 +509,6 @@ class InlineRemoteControllerView(
                 marginEnd = dp(3)
             }
         )
-    }
-
-    private fun scheduleRendererAttach() {
-        if (!attached) return
-        val track = remoteTrack ?: return
-
-        rendererContainer.postDelayed(
-            {
-                if (
-                    !attached ||
-                    remoteTrack !== track
-                ) {
-                    return@postDelayed
-                }
-
-                if (
-                    rendererContainer.width <= 0 ||
-                    rendererContainer.height <= 0 ||
-                    !rendererContainer.isAttachedToWindow
-                ) {
-                    scheduleRendererAttach()
-                    return@postDelayed
-                }
-
-                if (ensureRenderer()) {
-                    attachTrack(track)
-                } else {
-                    status.visibility = View.VISIBLE
-                    status.text =
-                        "Connected • display is preparing…"
-                    rendererContainer.postDelayed(
-                        { scheduleRendererAttach() },
-                        500L
-                    )
-                }
-            },
-            350L
-        )
-    }
-
-    private fun ensureRenderer(): Boolean {
-        if (rendererInitialized) return true
-
-        return runCatching {
-            val view =
-                renderer ?: SurfaceViewRenderer(activity)
-                    .also { created ->
-                        renderer = created
-                        rendererContainer.addView(
-                            created,
-                            0,
-                            FrameLayout.LayoutParams(
-                                FrameLayout.LayoutParams.MATCH_PARENT,
-                                FrameLayout.LayoutParams.MATCH_PARENT
-                            )
-                        )
-
-                        created.holder.addCallback(
-                            object :
-                                SurfaceHolder.Callback {
-                                override fun surfaceCreated(
-                                    holder: SurfaceHolder
-                                ) {
-                                    remoteTrack?.let(
-                                        ::attachTrack
-                                    )
-                                }
-
-                                override fun surfaceChanged(
-                                    holder: SurfaceHolder,
-                                    format: Int,
-                                    width: Int,
-                                    height: Int
-                                ) = Unit
-
-                                override fun surfaceDestroyed(
-                                    holder: SurfaceHolder
-                                ) {
-                                    sinkTrack?.let {
-                                        it.removeSink(
-                                            created
-                                        )
-                                    }
-                                    sinkTrack = null
-                                }
-                            }
-                        )
-                    }
-
-            view.init(
-                WebRtcRuntime.eglBase(
-                    activity
-                ).eglBaseContext,
-                object :
-                    RendererCommon.RendererEvents {
-                    override fun onFirstFrameRendered() {
-                        activity.runOnUiThread {
-                            status.visibility =
-                                View.GONE
-                        }
-                    }
-
-                    override fun onFrameResolutionChanged(
-                        videoWidth: Int,
-                        videoHeight: Int,
-                        rotation: Int
-                    ) {
-                        val rotated =
-                            rotation % 180 != 0
-                        frameWidth =
-                            if (rotated) {
-                                videoHeight
-                            } else {
-                                videoWidth
-                            }
-                        frameHeight =
-                            if (rotated) {
-                                videoWidth
-                            } else {
-                                videoHeight
-                            }
-                    }
-                }
-            )
-
-            view.setScalingType(
-                RendererCommon.ScalingType
-                    .SCALE_ASPECT_FIT
-            )
-            view.setEnableHardwareScaler(false)
-            view.setMirror(false)
-            rendererInitialized = true
-            true
-        }.getOrDefault(false)
-    }
-
-    private fun attachTrack(track: VideoTrack) {
-        val view = renderer ?: return
-        if (!rendererInitialized) return
-        if (!view.holder.surface.isValid) return
-        if (sinkTrack === track) return
-
-        sinkTrack?.removeSink(view)
-        sinkTrack = track
-        track.addSink(view)
     }
 
     private fun handleTouch(event: MotionEvent): Boolean {
@@ -475,8 +548,10 @@ class InlineRemoteControllerView(
                 val dy = event.y - downY
                 val distanceSq = dx * dx + dy * dy
 
-                if (distanceSq < dp(18).toFloat()
-                        .let { it * it }
+                if (
+                    distanceSq <
+                        dp(18).toFloat()
+                            .let { it * it }
                 ) {
                     if (duration >= 600) {
                         s.sendLongPress(
@@ -542,4 +617,12 @@ class InlineRemoteControllerView(
 
     private fun dp(value: Int): Int =
         AarisUi.dp(activity, value)
+
+    companion object {
+        private const val FIRST_FRAME_DEADLINE_MS = 3_500L
+        private const val MEDIA_RECOVERY_RETRY_MS = 4_000L
+        private const val RENDER_RECOVERY_RETRY_MS = 2_500L
+        private const val MAX_MEDIA_RECOVERY_ATTEMPTS = 2
+        private const val MAX_RENDERER_RECOVERY_ATTEMPTS = 2
+    }
 }
