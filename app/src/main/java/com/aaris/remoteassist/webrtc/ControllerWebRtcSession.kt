@@ -27,6 +27,7 @@ class ControllerWebRtcSession(
         fun onConnectivityChanged(connected: Boolean)
         fun onRemoteVideoTrack(track: VideoTrack)
         fun onCommandResult(sequence: Long, applied: Boolean)
+        fun onDiagnostic(message: String)
         fun onRecoverableError(error: Throwable)
         fun onTerminalError(error: Throwable)
     }
@@ -371,6 +372,10 @@ class ControllerWebRtcSession(
 
     override fun onRemoteVideoTrack(track: VideoTrack) {
         listener.onRemoteVideoTrack(track)
+    }
+
+    override fun onDiagnostic(message: String) {
+        listener.onDiagnostic(message)
     }
 
     override fun onError(error: Throwable) {
