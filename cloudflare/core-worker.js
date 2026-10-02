@@ -133,7 +133,16 @@ export class AarisSession extends DurableObject{
   }
   async authorizeIce(h){
     const s=await this.session(),r=this.role(s,h);
-    return{ok:Boolean(r&&["SCREEN_READY","LIVE"].includes(s.state)),role:r};
+    /*
+     * Controller transport is intentionally pre-warmed after explicit host
+     * approval, before MediaProjection consent completes. Issuing ephemeral
+     * TURN credentials to that already-approved controller lets its WebRTC
+     * owner and signaling socket exist before the host publishes the first
+     * offer. Screen media/signaling itself remains gated by publishEvent()
+     * until SCREEN_READY/LIVE, so approval does not bypass screen consent.
+     */
+    const controllerPrewarm=r==="controller"&&s?.state==="HOST_APPROVED";
+    return{ok:Boolean(r&&(controllerPrewarm||["SCREEN_READY","LIVE"].includes(s.state))),role:r};
   }
   async publishEvent(h,kind,payload,now){
     const s=await this.session(),r=this.role(s,h);
