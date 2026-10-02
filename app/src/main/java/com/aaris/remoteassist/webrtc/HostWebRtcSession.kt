@@ -376,7 +376,6 @@ class HostWebRtcSession(
             return
         }
 
-        displayHandler.removeCallbacks(connectionWatchdog)
         displayHandler.removeCallbacks(startupControlRecovery)
 
         val firstLive = lease == null
@@ -387,6 +386,7 @@ class HostWebRtcSession(
             return
         }
 
+        displayHandler.removeCallbacks(connectionWatchdog)
         transportReady = true
         lease = currentLease
 
