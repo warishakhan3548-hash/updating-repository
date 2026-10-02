@@ -1,5 +1,6 @@
 package com.aaris.remoteassist.webrtc
 
+import kotlin.math.roundToInt
 import org.webrtc.RTCStatsReport
 
 data class VideoHealthSnapshot(
@@ -12,7 +13,9 @@ data class VideoHealthSnapshot(
     val packetsLost: Long,
     val frameWidth: Int,
     val frameHeight: Int,
-    val qualityLimitationReason: String?
+    val qualityLimitationReason: String?,
+    val roundTripTimeMs: Int?,
+    val packetLossRatio: Double?
 ) {
     fun compact(): String {
         val primary =
@@ -52,6 +55,18 @@ data class VideoHealthSnapshot(
                     append(" limited=")
                     append(it)
                 }
+            roundTripTimeMs?.let {
+                append(" rtt=")
+                append(it)
+                append("ms")
+            }
+            packetLossRatio?.let {
+                append(" loss=")
+                append(
+                    ((it * 1000.0).roundToInt() / 10.0)
+                )
+                append("%")
+            }
         }
     }
 
@@ -93,6 +108,49 @@ data class VideoHealthSnapshot(
                     ?.get("mimeType")
                     ?.toString()
 
+            val remoteInbound =
+                if (role == PeerRole.HOST) {
+                    stats.values.firstOrNull { stat ->
+                        if (stat.type != "remote-inbound-rtp") {
+                            return@firstOrNull false
+                        }
+
+                        val kind =
+                            stat.members["kind"]?.toString()
+                                ?: stat.members["mediaType"]?.toString()
+
+                        kind.equals("video", ignoreCase = true) ||
+                            (
+                                kind == null &&
+                                    (
+                                        stat.members.containsKey("roundTripTime") ||
+                                            stat.members.containsKey("fractionLost")
+                                        )
+                                )
+                    }
+                } else {
+                    null
+                }
+
+            val roundTripTimeMs =
+                decimal(
+                    remoteInbound
+                        ?.members
+                        ?.get("roundTripTime")
+                )
+                    ?.takeIf { it.isFinite() && it >= 0.0 }
+                    ?.times(1_000.0)
+                    ?.roundToInt()
+
+            val packetLossRatio =
+                decimal(
+                    remoteInbound
+                        ?.members
+                        ?.get("fractionLost")
+                )
+                    ?.takeIf { it.isFinite() && it >= 0.0 }
+                    ?.coerceIn(0.0, 1.0)
+
             return if (role == PeerRole.HOST) {
                 VideoHealthSnapshot(
                     direction = "outbound",
@@ -109,7 +167,9 @@ data class VideoHealthSnapshot(
                         number(members["frameHeight"]).toInt(),
                     qualityLimitationReason =
                         members["qualityLimitationReason"]
-                            ?.toString()
+                            ?.toString(),
+                    roundTripTimeMs = roundTripTimeMs,
+                    packetLossRatio = packetLossRatio
                 )
             } else {
                 VideoHealthSnapshot(
@@ -126,7 +186,9 @@ data class VideoHealthSnapshot(
                         number(members["frameWidth"]).toInt(),
                     frameHeight =
                         number(members["frameHeight"]).toInt(),
-                    qualityLimitationReason = null
+                    qualityLimitationReason = null,
+                    roundTripTimeMs = null,
+                    packetLossRatio = null
                 )
             }
         }
@@ -143,6 +205,12 @@ data class VideoHealthSnapshot(
                 else ->
                     value?.toString()?.toDoubleOrNull()?.toLong()
                         ?: 0L
+            }
+
+        private fun decimal(value: Any?): Double? =
+            when (value) {
+                is Number -> value.toDouble()
+                else -> value?.toString()?.toDoubleOrNull()
             }
     }
 }
