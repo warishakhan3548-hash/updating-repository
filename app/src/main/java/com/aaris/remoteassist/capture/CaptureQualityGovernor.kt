@@ -9,6 +9,14 @@ package com.aaris.remoteassist.capture
  * hysteresis so isolated mobile-path spikes do not blur the screen, while an
  * explicit encoder CPU limitation steps capture cost down immediately because
  * the local device is already failing to sustain the requested workload.
+ *
+ * A bandwidth limitation by itself is deliberately treated as a weak signal.
+ * libwebrtc can report "bandwidth" on a perfectly usable path simply because
+ * its bitrate estimator is doing normal congestion control. Resolution is only
+ * sacrificed quickly when RTT/loss corroborate that signal. When vendor builds
+ * omit qualityLimitationReason, healthy transport telemetry is still enough to
+ * recover quality instead of leaving the session permanently stuck on a lower
+ * tier.
  */
 class CaptureQualityGovernor(
     initialTier: CaptureTier,
@@ -16,6 +24,8 @@ class CaptureQualityGovernor(
 ) {
     private var currentTier = initialTier
     private var constrainedSamples = 0
+    private var bandwidthOnlySamples = 0
+    private var bandwidthProbeSamples = 0
     private var healthySamples = 0
 
     fun currentTier(): CaptureTier = currentTier
@@ -34,6 +44,10 @@ class CaptureQualityGovernor(
             packetLossRatio
                 ?.takeIf { it.isFinite() && it >= 0.0 }
                 ?.coerceIn(0.0, 1.0)
+
+        val hasTransportTelemetry =
+            normalizedRtt != null ||
+                normalizedLoss != null
 
         val severeLoss =
             normalizedLoss
@@ -59,16 +73,27 @@ class CaptureQualityGovernor(
         val networkPressure =
             pressuredLoss || pressuredRtt
 
-        val healthy =
-            normalizedReason == "none" &&
-                (
-                    normalizedLoss == null ||
-                        normalizedLoss <= HEALTHY_PACKET_LOSS_RATIO
-                    ) &&
+        val transportHealthy =
+            (
+                normalizedLoss == null ||
+                    normalizedLoss <= HEALTHY_PACKET_LOSS_RATIO
+                ) &&
                 (
                     normalizedRtt == null ||
                         normalizedRtt <= HEALTHY_RTT_MS
                     )
+
+        val explicitHealthy =
+            normalizedReason == "none" &&
+                transportHealthy
+        val inferredHealthy =
+            normalizedReason == null &&
+                hasTransportTelemetry &&
+                transportHealthy
+        val healthyBandwidth =
+            bandwidthPressure &&
+                hasTransportTelemetry &&
+                transportHealthy
 
         return when {
             /*
@@ -78,19 +103,20 @@ class CaptureQualityGovernor(
              * deserve one immediate tier reduction; recovery remains slow.
              */
             severeLoss || cpuPressure -> {
-                healthySamples = 0
-                constrainedSamples = 0
+                resetPressureCounters()
+                resetRecoveryCounters()
                 downgrade()
             }
 
             /*
-             * RTT and bandwidth pressure are noisier on mobile networks. Let
-             * them persist across multiple stats samples before sacrificing
-             * capture resolution so a one-off Wi-Fi/cellular spike never causes
-             * a visible clarity cliff.
+             * RTT/loss are stronger evidence than the encoder's generic
+             * bandwidth reason. Let them persist across multiple stats samples
+             * before sacrificing capture resolution so a one-off Wi-Fi or
+             * cellular spike never causes a visible clarity cliff.
              */
-            severeRtt || bandwidthPressure || networkPressure -> {
-                healthySamples = 0
+            severeRtt || networkPressure -> {
+                bandwidthOnlySamples = 0
+                resetRecoveryCounters()
                 constrainedSamples += 1
 
                 if (constrainedSamples < DOWNGRADE_SAMPLE_COUNT) {
@@ -101,8 +127,56 @@ class CaptureQualityGovernor(
                 }
             }
 
-            healthy -> {
+            /*
+             * A healthy path can still be reported as bandwidth-limited while
+             * WebRTC is simply selecting a bitrate below the encoder ceiling.
+             * Keep the current resolution in that state. If we are already on a
+             * reduced tier, periodically probe one step upward after a much
+             * longer healthy window so a temporary network dip never leaves the
+             * remote screen blurry for the rest of the session.
+             */
+            healthyBandwidth -> {
                 constrainedSamples = 0
+                bandwidthOnlySamples = 0
+                healthySamples = 0
+                bandwidthProbeSamples += 1
+
+                if (
+                    bandwidthProbeSamples <
+                    BANDWIDTH_PROBE_UPGRADE_SAMPLE_COUNT
+                ) {
+                    null
+                } else {
+                    bandwidthProbeSamples = 0
+                    upgrade()
+                }
+            }
+
+            /*
+             * Some vendor WebRTC builds expose the quality limitation reason but
+             * omit usable remote-inbound RTT/loss. Sustained "bandwidth" still
+             * gets a conservative safety fallback, just much later than real
+             * corroborated congestion.
+             */
+            bandwidthPressure && !hasTransportTelemetry -> {
+                constrainedSamples = 0
+                resetRecoveryCounters()
+                bandwidthOnlySamples += 1
+
+                if (
+                    bandwidthOnlySamples <
+                    BANDWIDTH_ONLY_DOWNGRADE_SAMPLE_COUNT
+                ) {
+                    null
+                } else {
+                    bandwidthOnlySamples = 0
+                    downgrade()
+                }
+            }
+
+            explicitHealthy || inferredHealthy -> {
+                resetPressureCounters()
+                bandwidthProbeSamples = 0
                 healthySamples += 1
 
                 if (healthySamples < UPGRADE_SAMPLE_COUNT) {
@@ -115,11 +189,21 @@ class CaptureQualityGovernor(
 
             else -> {
                 // Missing/ambiguous stats are not proof of congestion or health.
-                constrainedSamples = 0
-                healthySamples = 0
+                resetPressureCounters()
+                resetRecoveryCounters()
                 null
             }
         }
+    }
+
+    private fun resetPressureCounters() {
+        constrainedSamples = 0
+        bandwidthOnlySamples = 0
+    }
+
+    private fun resetRecoveryCounters() {
+        healthySamples = 0
+        bandwidthProbeSamples = 0
     }
 
     private fun downgrade(): CaptureTier? =
@@ -138,7 +222,9 @@ class CaptureQualityGovernor(
 
     companion object {
         internal const val DOWNGRADE_SAMPLE_COUNT = 2
+        internal const val BANDWIDTH_ONLY_DOWNGRADE_SAMPLE_COUNT = 4
         internal const val UPGRADE_SAMPLE_COUNT = 6
+        internal const val BANDWIDTH_PROBE_UPGRADE_SAMPLE_COUNT = 10
 
         internal const val HEALTHY_RTT_MS = 300
         internal const val PRESSURE_RTT_MS = 650
