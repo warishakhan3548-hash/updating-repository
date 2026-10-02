@@ -9,6 +9,7 @@ import android.os.SystemClock
 import android.text.InputType
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.SurfaceHolder
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
@@ -78,6 +79,10 @@ class RemoteControlActivity : ComponentActivity() {
     private var videoFrameWatchdog: Job? = null
     private var firstRemoteFrameRendered = false
     private var rendererInitialized = false
+    private var rendererSinkTrack: VideoTrack? = null
+    private var viewerResumed = false
+    private var rendererAttachJob: Job? = null
+    private var rendererAttachAttempts = 0
     private var videoRecoveryAttempts = 0
     private var lastCommandResultSequence = 0L
 
@@ -178,12 +183,16 @@ class RemoteControlActivity : ComponentActivity() {
         observer?.close()
         observer = null
 
+        rendererAttachJob?.cancel()
+        rendererAttachJob = null
+
         if (
             rendererInitialized &&
             ::renderer.isInitialized
         ) {
-            remoteTrack?.removeSink(renderer)
+            rendererSinkTrack?.removeSink(renderer)
         }
+        rendererSinkTrack = null
         remoteTrack = null
 
         disconnectTimeout?.cancel()
@@ -208,6 +217,32 @@ class RemoteControlActivity : ComponentActivity() {
 
         scope.cancel()
         super.onDestroy()
+    }
+
+    override fun onPostResume() {
+        super.onPostResume()
+        viewerResumed = true
+
+        sessionId?.let { id ->
+            /*
+             * Wait until the Activity window/container has completed at
+             * least one layout turn before replaying cached WebRTC media.
+             */
+            rendererContainer.postDelayed(
+                {
+                    if (!disconnecting && viewerResumed) {
+                        ControllerConnectionRuntime.replayUiState(id)
+                        remoteTrack?.let(::scheduleRendererAttachment)
+                    }
+                },
+                VIEWER_MEDIA_ATTACH_DELAY_MS
+            )
+        }
+    }
+
+    override fun onPause() {
+        viewerResumed = false
+        super.onPause()
     }
 
     @Suppress("DEPRECATION")
@@ -620,39 +655,34 @@ class RemoteControlActivity : ComponentActivity() {
                 override fun onRemoteVideoTrack(track: VideoTrack) {
                     runOnUiThread {
                         markDiagnostic(DiagnosticStage.VIDEO_TRACK)
-                        if (!ensureRendererInitialized()) {
-                            showDiagnosticFailure(
-                                "Video track reached this phone, but Android could not initialize the screen renderer."
-                            )
-                            finishController(
-                                "Could not initialize the remote screen. Try again."
-                            )
-                            return@runOnUiThread
-                        }
 
                         if (remoteTrack !== track) {
-                            remoteTrack?.removeSink(renderer)
+                            if (
+                                rendererInitialized &&
+                                ::renderer.isInitialized &&
+                                rendererSinkTrack != null
+                            ) {
+                                rendererSinkTrack?.removeSink(renderer)
+                                rendererSinkTrack = null
+                            }
+
                             remoteTrack = track
                             firstRemoteFrameRendered = false
                             videoRecoveryAttempts = 0
+                            rendererAttachAttempts = 0
                             track.setEnabled(true)
-                            track.addSink(renderer)
                         }
 
-                        if (firstRemoteFrameRendered) {
-                            if (remoteGeometry != null) {
-                                statusPanel.visibility = View.GONE
-                            } else {
-                                showStatus(
-                                    "Screen video live • syncing controls…"
-                                )
-                            }
-                        } else {
-                            showStatus(
-                                "Video connected • waiting for screen frames…"
-                            )
-                            scheduleVideoFrameWatchdog()
-                        }
+                        showStatus(
+                            "Video connected • preparing screen renderer…"
+                        )
+
+                        /*
+                         * Do not initialize EGL or attach the VideoTrack from a
+                         * synchronous runtime replay during Activity launch.
+                         * Wait for a resumed, attached, laid-out window first.
+                         */
+                        scheduleRendererAttachment(track)
                     }
                 }
 
@@ -909,9 +939,102 @@ class RemoteControlActivity : ComponentActivity() {
     }
 
 
+    private fun scheduleRendererAttachment(track: VideoTrack) {
+        rendererAttachJob?.cancel()
+        rendererAttachJob = scope.launch {
+            while (
+                !disconnecting &&
+                remoteTrack === track &&
+                !firstRemoteFrameRendered &&
+                rendererAttachAttempts <
+                    MAX_RENDERER_ATTACH_ATTEMPTS
+            ) {
+                if (
+                    viewerResumed &&
+                    ::rendererContainer.isInitialized &&
+                    rendererContainer.isAttachedToWindow &&
+                    rendererContainer.width > 0 &&
+                    rendererContainer.height > 0
+                ) {
+                    val initialized =
+                        ensureRendererInitialized()
+                    if (initialized) {
+                        attachRemoteTrackToRenderer()
+                        if (rendererSinkTrack === track) {
+                            showStatus(
+                                "Video connected • waiting for screen frames…"
+                            )
+                            scheduleVideoFrameWatchdog()
+                            return@launch
+                        }
+                    }
+                }
+
+                rendererAttachAttempts += 1
+                delay(RENDERER_ATTACH_RETRY_MS)
+            }
+
+            if (
+                !disconnecting &&
+                remoteTrack === track &&
+                !firstRemoteFrameRendered
+            ) {
+                showDiagnosticFailure(
+                    "Phone-to-phone video is connected, but the Android view surface is not ready yet."
+                )
+                showStatus(
+                    "Connected • renderer retrying safely…"
+                )
+
+                /*
+                 * Keep the WebRTC/service session alive. A renderer problem
+                 * must never tear down a healthy peer connection.
+                 */
+                delay(RENDERER_LONG_RETRY_MS)
+                rendererAttachAttempts = 0
+                if (!disconnecting && remoteTrack === track) {
+                    scheduleRendererAttachment(track)
+                }
+            }
+        }
+    }
+
+    private fun attachRemoteTrackToRenderer() {
+        if (
+            !rendererInitialized ||
+            !::renderer.isInitialized
+        ) {
+            return
+        }
+
+        val track = remoteTrack ?: return
+        if (!renderer.holder.surface.isValid) {
+            return
+        }
+
+        if (rendererSinkTrack === track) {
+            return
+        }
+
+        rendererSinkTrack?.removeSink(renderer)
+        rendererSinkTrack = track
+        track.addSink(renderer)
+        recordDiagnostic(
+            "Remote video track attached to ready Android surface"
+        )
+    }
+
     private fun ensureRendererInitialized(): Boolean {
         if (rendererInitialized) return true
-        if (!::rendererContainer.isInitialized) return false
+        if (
+            !viewerResumed ||
+            !::rendererContainer.isInitialized ||
+            !rendererContainer.isAttachedToWindow ||
+            rendererContainer.width <= 0 ||
+            rendererContainer.height <= 0
+        ) {
+            return false
+        }
 
         return runCatching {
             if (!::renderer.isInitialized) {
@@ -926,7 +1049,47 @@ class RemoteControlActivity : ComponentActivity() {
                         }
                         handled
                     }
+
+                    holder.addCallback(
+                        object : SurfaceHolder.Callback {
+                            override fun surfaceCreated(
+                                holder: SurfaceHolder
+                            ) {
+                                runOnUiThread {
+                                    if (!disconnecting) {
+                                        recordDiagnostic(
+                                            "Android video surface CREATED"
+                                        )
+                                        attachRemoteTrackToRenderer()
+                                    }
+                                }
+                            }
+
+                            override fun surfaceChanged(
+                                holder: SurfaceHolder,
+                                format: Int,
+                                width: Int,
+                                height: Int
+                            ) = Unit
+
+                            override fun surfaceDestroyed(
+                                holder: SurfaceHolder
+                            ) {
+                                runOnUiThread {
+                                    if (
+                                        ::renderer.isInitialized &&
+                                        rendererSinkTrack != null
+                                    ) {
+                                        rendererSinkTrack
+                                            ?.removeSink(renderer)
+                                        rendererSinkTrack = null
+                                    }
+                                }
+                            }
+                        }
+                    )
                 }
+
                 rendererContainer.addView(
                     renderer,
                     0,
@@ -936,7 +1099,7 @@ class RemoteControlActivity : ComponentActivity() {
                     )
                 )
                 recordDiagnostic(
-                    "Android video renderer object created lazily"
+                    "Android video renderer object created after window attach"
                 )
             }
 
@@ -950,14 +1113,20 @@ class RemoteControlActivity : ComponentActivity() {
                             }
 
                             firstRemoteFrameRendered = true
-                            recordDiagnostic("FIRST REMOTE FRAME rendered")
-                            markDiagnostic(DiagnosticStage.FIRST_FRAME)
+                            recordDiagnostic(
+                                "FIRST REMOTE FRAME rendered"
+                            )
+                            markDiagnostic(
+                                DiagnosticStage.FIRST_FRAME
+                            )
                             videoRecoveryAttempts = 0
+                            rendererAttachAttempts = 0
                             videoFrameWatchdog?.cancel()
                             videoFrameWatchdog = null
 
                             if (remoteGeometry != null) {
-                                statusPanel.visibility = View.GONE
+                                statusPanel.visibility =
+                                    View.GONE
                             } else {
                                 showStatus(
                                     "Screen video live • syncing controls…"
@@ -971,27 +1140,64 @@ class RemoteControlActivity : ComponentActivity() {
                         videoHeight: Int,
                         rotation: Int
                     ) {
-                        val rotated = rotation % 180 != 0
+                        val rotated =
+                            rotation % 180 != 0
                         renderedFrameWidth =
-                            if (rotated) videoHeight else videoWidth
+                            if (rotated) {
+                                videoHeight
+                            } else {
+                                videoWidth
+                            }
                         renderedFrameHeight =
-                            if (rotated) videoWidth else videoHeight
+                            if (rotated) {
+                                videoWidth
+                            } else {
+                                videoHeight
+                            }
                     }
                 }
             )
+
             renderer.setScalingType(
                 RendererCommon.ScalingType.SCALE_ASPECT_FIT
             )
-            renderer.setEnableHardwareScaler(true)
+
+            /*
+             * Prefer compatibility over the SurfaceView fixed-size hardware
+             * scaler. The remote view already fills its container.
+             */
+            renderer.setEnableHardwareScaler(false)
             renderer.setMirror(false)
             rendererInitialized = true
-            recordDiagnostic("Android video renderer initialized")
-            true
-        }.onFailure {
-            showDiagnosticFailure(
-                "Android renderer init failed: " +
-                    (it.message ?: it.javaClass.simpleName)
+            recordDiagnostic(
+                "Android video renderer initialized after layout"
             )
+
+            renderer.post {
+                if (!disconnecting) {
+                    attachRemoteTrackToRenderer()
+                }
+            }
+
+            true
+        }.onFailure { error ->
+            showDiagnosticFailure(
+                "Android renderer init deferred: " +
+                    (
+                        error.message
+                            ?: error.javaClass.simpleName
+                    )
+            )
+
+            if (
+                ::renderer.isInitialized &&
+                !rendererInitialized
+            ) {
+                runCatching {
+                    rendererContainer.removeView(renderer)
+                    renderer.release()
+                }
+            }
         }.getOrDefault(false)
     }
 
@@ -1938,6 +2144,11 @@ class RemoteControlActivity : ComponentActivity() {
         private const val DISCONNECT_GRACE_MS = 25_000L
         private const val FIRST_VIDEO_FRAME_TIMEOUT_MS = 8_000L
         private const val VIDEO_RECOVERY_INTERVAL_MS = 6_000L
+        private const val VIEWER_MEDIA_ATTACH_DELAY_MS = 450L
+        private const val RENDERER_ATTACH_RETRY_MS = 250L
+        private const val RENDERER_LONG_RETRY_MS = 1_500L
+        private const val MAX_RENDERER_ATTACH_ATTEMPTS = 12
+
         private const val MAX_VIDEO_RECOVERY_ATTEMPTS = 2
         private const val MAX_DIAGNOSTIC_LINES = 8
         private const val MAX_GESTURE_PATH_POINTS = 96
