@@ -236,125 +236,25 @@ class RemoteControlActivity : ComponentActivity() {
                 id,
                 listener = { backend ->
                     runOnUiThread {
-                        markDiagnostic(DiagnosticStage.CLOUDFLARE)
-                        if (lastBackendStateForDiagnostics != backend.state) {
-                            lastBackendStateForDiagnostics = backend.state
-                            recordDiagnostic(
-                                "Cloudflare session state → " + backend.state
+                        runCatching {
+                            handleBackendUpdate(
+                                id = id,
+                                backendState = backend.state,
+                                deadlineAtEpochMs =
+                                    backend.deadlineAtEpochMs
                             )
-                        }
-                        updateControllerDeadline(
-                            id = id,
-                            deadlineAtEpochMs = backend.deadlineAtEpochMs,
-                            backendState = backend.state
-                        )
-
-                        when (backend.state) {
-                            "PAIR_PENDING" ->
-                                showStatus(
-                                    "Waiting for your friend to tap START…"
-                                )
-
-                            "HOST_APPROVED" ->
-                                showStatus(
-                                    "Waiting for screen-share permission…"
-                                )
-
-                            "SCREEN_READY" -> {
-                                markDiagnostic(DiagnosticStage.SCREEN_READY)
-                                // SCREEN_READY is authoritative backend proof
-                                // that this authenticated controller already
-                                // redeemed the code and the host granted screen
-                                // consent. Rebuild volatile local state first so
-                                // an Activity/process recreation cannot falsely
-                                // turn a valid session into "interrupted".
-                                advanceControllerState(id)
-
-                                val local =
-                                    SessionCoordinator.snapshot()
-                                val resumable =
-                                    local.sessionId == id &&
-                                        (
-                                            local.state ==
-                                                SessionState.CONNECTING ||
-                                                local.state ==
-                                                    SessionState.LIVE
-                                        )
-
-                                if (!resumable) {
-                                    finishController(
-                                        "Session was interrupted. Connect again with a new code."
-                                    )
-                                    return@runOnUiThread
-                                }
-
-                                ensureRtcStarted(id)
-                            }
-
-                            "LIVE" -> {
-                                markDiagnostic(DiagnosticStage.SCREEN_READY)
-                                if (rtcSession == null) {
-                                    advanceControllerState(id)
-                                    val local =
-                                        SessionCoordinator.snapshot()
-                                    val resumable =
-                                        local.sessionId == id &&
-                                            (
-                                                local.state ==
-                                                    SessionState.CONNECTING ||
-                                                local.state ==
-                                                    SessionState.LIVE
-                                            )
-
-                                    if (!resumable) {
-                                        finishController(
-                                            "Session was interrupted. Connect again with a new code."
-                                        )
-                                        return@runOnUiThread
-                                    }
-
-                                    ensureRtcStarted(id)
-                                    return@runOnUiThread
-                                }
-
-                                runCatching {
-                                    val local =
-                                        SessionCoordinator.snapshot()
-                                    if (
-                                        local.sessionId == id &&
-                                        local.state ==
-                                            SessionState.CONNECTING
-                                    ) {
-                                        SessionCoordinator.transition(
-                                            id,
-                                            SessionState.LIVE
-                                        )
-                                    }
-                                }
-
-                                if (remoteTrack == null) {
-                                    showStatus(
-                                        "Connected • waiting for video…"
-                                    )
-                                } else {
-                                    statusPanel.visibility = View.GONE
-                                }
-                            }
-
-                            "CLOSED" -> {
-                                finishController(
-                                    message = "Session ended.",
-                                    closeBackend = false
-                                )
-                            }
+                        }.onFailure { error ->
+                            handleViewerRuntimeFailure(id, error)
                         }
                     }
                 },
-                onError = {
+                onError = { error ->
                     runOnUiThread {
                         if (!disconnecting) {
                             showDiagnosticFailure(
-                                "Cloudflare session updates stopped. Check this phone's internet connection."
+                                "Cloudflare session updates stopped: " +
+                                    (error.message
+                                        ?: error.javaClass.simpleName)
                             )
                             finishController(
                                 "Connection lost. Check internet and try again."
@@ -363,12 +263,154 @@ class RemoteControlActivity : ComponentActivity() {
                     }
                 }
             )
-        }.getOrElse {
-            finishController(
-                "Could not start the connection. Check internet and try again."
-            )
+        }.getOrElse { error ->
+            handleViewerRuntimeFailure(id, error)
             null
         }
+    }
+
+    private fun handleBackendUpdate(
+        id: String,
+        backendState: String,
+        deadlineAtEpochMs: Long?
+    ) {
+        markDiagnostic(DiagnosticStage.CLOUDFLARE)
+        if (lastBackendStateForDiagnostics != backendState) {
+            lastBackendStateForDiagnostics = backendState
+            recordDiagnostic(
+                "Cloudflare session state → " + backendState
+            )
+        }
+
+        updateControllerDeadline(
+            id = id,
+            deadlineAtEpochMs = deadlineAtEpochMs,
+            backendState = backendState
+        )
+
+        when (backendState) {
+            "PAIR_PENDING" ->
+                showStatus(
+                    "Waiting for your friend to tap START…"
+                )
+
+            "HOST_APPROVED" ->
+                showStatus(
+                    "Waiting for screen-share permission…"
+                )
+
+            "SCREEN_READY" -> {
+                markDiagnostic(DiagnosticStage.SCREEN_READY)
+                advanceControllerState(id)
+
+                val local = SessionCoordinator.snapshot()
+                val resumable =
+                    local.sessionId == id &&
+                        (
+                            local.state == SessionState.CONNECTING ||
+                                local.state == SessionState.LIVE
+                        )
+
+                if (!resumable) {
+                    finishController(
+                        "Session was interrupted. Connect again with a new code."
+                    )
+                    return
+                }
+
+                ensureRtcStarted(id)
+            }
+
+            "LIVE" -> {
+                markDiagnostic(DiagnosticStage.SCREEN_READY)
+                if (rtcSession == null) {
+                    advanceControllerState(id)
+                    val local = SessionCoordinator.snapshot()
+                    val resumable =
+                        local.sessionId == id &&
+                            (
+                                local.state == SessionState.CONNECTING ||
+                                    local.state == SessionState.LIVE
+                            )
+
+                    if (!resumable) {
+                        finishController(
+                            "Session was interrupted. Connect again with a new code."
+                        )
+                        return
+                    }
+
+                    ensureRtcStarted(id)
+                    return
+                }
+
+                runCatching {
+                    val local = SessionCoordinator.snapshot()
+                    if (
+                        local.sessionId == id &&
+                        local.state == SessionState.CONNECTING
+                    ) {
+                        SessionCoordinator.transition(
+                            id,
+                            SessionState.LIVE
+                        )
+                    }
+                }
+
+                if (remoteTrack == null) {
+                    showStatus(
+                        "Connected • waiting for video…"
+                    )
+                } else {
+                    statusPanel.visibility = View.GONE
+                }
+            }
+
+            "CLOSED" -> {
+                finishController(
+                    message = "Session ended.",
+                    closeBackend = false
+                )
+            }
+        }
+    }
+
+    private fun handleViewerRuntimeFailure(
+        id: String,
+        error: Throwable
+    ) {
+        if (disconnecting) return
+
+        val detail =
+            error.javaClass.simpleName +
+                ": " +
+                (error.message ?: "no message")
+
+        runCatching {
+            showDiagnosticFailure(
+                "Controller viewer runtime error • " +
+                    detail.take(220)
+            )
+        }
+
+        runCatching {
+            BackendSessionCloser.close(this, id)
+            SessionCoordinator.close(id)
+        }
+
+        runCatching {
+            setResult(
+                RESULT_CANCELED,
+                Intent().putExtra(
+                    EXTRA_RESULT_MESSAGE,
+                    "Controller viewer error: " +
+                        detail.take(220)
+                )
+            )
+        }
+
+        disconnecting = true
+        finish()
     }
 
     private fun advanceControllerState(id: String) {
