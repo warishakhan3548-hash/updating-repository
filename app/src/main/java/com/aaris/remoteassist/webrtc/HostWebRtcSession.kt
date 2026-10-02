@@ -230,12 +230,13 @@ class HostWebRtcSession(
             displayHandler
         )
 
+        captureRecoveryAttempts = 0
+        localCaptureFrameSeen.set(false)
+
         capture.videoTrack.addSink(captureProbe)
         peer.addLocalVideoTrack(capture.videoTrack)
         capture.start(profile)
 
-        captureRecoveryAttempts = 0
-        localCaptureFrameSeen.set(false)
         displayHandler.removeCallbacks(captureFrameWatchdog)
         displayHandler.postDelayed(
             captureFrameWatchdog,
