@@ -42,9 +42,6 @@ class CaptureQualityGovernor(
             normalizedRtt
                 ?.let { it >= SEVERE_RTT_MS }
                 ?: false
-        val severeNetworkPressure =
-            severeLoss || severeRtt
-
         val senderPressure =
             normalizedReason == "bandwidth" ||
                 normalizedReason == "cpu"
@@ -72,13 +69,20 @@ class CaptureQualityGovernor(
                     )
 
         return when {
-            severeNetworkPressure -> {
+            /*
+             * Heavy packet loss means frames are actively being discarded and
+             * warrants an immediate capture-cost reduction. RTT is different:
+             * cellular/Wi-Fi paths commonly produce isolated latency spikes, so
+             * even a severe RTT sample must persist before permanently lowering
+             * screen resolution.
+             */
+            severeLoss -> {
                 healthySamples = 0
                 constrainedSamples = 0
                 downgrade()
             }
 
-            senderPressure || networkPressure -> {
+            severeRtt || senderPressure || networkPressure -> {
                 healthySamples = 0
                 constrainedSamples += 1
 
@@ -127,7 +131,7 @@ class CaptureQualityGovernor(
 
     companion object {
         internal const val DOWNGRADE_SAMPLE_COUNT = 2
-        internal const val UPGRADE_SAMPLE_COUNT = 8
+        internal const val UPGRADE_SAMPLE_COUNT = 6
 
         internal const val HEALTHY_RTT_MS = 300
         internal const val PRESSURE_RTT_MS = 650
