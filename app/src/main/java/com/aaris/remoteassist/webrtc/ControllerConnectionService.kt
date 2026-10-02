@@ -77,6 +77,23 @@ class ControllerConnectionService : Service() {
                 }
             }
 
+            override fun onFallbackVideoFrame(
+                frame: FallbackVideoFrame
+            ) {
+                activeSessionId?.let { id ->
+                    ConnectionFlightRecorder.pass(
+                        id,
+                        "Compatibility screen frame received • " +
+                            frame.width +
+                            "x" +
+                            frame.height +
+                            " • " +
+                            frame.jpeg.size +
+                            " bytes"
+                    )
+                }
+            }
+
             override fun onCommandResult(
                 sequence: Long,
                 applied: Boolean
