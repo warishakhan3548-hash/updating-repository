@@ -210,7 +210,7 @@ export default{
         const controllerId="c_"+token(12);
         const r=await sessions(env,id).redeem(await sha(controllerToken),controllerId,Date.now());
         if(!r.ok)return fail(r.status||400,r.code||"redeem_failed","Code expired, invalid, or already used.");
-        return j({ok:true,sessionId:id,controllerToken,hostUid:r.snapshot.hostUid,controllerUid:controllerId});
+        return j({ok:true,sessionId:id,controllerToken,hostUid:r.snapshot.hostUid,controllerUid:r.snapshot.controllerUid});
       }
 
       const m=u.pathname.match(/^\/v1\/sessions\/([a-f0-9]{64})(?:\/([^/]+))?$/);
