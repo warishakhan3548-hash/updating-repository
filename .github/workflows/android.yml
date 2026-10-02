@@ -200,3 +200,17 @@ jobs:
           cleanup
           trap - EXIT
           test "$(state "$CONTROLLER_TOKEN")" = "CLOSED"
+
+          # Backward compatibility: the first 1.8.0 client asked the server
+          # to mint the controller token instead of supplying a stable token.
+          LEGACY_HOST="$(curl --retry 3 --retry-all-errors -fsS -X POST "$BASE/v1/sessions" -H "content-type: application/json" -d "{}")"
+          export LEGACY_HOST
+          LEGACY_CODE="$(python3 -c 'import json,os; print(json.loads(os.environ["LEGACY_HOST"])["code"])')"
+          LEGACY_SID="$(python3 -c 'import json,os; print(json.loads(os.environ["LEGACY_HOST"])["sessionId"])')"
+          LEGACY_HOST_TOKEN="$(python3 -c 'import json,os; print(json.loads(os.environ["LEGACY_HOST"])["hostToken"])')"
+          LEGACY_CONTROLLER="$(curl --retry 3 --retry-all-errors -fsS -X POST "$BASE/v1/sessions/redeem" -H "content-type: application/json" -d "{\"code\":\"$LEGACY_CODE\"}")"
+          export LEGACY_CONTROLLER
+          LEGACY_CONTROLLER_TOKEN="$(python3 -c 'import json,os; print(json.loads(os.environ["LEGACY_CONTROLLER"])["controllerToken"])')"
+          test -n "$LEGACY_CONTROLLER_TOKEN"
+          test "$(curl -fsS "$BASE/v1/sessions/$LEGACY_SID" -H "authorization: Bearer $LEGACY_CONTROLLER_TOKEN" | python3 -c 'import json,sys; print(json.load(sys.stdin)["session"]["state"])')" = "PAIR_PENDING"
+          curl -fsS -X POST "$BASE/v1/sessions/$LEGACY_SID/close" -H "authorization: Bearer $LEGACY_HOST_TOKEN" -H "content-type: application/json" -d "{}" >/dev/null
