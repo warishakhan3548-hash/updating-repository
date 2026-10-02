@@ -4,10 +4,11 @@ package com.aaris.remoteassist.capture
  * Slow-moving capture governor.
  *
  * WebRTC's congestion controller remains authoritative for packet pacing and
- * bitrate. This governor changes capture cost only when transport telemetry
- * shows sustained pressure. It combines the sender's limitation reason with
- * remote-inbound RTT/loss, then uses asymmetric hysteresis so quality falls
- * quickly when a mobile path is genuinely unhealthy and climbs back slowly.
+ * bitrate. This governor changes capture cost only when transport/encoder
+ * telemetry shows meaningful pressure. Network signals use asymmetric
+ * hysteresis so isolated mobile-path spikes do not blur the screen, while an
+ * explicit encoder CPU limitation steps capture cost down immediately because
+ * the local device is already failing to sustain the requested workload.
  */
 class CaptureQualityGovernor(
     initialTier: CaptureTier,
@@ -42,9 +43,10 @@ class CaptureQualityGovernor(
             normalizedRtt
                 ?.let { it >= SEVERE_RTT_MS }
                 ?: false
-        val senderPressure =
-            normalizedReason == "bandwidth" ||
-                normalizedReason == "cpu"
+        val cpuPressure =
+            normalizedReason == "cpu"
+        val bandwidthPressure =
+            normalizedReason == "bandwidth"
 
         val pressuredLoss =
             normalizedLoss
@@ -70,19 +72,24 @@ class CaptureQualityGovernor(
 
         return when {
             /*
-             * Heavy packet loss means frames are actively being discarded and
-             * warrants an immediate capture-cost reduction. RTT is different:
-             * cellular/Wi-Fi paths commonly produce isolated latency spikes, so
-             * even a severe RTT sample must persist before permanently lowering
-             * screen resolution.
+             * Heavy packet loss means frames are actively being discarded.
+             * CPU limitation is similarly direct: libwebrtc is already telling
+             * us the sender cannot sustain the requested encode workload. Both
+             * deserve one immediate tier reduction; recovery remains slow.
              */
-            severeLoss -> {
+            severeLoss || cpuPressure -> {
                 healthySamples = 0
                 constrainedSamples = 0
                 downgrade()
             }
 
-            severeRtt || senderPressure || networkPressure -> {
+            /*
+             * RTT and bandwidth pressure are noisier on mobile networks. Let
+             * them persist across multiple stats samples before sacrificing
+             * capture resolution so a one-off Wi-Fi/cellular spike never causes
+             * a visible clarity cliff.
+             */
+            severeRtt || bandwidthPressure || networkPressure -> {
                 healthySamples = 0
                 constrainedSamples += 1
 
