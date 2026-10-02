@@ -294,10 +294,20 @@ class RemoteControlActivity : ComponentActivity() {
                     "Waiting for your friend to tap START…"
                 )
 
-            "HOST_APPROVED" ->
+            "HOST_APPROVED" -> {
+                /*
+                 * Pre-connect the controller transport as soon as the sharing
+                 * phone explicitly approves the pairing. Cloudflare keeps
+                 * media signaling gated until SCREEN_READY, but opening the
+                 * controller peer/WebSocket now removes the real-device race
+                 * where the host can publish its first offer before the
+                 * controller WebRTC owner exists.
+                 */
                 showStatus(
                     "Waiting for screen-share permission…"
                 )
+                ensureRtcStarted(id)
+            }
 
             "SCREEN_READY" -> {
                 markDiagnostic(DiagnosticStage.SCREEN_READY)
@@ -483,9 +493,8 @@ class RemoteControlActivity : ComponentActivity() {
         if (rtcSession != null) return
 
         recordDiagnostic(
-            "SCREEN_READY verified; starting controller WebRTC transport"
+            "Starting controller WebRTC transport"
         )
-        showStatus("Establishing low-latency link…")
 
         var createdSession: ControllerWebRtcSession? = null
         rtcSession = runCatching {
