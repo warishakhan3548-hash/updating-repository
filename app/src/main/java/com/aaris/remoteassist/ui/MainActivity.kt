@@ -34,6 +34,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.aaris.remoteassist.accessibility.AssistAccessibilityService
 import com.aaris.remoteassist.accessibility.PermissionGate
 import com.aaris.remoteassist.capture.ScreenShareService
+import com.aaris.remoteassist.diagnostics.ConnectionFlightRecorder
 import com.aaris.remoteassist.pairing.BackendSession
 import com.aaris.remoteassist.pairing.BackendSessionCloser
 import com.aaris.remoteassist.pairing.CloudflarePairingGateway
@@ -76,6 +77,19 @@ class MainActivity : ComponentActivity() {
     private var pendingNotificationSessionId: String? = null
     private var hostStartInFlight = false
     private var accessibilityReadyJob: Job? = null
+
+    private val hostDiagnosticListener:
+        (String, String) -> Unit = { sessionId, report ->
+            runOnUiThread {
+                if (
+                    activeHostSessionId == sessionId &&
+                    ::status.isInitialized
+                ) {
+                    status.text =
+                        "LIVE CONNECTION TRACE\n" + report
+                }
+            }
+        }
 
     private val prefs by lazy {
         getSharedPreferences("setup", Context.MODE_PRIVATE)
@@ -152,6 +166,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(buildUi())
+        ConnectionFlightRecorder.addListener(
+            hostDiagnosticListener
+        )
         installBackHandler()
 
         val restoredHostSession = recoverPersistedHostSession()
@@ -304,6 +321,9 @@ class MainActivity : ComponentActivity() {
         shareDialog = null
         approvalDialog?.dismiss()
         approvalDialog = null
+        ConnectionFlightRecorder.removeListener(
+            hostDiagnosticListener
+        )
         scope.cancel()
         super.onDestroy()
     }
@@ -498,6 +518,14 @@ class MainActivity : ComponentActivity() {
             runCatching { gateway.createShareTicket() }
                 .onSuccess { ticket ->
                     activeHostSessionId = ticket.sessionId
+                    ConnectionFlightRecorder.reset(
+                        ticket.sessionId,
+                        "HOST"
+                    )
+                    ConnectionFlightRecorder.pass(
+                        ticket.sessionId,
+                        "Cloudflare created one-time session/code"
+                    )
                     persistHostTicket(ticket)
 
                     runCatching {
@@ -984,6 +1012,11 @@ class MainActivity : ComponentActivity() {
                         if (activeHostSessionId != sessionId) {
                             return@runOnUiThread
                         }
+
+                        ConnectionFlightRecorder.pass(
+                            sessionId,
+                            "Cloudflare session state → " + backend.state
+                        )
 
                         updateHostDeadline(
                             sessionId,
