@@ -50,6 +50,7 @@ class RemoteControlActivity : ComponentActivity() {
     }
 
     private lateinit var renderer: SurfaceViewRenderer
+    private lateinit var rendererContainer: FrameLayout
     private lateinit var statusPanel: LinearLayout
     private lateinit var statusProgress: ProgressBar
     private lateinit var status: TextView
@@ -836,9 +837,35 @@ class RemoteControlActivity : ComponentActivity() {
 
     private fun ensureRendererInitialized(): Boolean {
         if (rendererInitialized) return true
-        if (!::renderer.isInitialized) return false
+        if (!::rendererContainer.isInitialized) return false
 
         return runCatching {
+            if (!::renderer.isInitialized) {
+                renderer = SurfaceViewRenderer(this).apply {
+                    setOnTouchListener { view, event ->
+                        val handled = handleRemoteTouch(event)
+                        if (
+                            handled &&
+                            event.actionMasked == MotionEvent.ACTION_UP
+                        ) {
+                            view.performClick()
+                        }
+                        handled
+                    }
+                }
+                rendererContainer.addView(
+                    renderer,
+                    0,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                    )
+                )
+                recordDiagnostic(
+                    "Android video renderer object created lazily"
+                )
+            }
+
             renderer.init(
                 WebRtcRuntime.eglBase(this).eglBaseContext,
                 object : RendererCommon.RendererEvents {
@@ -884,7 +911,13 @@ class RemoteControlActivity : ComponentActivity() {
             renderer.setEnableHardwareScaler(true)
             renderer.setMirror(false)
             rendererInitialized = true
+            recordDiagnostic("Android video renderer initialized")
             true
+        }.onFailure {
+            showDiagnosticFailure(
+                "Android renderer init failed: " +
+                    (it.message ?: it.javaClass.simpleName)
+            )
         }.getOrDefault(false)
     }
 
@@ -895,21 +928,19 @@ class RemoteControlActivity : ComponentActivity() {
             setBackgroundColor(AarisUi.REMOTE_CANVAS)
         }
 
-        renderer = SurfaceViewRenderer(this).apply {
-            setOnTouchListener { view, event ->
-                val handled = handleRemoteTouch(event)
-                if (
-                    handled &&
-                    event.actionMasked == MotionEvent.ACTION_UP
-                ) {
-                    view.performClick()
-                }
-                handled
-            }
+        /*
+         * Keep the monitor Activity free of any WebRTC/EGL renderer object
+         * during startup. The physical-device crash happened immediately
+         * after this Activity was launched, before HOST_APPROVED/SCREEN_READY,
+         * so there is no reason to touch SurfaceViewRenderer yet. It is
+         * created only after a real remote VideoTrack is delivered.
+         */
+        rendererContainer = FrameLayout(this).apply {
+            setBackgroundColor(AarisUi.REMOTE_CANVAS)
         }
 
         root.addView(
-            renderer,
+            rendererContainer,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
