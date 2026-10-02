@@ -67,7 +67,7 @@ data class CaptureProfile(
                 }.getOrDefault(0L)
 
             return when {
-                totalMemory in 1..LOW_MEMORY_BYTES ->
+                totalMemory in 1L..LOW_MEMORY_BYTES ->
                     CaptureTier.LOW
                 totalMemory >= HIGH_MEMORY_BYTES ->
                     CaptureTier.HIGH
