@@ -61,6 +61,10 @@ jobs:
           cp "$(dirname "$APKSIGNER")/lib/apksigner.jar" signing-tool/lib/apksigner.jar
           ZIPALIGN="$(dirname "$APKSIGNER")/zipalign"
           if [ -f "$ZIPALIGN" ]; then cp "$ZIPALIGN" signing-tool/zipalign; fi
+          AAPT2="$(dirname "$APKSIGNER")/aapt2"
+          if [ -f "$AAPT2" ]; then cp "$AAPT2" signing-tool/aapt2; fi
+          AAPT="$(dirname "$APKSIGNER")/aapt"
+          if [ -f "$AAPT" ]; then cp "$AAPT" signing-tool/aapt; fi
       - uses: actions/upload-artifact@v7
         with:
           name: Android-signing-tools
