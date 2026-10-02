@@ -742,21 +742,19 @@ class MainActivity : ComponentActivity() {
                 .apply()
 
             status.text =
-                "Code verified • waiting for your friend to approve…"
-            observeControllerSession(request.sessionId)
+                "Code verified • opening persistent connection monitor…"
+            launchControllerMonitor(request.sessionId)
         }
     }
 
     /*
-     * Do not launch the heavy remote-view Activity immediately after code
-     * redemption. A physical Android device repeatedly crashed exactly at
-     * that handoff while the backend was still only PAIR_PENDING.
-     *
-     * MainActivity now remains the lightweight authoritative observer through
-     * PAIR_PENDING -> HOST_APPROVED -> SCREEN_READY. Only once SCREEN_READY
-     * proves that host consent/capture setup completed do we open the viewer
-     * and start WebRTC. This also avoids racing the Activity launch against
-     * the Connect dialog/IME teardown on OEM Android builds.
+     * Keep one controller connection owner alive from the instant the code is
+     * redeemed. Earlier builds waited in MainActivity and created the viewer
+     * later, which let HOST_APPROVED/SCREEN_READY race past the component that
+     * owns controller WebRTC. The renderer is now fully lazy, so opening this
+     * lightweight monitor immediately is safe and mirrors mature remoting
+     * clients: session/signaling lifetime is longer than the screen-renderer
+     * lifetime.
      */
     private fun launchControllerMonitor(sessionId: String) {
         if (
@@ -975,21 +973,14 @@ class MainActivity : ComponentActivity() {
         }
 
         /*
-         * The viewer may now open at HOST_APPROVED, before screen consent.
-         * Keep local state truthful: do not manufacture SCREEN_CONSENT /
-         * CONNECTING until the backend later proves SCREEN_READY.
+         * Never manufacture host approval locally. The persistent controller
+         * monitor is allowed to exist in PAIR_PENDING and waits for the
+         * authoritative Cloudflare state to move to HOST_APPROVED.
          */
-        if (current.state == SessionState.PAIR_PENDING) {
-            SessionCoordinator.transition(
-                sessionId,
-                SessionState.HOST_APPROVED
-            )
-            current = SessionCoordinator.snapshot()
-        }
-
         current.sessionId == sessionId &&
             (
-                current.state == SessionState.HOST_APPROVED ||
+                current.state == SessionState.PAIR_PENDING ||
+                    current.state == SessionState.HOST_APPROVED ||
                     current.state == SessionState.SCREEN_CONSENT ||
                     current.state == SessionState.CONNECTING ||
                     current.state == SessionState.LIVE
@@ -1954,8 +1945,8 @@ class MainActivity : ComponentActivity() {
         }
 
         setButtonsEnabled(false)
-        status.text = "Restoring connection monitor…"
-        observeControllerSession(sessionId)
+        status.text = "Restoring persistent connection monitor…"
+        launchControllerMonitor(sessionId)
         return true
     }
 
