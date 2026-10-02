@@ -465,6 +465,7 @@ class HostWebRtcSession(
             is ControlPacket.LongPress,
             is ControlPacket.Swipe,
             is ControlPacket.GesturePath,
+            is ControlPacket.GestureStream,
             is ControlPacket.TwoFinger,
             is ControlPacket.Back,
             is ControlPacket.Home,
