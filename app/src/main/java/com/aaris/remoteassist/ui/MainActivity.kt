@@ -70,6 +70,8 @@ class MainActivity : ComponentActivity() {
     private var controllerObserver: Closeable? = null
     private var pendingControllerSessionId: String? = null
     private var controllerViewerLaunching = false
+    private var controllerViewerReadyPending = false
+    private var mainActivityResumed = false
     private var controllerDeadlineJob: Job? = null
     private var shareDialog: AlertDialog? = null
     private var approvalDialog: AlertDialog? = null
@@ -117,6 +119,7 @@ class MainActivity : ComponentActivity() {
             )
 
             controllerViewerLaunching = false
+            controllerViewerReadyPending = false
             controllerObserver?.close()
             controllerObserver = null
             controllerDeadlineJob?.cancel()
@@ -274,6 +277,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        mainActivityResumed = true
 
         val pendingController =
             pendingControllerSessionId
@@ -285,6 +289,15 @@ class MainActivity : ComponentActivity() {
         if (pendingController != null) {
             pendingControllerSessionId = pendingController
             setButtonsEnabled(false)
+
+            if (
+                controllerViewerReadyPending &&
+                !controllerViewerLaunching
+            ) {
+                controllerViewerReadyPending = false
+                launchControllerViewer(pendingController)
+                return
+            }
 
             if (!controllerViewerLaunching) {
                 status.text =
@@ -341,6 +354,11 @@ class MainActivity : ComponentActivity() {
         }
 
         refreshIdleUi()
+    }
+
+    override fun onPause() {
+        mainActivityResumed = false
+        super.onPause()
     }
 
     override fun onDestroy() {
@@ -796,13 +814,17 @@ class MainActivity : ComponentActivity() {
                         )
 
                         when (backend.state) {
-                            "PAIR_PENDING" ->
+                            "PAIR_PENDING" -> {
+                                controllerViewerReadyPending = false
                                 status.text =
                                     "Waiting for your friend to tap START…"
+                            }
 
-                            "HOST_APPROVED" ->
+                            "HOST_APPROVED" -> {
+                                controllerViewerReadyPending = false
                                 status.text =
                                     "Your friend approved • waiting for screen permission…"
+                            }
 
                             "SCREEN_READY",
                             "LIVE" -> {
@@ -813,7 +835,14 @@ class MainActivity : ComponentActivity() {
                                             controllerViewerLaunching
                                         )
                                 ) {
-                                    launchControllerViewer(sessionId)
+                                    if (mainActivityResumed) {
+                                        controllerViewerReadyPending = false
+                                        launchControllerViewer(sessionId)
+                                    } else {
+                                        controllerViewerReadyPending = true
+                                        status.text =
+                                            "Screen is ready • reopen Aaris Remote to continue."
+                                    }
                                 }
                             }
 
@@ -861,6 +890,13 @@ class MainActivity : ComponentActivity() {
             pendingControllerSessionId != sessionId ||
             controllerViewerLaunching
         ) {
+            return
+        }
+
+        if (!mainActivityResumed) {
+            controllerViewerReadyPending = true
+            status.text =
+                "Screen is ready • reopen Aaris Remote to continue."
             return
         }
 
@@ -1026,6 +1062,7 @@ class MainActivity : ComponentActivity() {
         controllerDeadlineJob?.cancel()
         controllerDeadlineJob = null
         controllerViewerLaunching = false
+        controllerViewerReadyPending = false
         pendingControllerSessionId = null
         prefs.edit()
             .remove(KEY_PENDING_CONTROLLER_SESSION)
