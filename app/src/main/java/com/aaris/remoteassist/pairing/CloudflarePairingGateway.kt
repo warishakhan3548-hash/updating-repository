@@ -4,9 +4,12 @@ import android.content.Context
 import com.aaris.remoteassist.backend.CloudflareBackend
 import com.aaris.remoteassist.backend.CloudflareBackendException
 import java.io.Closeable
+import java.security.SecureRandom
+import java.util.Base64
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
@@ -14,6 +17,7 @@ class CloudflarePairingGateway(
     context: Context
 ) : PairingGateway {
     private val appContext = context.applicationContext
+    private val secureRandom = SecureRandom()
 
     override suspend fun createShareTicket(): ShareTicket =
         withContext(Dispatchers.IO) {
@@ -38,24 +42,52 @@ class CloudflarePairingGateway(
         withContext(Dispatchers.IO) {
             val normalized = PairingCode.normalize(code)
                 ?: error("Enter a valid 12-digit code")
-            val root = CloudflareBackend.publicRequest(
-                "POST",
-                "/v1/sessions/redeem",
-                JSONObject().put("code", normalized)
-            )
-            val sessionId = root.getString("sessionId")
-            CloudflareBackend.rememberToken(
-                appContext,
-                sessionId,
-                root.getString("controllerToken")
-            )
-            PairRequest(
-                sessionId = sessionId,
-                hostUid = root.getString("hostUid"),
-                controllerUid = root
-                    .optString("controllerUid")
-                    .takeIf(String::isNotBlank)
-            )
+            val controllerToken = generateControllerToken()
+            var lastError: Throwable? = null
+
+            repeat(REDEEM_ATTEMPTS) { attempt ->
+                try {
+                    val root = CloudflareBackend.publicRequest(
+                        "POST",
+                        "/v1/sessions/redeem",
+                        JSONObject()
+                            .put("code", normalized)
+                            .put(
+                                "controllerToken",
+                                controllerToken
+                            )
+                    )
+                    val sessionId =
+                        root.getString("sessionId")
+                    CloudflareBackend.rememberToken(
+                        appContext,
+                        sessionId,
+                        controllerToken
+                    )
+                    return@withContext PairRequest(
+                        sessionId = sessionId,
+                        hostUid =
+                            root.getString("hostUid"),
+                        controllerUid = root
+                            .optString("controllerUid")
+                            .takeIf(String::isNotBlank)
+                    )
+                } catch (error: Throwable) {
+                    lastError = error
+                    if (
+                        !isRetryable(error) ||
+                        attempt == REDEEM_ATTEMPTS - 1
+                    ) {
+                        throw error
+                    }
+                    delay(retryDelayMs(attempt))
+                }
+            }
+
+            throw lastError
+                ?: IllegalStateException(
+                    "Could not redeem pairing code."
+                )
         }
 
     override suspend fun approve(sessionId: String) =
@@ -101,14 +133,69 @@ class CloudflarePairingGateway(
         target: String
     ) {
         withContext(Dispatchers.IO) {
-            CloudflareBackend.sessionRequest(
-                appContext,
-                sessionId,
-                "POST",
-                "state",
-                JSONObject().put("target", target)
-            )
+            var lastError: Throwable? = null
+
+            repeat(TRANSITION_ATTEMPTS) { attempt ->
+                try {
+                    CloudflareBackend.sessionRequest(
+                        appContext,
+                        sessionId,
+                        "POST",
+                        "state",
+                        JSONObject().put(
+                            "target",
+                            target
+                        )
+                    )
+                    return@withContext
+                } catch (error: Throwable) {
+                    lastError = error
+                    if (
+                        !isRetryable(error) ||
+                        attempt ==
+                            TRANSITION_ATTEMPTS - 1
+                    ) {
+                        throw error
+                    }
+                    delay(retryDelayMs(attempt))
+                }
+            }
+
+            throw lastError
+                ?: IllegalStateException(
+                    "Could not update session state."
+                )
         }
+    }
+
+    private fun generateControllerToken(): String {
+        val bytes = ByteArray(32)
+        secureRandom.nextBytes(bytes)
+        return Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(bytes)
+    }
+
+    private fun isRetryable(error: Throwable): Boolean {
+        if (error !is CloudflareBackendException) {
+            return true
+        }
+        return error.statusCode >= 500 ||
+            error.statusCode == 408 ||
+            error.statusCode == 429
+    }
+
+    private fun retryDelayMs(attempt: Int): Long =
+        (
+            RETRY_BASE_MS *
+                (1L shl attempt.coerceIn(0, 3))
+        ).coerceAtMost(RETRY_MAX_MS)
+
+    companion object {
+        private const val REDEEM_ATTEMPTS = 4
+        private const val TRANSITION_ATTEMPTS = 4
+        private const val RETRY_BASE_MS = 250L
+        private const val RETRY_MAX_MS = 2_000L
     }
 }
 
