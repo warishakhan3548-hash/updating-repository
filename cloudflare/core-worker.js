@@ -61,14 +61,13 @@ export class AarisSession extends DurableObject{
   broadcastSession(s){const m=JSON.stringify({kind:"session",session:pub(s)});for(const w of this.ctx.getWebSockets())try{w.send(m)}catch(_){}}
   broadcastEvent(e){const m=JSON.stringify({kind:"signal_event",event:e});for(const w of this.ctx.getWebSockets())try{w.send(m)}catch(_){}}
   async init(sessionId,hostTokenHash,hostId,now,expiresAtMs){
-    return this.ctx.storage.transaction(async t=>{
-      const old=(await t.get("session"))||null;
-      if(old&&old.state!=="CLOSED")return{created:false};
-      await t.deleteAll();
-      const s={sessionId,state:"CODE_ACTIVE",hostTokenHash,controllerTokenHash:null,hostId,controllerId:null,createdAtMs:now,expiresAtMs,approvalExpiresAtMs:null,connectExpiresAtMs:null,closedAtMs:null,displayGeneration:0};
-      await t.put("session",s);await t.put("seq",0);await t.setAlarm(expiresAtMs+1000);
-      return{created:true,snapshot:pub(s)};
-    });
+    const old=(await this.ctx.storage.get("session"))||null;
+    if(old)return{created:false};
+    const s={sessionId,state:"CODE_ACTIVE",hostTokenHash,controllerTokenHash:null,hostId,controllerId:null,createdAtMs:now,expiresAtMs,approvalExpiresAtMs:null,connectExpiresAtMs:null,closedAtMs:null,displayGeneration:0};
+    await this.ctx.storage.put("session",s);
+    await this.ctx.storage.put("seq",0);
+    await this.ctx.storage.setAlarm(expiresAtMs+1000);
+    return{created:true,snapshot:pub(s)};
   }
   async redeem(controllerTokenHash,controllerId,now){
     let o;
