@@ -174,7 +174,7 @@ class AssistAccessibilityService : AccessibilityService() {
                 command.yPx,
                 command.xPx,
                 command.yPx,
-                55L,
+                40L,
                 onResult
             )
             is LongPressCommand -> gesture(
@@ -770,7 +770,7 @@ class AssistAccessibilityService : AccessibilityService() {
     private fun showStopOverlay(isLive: Boolean) {
         val label =
             if (isLive) {
-                "STOP • SHARING"
+                "STOP"
             } else {
                 "STOP • CONNECTING"
             }
@@ -786,6 +786,16 @@ class AssistAccessibilityService : AccessibilityService() {
         val button = Button(this).apply {
             text = label
             isAllCaps = false
+            minimumWidth = 0
+            minimumHeight = 0
+            textSize = 12f
+            val density = resources.displayMetrics.density
+            setPadding(
+                (12f * density).toInt(),
+                (6f * density).toInt(),
+                (12f * density).toInt(),
+                (6f * density).toInt()
+            )
             setOnClickListener {
                 startService(
                     Intent(
@@ -922,7 +932,7 @@ class AssistAccessibilityService : AccessibilityService() {
         private const val REMOTE_OVERLAY_CLEARANCE_DP = 18f
         private const val OVERLAY_EDGE_MARGIN_DP = 16f
         private const val CLEAR_CANDIDATE_BONUS = 1_000_000_000f
-        private const val OVERLAY_REPOSITION_SETTLE_MS = 24L
+        private const val OVERLAY_REPOSITION_SETTLE_MS = 16L
         @Volatile
         private var instance = WeakReference<AssistAccessibilityService>(null)
 
