@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.graphics.Typeface
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -16,6 +17,8 @@ import android.view.TextureView
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -137,6 +140,8 @@ class InlineRemoteControllerView(
     private var controlHandleOnRight = true
 
     private var attached = false
+    private var previousLegacySystemUiVisibility: Int? = null
+    private var immersiveModeApplied = false
 
     @Volatile
     private var fallbackActive = false
@@ -290,8 +295,7 @@ class InlineRemoteControllerView(
         object : ControllerWebRtcSession.Listener {
             override fun onLive(geometry: RemoteGeometry) {
                 activity.runOnUiThread {
-                    this@InlineRemoteControllerView.geometry =
-                        geometry
+                    this@InlineRemoteControllerView.geometry = geometry
                     updateVideoViewport()
                     status.text =
                         if (remoteTrack == null) {
@@ -397,6 +401,7 @@ class InlineRemoteControllerView(
         if (attached) return
         attached = true
 
+        enterControllerImmersiveMode()
         buildUi()
 
         activity.addContentView(
@@ -447,9 +452,56 @@ class InlineRemoteControllerView(
 
         remoteTrack = null
         (root.parent as? ViewGroup)?.removeView(root)
+        exitControllerImmersiveMode()
     }
 
     fun isShowing(): Boolean = attached
+
+    @Suppress("DEPRECATION")
+    private fun enterControllerImmersiveMode() {
+        if (immersiveModeApplied) return
+
+        val window = activity.window
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.insetsController?.apply {
+                hide(WindowInsets.Type.systemBars())
+                systemBarsBehavior =
+                    WindowInsetsController
+                        .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        } else {
+            val decor = window.decorView
+            previousLegacySystemUiVisibility =
+                decor.systemUiVisibility
+            decor.systemUiVisibility =
+                decor.systemUiVisibility or
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                    View.SYSTEM_UI_FLAG_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        }
+        immersiveModeApplied = true
+    }
+
+    @Suppress("DEPRECATION")
+    private fun exitControllerImmersiveMode() {
+        if (!immersiveModeApplied) return
+
+        val window = activity.window
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.insetsController?.show(
+                WindowInsets.Type.systemBars()
+            )
+        } else {
+            previousLegacySystemUiVisibility?.let { previous ->
+                window.decorView.systemUiVisibility = previous
+            }
+            previousLegacySystemUiVisibility = null
+        }
+        immersiveModeApplied = false
+    }
 
     private fun buildUi() {
         root.setBackgroundColor(Color.BLACK)
@@ -653,8 +705,7 @@ class InlineRemoteControllerView(
                     MotionEvent.ACTION_DOWN -> {
                         mainHandler.removeCallbacks(handlePeek)
                         view.animate().cancel()
-                        handleWasParkedOnDown =
-                            controlHandleParked
+                        handleWasParkedOnDown = controlHandleParked
                         if (!handleWasParkedOnDown) {
                             view.alpha = 1f
                             controlHandleParked = false
@@ -720,14 +771,11 @@ class InlineRemoteControllerView(
                     MotionEvent.ACTION_UP -> {
                         if (handleWasParkedOnDown) {
                             val heldFor =
-                                event.eventTime -
-                                    handleDownAt
+                                event.eventTime - handleDownAt
                             val dx =
-                                event.rawX -
-                                    handleDownRawX
+                                event.rawX - handleDownRawX
                             val dy =
-                                event.rawY -
-                                    handleDownRawY
+                                event.rawY - handleDownRawY
                             val moved =
                                 dx * dx + dy * dy >=
                                     touchSlop * touchSlop
@@ -748,8 +796,7 @@ class InlineRemoteControllerView(
                                         fromRawY = handleDownRawY,
                                         toRawX = event.rawX,
                                         toRawY = event.rawY,
-                                        durationMs =
-                                            heldFor.toInt()
+                                        durationMs = heldFor.toInt()
                                     )
                                     controlHandleParked = true
                                     applyParkedHandlePosition()
@@ -879,8 +926,7 @@ class InlineRemoteControllerView(
                         MIN_REMOTE_GESTURE_MS
                     )
                 ),
-            expectedGeneration =
-                currentGeometry.generation
+            expectedGeneration = currentGeometry.generation
         )
         scheduleRemoteMotionIdle()
     }
@@ -888,6 +934,10 @@ class InlineRemoteControllerView(
     private fun setControlsVisible(visible: Boolean) {
         mainHandler.removeCallbacks(controlsAutoHide)
         mainHandler.removeCallbacks(handlePeek)
+
+        if (visible) {
+            positionDockForHandleSide()
+        }
         dock.visibility =
             if (visible) View.VISIBLE else View.GONE
         controlHandle.visibility =
@@ -907,6 +957,31 @@ class InlineRemoteControllerView(
             positionControlHandleIfNeeded()
             scheduleControlHandlePeek()
         }
+    }
+
+    private fun positionDockForHandleSide() {
+        val params =
+            dock.layoutParams as? FrameLayout.LayoutParams ?: return
+        val targetGravity =
+            (if (controlHandleOnRight) Gravity.END else Gravity.START) or
+                Gravity.CENTER_VERTICAL
+        val targetStartMargin =
+            if (controlHandleOnRight) 0 else dp(10)
+        val targetEndMargin =
+            if (controlHandleOnRight) dp(10) else 0
+
+        if (
+            params.gravity == targetGravity &&
+            params.marginStart == targetStartMargin &&
+            params.marginEnd == targetEndMargin
+        ) {
+            return
+        }
+
+        params.gravity = targetGravity
+        params.marginStart = targetStartMargin
+        params.marginEnd = targetEndMargin
+        dock.layoutParams = params
     }
 
     private fun positionControlHandleIfNeeded() {
@@ -977,10 +1052,8 @@ class InlineRemoteControllerView(
                 ).toFloat()
                 .coerceAtLeast(left)
         val center =
-            controlHandle.x +
-                controlHandle.width / 2f
-        controlHandleOnRight =
-            center >= root.width / 2f
+            controlHandle.x + controlHandle.width / 2f
+        controlHandleOnRight = center >= root.width / 2f
         controlHandleParked = false
 
         controlHandle.animate()
@@ -1348,9 +1421,7 @@ class InlineRemoteControllerView(
             } else {
                 runCatching {
                     val matrix = Matrix().apply {
-                        postRotate(
-                            frame.rotation.toFloat()
-                        )
+                        postRotate(frame.rotation.toFloat())
                     }
                     Bitmap.createBitmap(
                         decoded,
@@ -1517,10 +1588,8 @@ class InlineRemoteControllerView(
 
                     val firstIndex = 0
                     val secondIndex = event.actionIndex
-                    firstPointerId =
-                        event.getPointerId(firstIndex)
-                    secondPointerId =
-                        event.getPointerId(secondIndex)
+                    firstPointerId = event.getPointerId(firstIndex)
+                    secondPointerId = event.getPointerId(secondIndex)
                     firstStartX = event.getX(firstIndex)
                     firstStartY = event.getY(firstIndex)
                     secondStartX = event.getX(secondIndex)
@@ -1706,8 +1775,7 @@ class InlineRemoteControllerView(
                         streamSegmentDuration(
                             event.eventTime - downAt
                         ),
-                    expectedGeneration =
-                        geometry.generation
+                    expectedGeneration = geometry.generation
                 )
 
             if (sent) {
@@ -1724,8 +1792,7 @@ class InlineRemoteControllerView(
         }
 
         val elapsed =
-            event.eventTime -
-                liveGestureLastEventTime
+            event.eventTime - liveGestureLastEventTime
 
         /*
          * Preserve the shape of fast curved drags while pacing the transport
@@ -1748,10 +1815,8 @@ class InlineRemoteControllerView(
                 streamId = liveGestureStreamId,
                 phase = GestureStreamPhase.CONTINUE,
                 points = points,
-                durationMs =
-                    streamSegmentDuration(elapsed),
-                expectedGeneration =
-                    geometry.generation
+                durationMs = streamSegmentDuration(elapsed),
+                expectedGeneration = geometry.generation
             )
         if (sent) {
             liveGestureLastEventTime = event.eventTime
@@ -1778,8 +1843,7 @@ class InlineRemoteControllerView(
         val startIndex =
             maxOf(
                 firstRecent,
-                gesturePoints.size -
-                    MAX_LIVE_STREAM_POINTS
+                gesturePoints.size - MAX_LIVE_STREAM_POINTS
             )
         val result =
             ArrayList<Pair<Float, Float>>(
@@ -1847,11 +1911,9 @@ class InlineRemoteControllerView(
                 ),
                 durationMs =
                     streamSegmentDuration(
-                        eventTime -
-                            liveGestureLastEventTime
+                        eventTime - liveGestureLastEventTime
                     ),
-                expectedGeneration =
-                    geometry.generation
+                expectedGeneration = geometry.generation
             )
         }
 
@@ -1896,8 +1958,7 @@ class InlineRemoteControllerView(
     ) {
         val rawDuration =
             (
-                SystemClock.elapsedRealtime() -
-                    downAt
+                SystemClock.elapsedRealtime() - downAt
                 ).toInt()
                 .coerceIn(1, 2_500)
         val dx = upX - downX
@@ -2029,8 +2090,7 @@ class InlineRemoteControllerView(
         for (index in 0 until MAX_GESTURE_POINTS) {
             val sourceIndex =
                 (
-                    index.toLong() *
-                        lastIndex /
+                    index.toLong() * lastIndex /
                         (MAX_GESTURE_POINTS - 1)
                     ).toInt()
             result += gesturePoints[sourceIndex]
@@ -2039,10 +2099,8 @@ class InlineRemoteControllerView(
     }
 
     private fun updateMultiTouch(event: MotionEvent) {
-        val firstIndex =
-            event.findPointerIndex(firstPointerId)
-        val secondIndex =
-            event.findPointerIndex(secondPointerId)
+        val firstIndex = event.findPointerIndex(firstPointerId)
+        val secondIndex = event.findPointerIndex(secondPointerId)
 
         if (firstIndex >= 0) {
             firstEndX = event.getX(firstIndex)
@@ -2089,8 +2147,7 @@ class InlineRemoteControllerView(
 
         val rawDuration =
             (
-                SystemClock.elapsedRealtime() -
-                    multiDownAt
+                SystemClock.elapsedRealtime() - multiDownAt
                 ).toInt()
                 .coerceIn(80, 2_500)
 
@@ -2171,10 +2228,8 @@ class InlineRemoteControllerView(
         return RemoteViewportMapper.normalize(
             touchX = x,
             touchY = y,
-            viewWidth =
-                rendererContainer.width.toFloat(),
-            viewHeight =
-                rendererContainer.height.toFloat(),
+            viewWidth = rendererContainer.width.toFloat(),
+            viewHeight = rendererContainer.height.toFloat(),
             remoteWidth = geometry.widthPx,
             remoteHeight = geometry.heightPx,
             frameWidth = candidateFrameWidth,
@@ -2184,9 +2239,7 @@ class InlineRemoteControllerView(
     }
 
     private fun session(): ControllerWebRtcSession? =
-        ControllerConnectionRuntime.activeSession(
-            sessionId
-        )
+        ControllerConnectionRuntime.activeSession(sessionId)
 
     private fun dp(value: Int): Int =
         AarisUi.dp(activity, value)
@@ -2205,7 +2258,7 @@ class InlineRemoteControllerView(
         private const val HANDLE_PEEK_ANIMATION_MS = 120L
         private const val HANDLE_PEEK_DP = 8
         private const val HANDLE_PEEK_ALPHA = 0.38f
-        private const val REMOTE_MOTION_TAIL_MS = 1_400L
+        private const val REMOTE_MOTION_TAIL_MS = 900L
 
         private const val MIN_STREAM_SEGMENT_MS = 16
         private const val MAX_STREAM_SEGMENT_MS = 56
