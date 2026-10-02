@@ -34,6 +34,7 @@ class ControllerWebRtcSession(
 
     private val appContext = context.applicationContext
     private val closed = AtomicBoolean(false)
+    private val started = AtomicBoolean(false)
     private val screenReadyArmed = AtomicBoolean(false)
     private val sequence = AtomicLong(0L)
     private val handler = Handler(Looper.getMainLooper())
@@ -88,6 +89,8 @@ class ControllerWebRtcSession(
 
     fun start() {
         check(!closed.get())
+        if (!started.compareAndSet(false, true)) return
+
         /*
          * Preconnect may start at HOST_APPROVED, minutes before the host has
          * completed MediaProjection consent. Do not start the HELLO timeout
