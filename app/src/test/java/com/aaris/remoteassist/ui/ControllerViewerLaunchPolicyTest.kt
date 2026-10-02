@@ -6,23 +6,23 @@ import org.junit.Test
 
 class ControllerViewerLaunchPolicyTest {
     @Test
-    fun waitsDuringPairingAndApproval() {
+    fun waitsOnlyDuringPairing() {
         assertFalse(
             ControllerViewerLaunchPolicy.shouldLaunch(
                 "PAIR_PENDING",
                 alreadyLaunching = false
             )
         )
-        assertFalse(
+    }
+
+    @Test
+    fun launchesAsSoonAsHostApproves() {
+        assertTrue(
             ControllerViewerLaunchPolicy.shouldLaunch(
                 "HOST_APPROVED",
                 alreadyLaunching = false
             )
         )
-    }
-
-    @Test
-    fun launchesOnlyWhenScreenIsReady() {
         assertTrue(
             ControllerViewerLaunchPolicy.shouldLaunch(
                 "SCREEN_READY",
@@ -39,6 +39,12 @@ class ControllerViewerLaunchPolicyTest {
 
     @Test
     fun neverDoubleLaunchesViewer() {
+        assertFalse(
+            ControllerViewerLaunchPolicy.shouldLaunch(
+                "HOST_APPROVED",
+                alreadyLaunching = true
+            )
+        )
         assertFalse(
             ControllerViewerLaunchPolicy.shouldLaunch(
                 "SCREEN_READY",
