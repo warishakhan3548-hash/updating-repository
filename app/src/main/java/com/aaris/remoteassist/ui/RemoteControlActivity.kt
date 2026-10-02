@@ -22,7 +22,7 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import com.aaris.remoteassist.pairing.BackendSessionCloser
-import com.aaris.remoteassist.pairing.FirebasePairingGateway
+import com.aaris.remoteassist.pairing.CloudflarePairingGateway
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionState
 import com.aaris.remoteassist.webrtc.ControllerWebRtcSession
@@ -46,7 +46,7 @@ class RemoteControlActivity : ComponentActivity() {
         SupervisorJob() + Dispatchers.Main
     )
     private val gateway by lazy {
-        FirebasePairingGateway(this)
+        CloudflarePairingGateway(this)
     }
 
     private lateinit var renderer: SurfaceViewRenderer

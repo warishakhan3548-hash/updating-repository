@@ -257,6 +257,7 @@ class WebRtcPeer(
 
             scope.launch {
                 val refreshed = IceServerProvider.loadConfig(
+                    context = appContext,
                     sessionId = sessionId,
                     timeoutMs = PRELIVE_ICE_REFRESH_TIMEOUT_MS
                 )
@@ -350,7 +351,7 @@ class WebRtcPeer(
         registerNetworkHandoffObserver()
 
         scope.launch {
-            val loaded = IceServerProvider.loadConfig(sessionId)
+            val loaded = IceServerProvider.loadConfig(appContext, sessionId)
             handler.post {
                 if (closed.get()) return@post
 
@@ -473,6 +474,7 @@ class WebRtcPeer(
                     PRELIVE_ICE_REFRESH_TIMEOUT_MS
                 }
             val refreshed = IceServerProvider.loadConfig(
+                context = appContext,
                 sessionId = sessionId,
                 timeoutMs = refreshTimeoutMs
             )

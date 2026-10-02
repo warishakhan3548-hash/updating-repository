@@ -60,7 +60,8 @@ class HostWebRtcSession(
 
     private val transport = ControlTransportTracker()
 
-    private val signaling = FirebaseSignalingClient(
+    private val signaling = CloudflareSignalingClient(
+        context = appContext,
         sessionId = sessionId,
         role = PeerRole.HOST
     )
