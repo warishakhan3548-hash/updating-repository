@@ -23,6 +23,9 @@ object ControllerConnectionRuntime {
     private var uiListener: ControllerWebRtcSession.Listener? = null
 
     @Volatile
+    private var ownerListener: ControllerWebRtcSession.Listener? = null
+
+    @Volatile
     private var connected = false
 
     @Volatile
@@ -66,6 +69,12 @@ object ControllerConnectionRuntime {
         session?.onScreenReady()
     }
 
+    fun setOwnerListener(
+        listener: ControllerWebRtcSession.Listener?
+    ) {
+        ownerListener = listener
+    }
+
     fun attach(
         sessionId: String,
         listener: ControllerWebRtcSession.Listener
@@ -107,6 +116,7 @@ object ControllerConnectionRuntime {
             session = null
             activeSessionId = null
             uiListener = null
+            ownerListener = null
             connected = false
             geometry = null
             remoteTrack = null
@@ -117,6 +127,7 @@ object ControllerConnectionRuntime {
         object : ControllerWebRtcSession.Listener {
             override fun onLive(geometry: RemoteGeometry) {
                 this@ControllerConnectionRuntime.geometry = geometry
+                ownerListener?.onLive(geometry)
                 uiListener?.onLive(geometry)
             }
 
@@ -124,11 +135,13 @@ object ControllerConnectionRuntime {
                 connected: Boolean
             ) {
                 this@ControllerConnectionRuntime.connected = connected
+                ownerListener?.onConnectivityChanged(connected)
                 uiListener?.onConnectivityChanged(connected)
             }
 
             override fun onRemoteVideoTrack(track: VideoTrack) {
                 remoteTrack = track
+                ownerListener?.onRemoteVideoTrack(track)
                 uiListener?.onRemoteVideoTrack(track)
             }
 
@@ -136,6 +149,10 @@ object ControllerConnectionRuntime {
                 sequence: Long,
                 applied: Boolean
             ) {
+                ownerListener?.onCommandResult(
+                    sequence,
+                    applied
+                )
                 uiListener?.onCommandResult(
                     sequence,
                     applied
@@ -143,14 +160,17 @@ object ControllerConnectionRuntime {
             }
 
             override fun onDiagnostic(message: String) {
+                ownerListener?.onDiagnostic(message)
                 uiListener?.onDiagnostic(message)
             }
 
             override fun onRecoverableError(error: Throwable) {
+                ownerListener?.onRecoverableError(error)
                 uiListener?.onRecoverableError(error)
             }
 
             override fun onTerminalError(error: Throwable) {
+                ownerListener?.onTerminalError(error)
                 uiListener?.onTerminalError(error)
             }
         }
