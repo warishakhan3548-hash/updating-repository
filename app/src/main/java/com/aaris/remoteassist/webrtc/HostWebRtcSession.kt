@@ -482,15 +482,14 @@ class HostWebRtcSession(
 
                 AssistAccessibilityService.dispatch(command) { applied ->
                     /*
-                     * Live CONTINUE success is intentionally unacknowledged.
-                     * The controller does not gate future motion on success
-                     * results, and returning an ACK for every ~30 Hz position
-                     * just competes with fresh input on mobile SCTP links.
-                     * Failures still travel back so genuine injection problems
-                     * remain visible and diagnosable.
+                     * CONTINUE is a freshness-only motion sample. It is never
+                     * acknowledged, whether applied or dropped, because a late
+                     * failure is not actionable and must not compete with newer
+                     * positions or flash a false UI error when the reliable
+                     * START is still crossing the network. START/END and every
+                     * other authoritative command remain acknowledged.
                      */
                     if (
-                        applied &&
                         packet is ControlPacket.GestureStream &&
                         packet.phase == GestureStreamPhase.CONTINUE
                     ) {

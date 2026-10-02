@@ -167,18 +167,6 @@ class WebRtcPeer(
 
             when (signalingState) {
                 PeerConnection.SignalingState.HAVE_LOCAL_OFFER -> {
-                    /*
-                     * An ICE restart cannot begin until the pending offer has
-                     * an answer. Re-deliver that exact offer instead of
-                     * creating a second offer or overwriting its negotiation.
-                     *
-                     * This recovers the two important startup-loss cases:
-                     *  1. controller attached after the first signal write;
-                     *  2. controller answered, but the answer write was lost.
-                     *
-                     * The same negotiationId is retained, so existing trickle
-                     * candidates remain correlated with the offer.
-                     */
                     if (
                         offerRedeliveryAttempts <
                             MAX_OFFER_REDELIVERY_ATTEMPTS &&
@@ -189,17 +177,6 @@ class WebRtcPeer(
                 }
 
                 PeerConnection.SignalingState.STABLE -> {
-                    /*
-                     * STABLE only means offer/answer negotiation completed; it
-                     * does not mean ICE has had time to establish a route.
-                     * On slower mobile networks the answer can land just
-                     * before this watchdog fires. Restarting ICE immediately
-                     * then destroys a healthy in-progress generation and can
-                     * create a perpetual Connecting loop.
-                     *
-                     * Give every freshly-applied answer one full bounded
-                     * settling window before escalating to a relay restart.
-                     */
                     val waitForCurrentIce =
                         BootstrapRecoveryPolicy.shouldWaitAfterRemoteAnswer(
                             lastRemoteAnswerAppliedAtMs =
@@ -269,18 +246,14 @@ class WebRtcPeer(
     private var controlChannel: DataChannel? = null
 
     @Volatile
+    private var liveControlChannel: DataChannel? = null
+
+    @Volatile
     private var fallbackVideoChannel: DataChannel? = null
 
     private val fallbackReassembler =
         FallbackVideoProtocol.Reassembler()
 
-    /*
-     * Keep the one-way screen media contract explicit on both peers.
-     *
-     * Host owns exactly one SEND_ONLY screen transceiver. Controller owns
-     * exactly one RECV_ONLY video transceiver before signaling opens, so an
-     * immediately replayed Cloudflare offer cannot race receiver creation.
-     */
     @Volatile
     private var localScreenTransceiver: RtpTransceiver? = null
 
@@ -361,20 +334,6 @@ class WebRtcPeer(
                     if (applied) {
                         activeIceServers = refreshed.servers
                         activeIceFromBackend = true
-
-                        /*
-                         * Do not overwrite controllerSignal here.
-                         *
-                         * During startup the most recent signaling value may still hold
-                         * the SDP answer the host has not observed yet. Replacing
-                         * it with a restart hint can permanently lose the answer
-                         * and leave both phones stuck at Connecting.
-                         *
-                         * The host already owns bounded pre-live ICE restart
-                         * cadence, so once TURN is installed here the next host
-                         * recovery offer will gather relay-capable candidates
-                         * without corrupting offer/answer signaling.
-                         */
                         return@post
                     }
 
@@ -437,14 +396,6 @@ class WebRtcPeer(
                             "TURN unavailable; using STUN/direct candidates"
                         }
                     )
-                    /*
-                     * Mature remote-control clients prefer the best direct
-                     * path when possible but keep relay candidates available
-                     * from the same negotiation. Do not force RELAY merely
-                     * because TURN credentials exist; RELAY-only is reserved
-                     * for explicit recovery after a failed/directly-unusable
-                     * route.
-                     */
                     check(
                         peerConnection.setConfiguration(
                             createRtcConfiguration(
@@ -464,11 +415,6 @@ class WebRtcPeer(
     private fun startSignaling() {
         if (closed.get()) return
 
-        /*
-         * The WebSocket can replay the host offer immediately on open.
-         * Establish the controller's receive-side m=video contract first so
-         * the offer is always answered with an explicit video receiver.
-         */
         if (role == PeerRole.CONTROLLER) {
             ensureControllerVideoReceiver()
         }
@@ -482,6 +428,15 @@ class WebRtcPeer(
                     CONTROL_CHANNEL,
                     DataChannel.Init().apply {
                         ordered = true
+                    }
+                )
+            )
+            bindLiveControlChannel(
+                peerConnection.createDataChannel(
+                    LIVE_CONTROL_CHANNEL,
+                    DataChannel.Init().apply {
+                        ordered = false
+                        maxRetransmits = 0
                     }
                 )
             )
@@ -578,18 +533,6 @@ class WebRtcPeer(
             )
         preserveVideoResolution = preserveResolution
 
-        /*
-         * Screen video is intentionally modeled as one authoritative
-         * SEND_ONLY Unified-Plan transceiver instead of relying on addTrack()
-         * to create an implicit SEND_RECV transceiver.
-         *
-         * The app has asymmetric media semantics: host -> controller is the
-         * only video direction. Making that direction explicit guarantees
-         * that the very first host offer contains a send-capable m=video
-         * section and that every later ICE-restart offer reuses the same media
-         * section. The controller mirrors this contract with one RECV_ONLY
-         * transceiver created before signaling opens.
-         */
         val transceiver = peerConnection.addTransceiver(
             track,
             RtpTransceiver.RtpTransceiverInit(
@@ -630,13 +573,6 @@ class WebRtcPeer(
         listener.onRemoteVideoTrack(track)
     }
 
-    /*
-     * Some Android/libwebrtc builds can establish SCTP/DataChannel and create
-     * the video receiver without reliably delivering onTrack/onAddTrack at the
-     * moment the app expects it. The receiver is authoritative, so reconcile
-     * it after SDP and transport transitions instead of waiting forever for a
-     * callback that may already have been missed.
-     */
     private fun reconcileRemoteVideoTrack() {
         if (
             closed.get() ||
@@ -671,11 +607,6 @@ class WebRtcPeer(
             return false
         }
 
-        /*
-         * A missed receiver callback is local state, not an ICE failure.
-         * Reconcile the already-negotiated receiver first; then request the
-         * host restart so a genuinely stalled RTP path still gets recovery.
-         */
         reconcileRemoteVideoTrack()
         signaling.requestRemoteIceRestart()
         return true
@@ -686,13 +617,6 @@ class WebRtcPeer(
     ): Boolean {
         if (closed.get() || role != PeerRole.HOST) return false
 
-        /*
-         * Only one host offer may own negotiation at a time. The same gate
-         * covers the initial offer plus TURN refresh, bootstrap recovery,
-         * route handoff and disconnect recovery. Starting a second
-         * createOffer() while another local offer is being prepared is enough
-         * to poison the SDP/ICE generation and leave both phones "connecting".
-         */
         if (
             peerConnection.signalingState() !=
             PeerConnection.SignalingState.STABLE
@@ -799,20 +723,32 @@ class WebRtcPeer(
         bytes: ByteArray,
         freshnessSensitive: Boolean = false
     ): Boolean {
+        if (freshnessSensitive) {
+            val liveChannel = liveControlChannel
+            if (liveChannel?.state() == DataChannel.State.OPEN) {
+                /*
+                 * Once the freshness lane is open it owns every CONTINUE
+                 * sample. Backpressure here means the sample is already stale,
+                 * so drop it instead of feeding it into the reliable ordered
+                 * lane and recreating head-of-line pointer lag.
+                 *
+                 * Reliable fallback is used only before the auxiliary lane has
+                 * opened, which keeps startup compatibility without degrading
+                 * steady-state latency under packet loss/congestion.
+                 */
+                if (
+                    liveChannel.bufferedAmount() >=
+                    MAX_FRESH_CONTROL_BUFFERED_BYTES
+                ) {
+                    return false
+                }
+                return sendBinary(liveChannel, bytes)
+            }
+        }
+
         val channel = controlChannel ?: return false
         if (channel.state() != DataChannel.State.OPEN) return false
 
-        /*
-         * Reliable/ordered SCTP is still the authority for START, END, taps,
-         * text and navigation. Live drag CONTINUE packets are different:
-         * their value expires as soon as a newer finger position exists.
-         *
-         * When the local SCTP send queue is already backed up, refusing one
-         * freshness-sensitive sample prevents a network stall from turning
-         * into seconds of pointer trail. The controller keeps the last
-         * successful sample timestamp unchanged, so the next attempt folds
-         * the newest MotionEvent history into a fresh compact segment.
-         */
         if (
             freshnessSensitive &&
             channel.bufferedAmount() >=
@@ -821,13 +757,19 @@ class WebRtcPeer(
             return false
         }
 
-        return channel.send(
+        return sendBinary(channel, bytes)
+    }
+
+    private fun sendBinary(
+        channel: DataChannel,
+        bytes: ByteArray
+    ): Boolean =
+        channel.send(
             DataChannel.Buffer(
                 ByteBuffer.wrap(bytes),
                 true
             )
         )
-    }
 
     fun sendFallbackVideo(bytes: ByteArray): Boolean {
         if (
@@ -851,12 +793,7 @@ class WebRtcPeer(
             return false
         }
 
-        return channel.send(
-            DataChannel.Buffer(
-                ByteBuffer.wrap(bytes),
-                true
-            )
-        )
+        return sendBinary(channel, bytes)
     }
 
     override fun onRemoteDescription(description: SignalDescription) {
@@ -898,12 +835,6 @@ class WebRtcPeer(
             peerConnection.signalingState() !=
                 PeerConnection.SignalingState.STABLE
         ) {
-            /*
-             * Startup redelivery may arrive while the controller is still
-             * finishing the first copy of the same offer. Do not run two
-             * concurrent setRemoteDescription/createAnswer pipelines.
-             * The host will redeliver again if the answer never lands.
-             */
             return
         }
 
@@ -913,11 +844,6 @@ class WebRtcPeer(
             peerConnection.signalingState() !=
                 PeerConnection.SignalingState.HAVE_LOCAL_OFFER
         ) {
-            /*
-             * An answer is valid only while this peer owns a local offer.
-             * Ignore delayed/duplicate answers rather than treating them as a
-             * restart command. ICE restart now has its own explicit signal.
-             */
             return
         }
 
@@ -927,9 +853,6 @@ class WebRtcPeer(
                 true
             )
         ) {
-            // The authoritative signal remains replayable. If this was a newer
-            // generation the host-side delivery watchdog will re-deliver it
-            // after the current SDP application has settled.
             return
         }
 
@@ -967,11 +890,6 @@ class WebRtcPeer(
                             sessionDescription.type ==
                                 SessionDescription.Type.OFFER
                         ) {
-                            /*
-                             * setRemoteDescription can create/associate the
-                             * receiver before libwebrtc posts onTrack. Publish
-                             * it immediately when present, then answer.
-                             */
                             reconcileRemoteVideoTrack()
                             createAnswer(
                                 description.negotiationId
@@ -1002,17 +920,6 @@ class WebRtcPeer(
     ) {
         if (closed.get()) return
 
-        /*
-         * A delivery retry is not a new SDP generation.
-         *
-         * - If this exact remote generation never reached WebRTC, process it.
-         * - If the controller already applied the offer and has an answer for
-         *   it, re-publish that SAME answer/negotiation ID. This preserves
-         *   trickle-candidate correlation instead of manufacturing a second
-         *   answer generation.
-         * - If the answer is still being created, do nothing; the host's next
-         *   bounded redelivery can retry after it settles.
-         */
         if (
             lastAppliedRemoteNegotiationId !=
             description.negotiationId
@@ -1033,28 +940,12 @@ class WebRtcPeer(
     override fun onRemoteIceRestartRequested() {
         if (closed.get() || role != PeerRole.HOST) return
 
-        /*
-         * A controller can request recovery because control is healthy while
-         * video frames are missing. Give the host capture owner a chance to
-         * refresh MediaProjection before renegotiating the transport.
-         */
         listener.onRemoteMediaRecoveryRequested()
 
-        /*
-         * If an offer is already pending, it is already the authoritative
-         * recovery negotiation, so no second offer is needed.
-         */
         if (
             peerConnection.signalingState() ==
             PeerConnection.SignalingState.STABLE
         ) {
-            /*
-             * An explicit controller recovery request is stronger than a
-             * passive connectivity flap. It is used when remote video has
-             * stalled or after a route handoff, so prefer a freshly-minted
-             * relay path when TURN is available instead of repeatedly
-             * selecting the same direct candidate pair.
-             */
             requestIceRestart(
                 forceRelay = true
             )
@@ -1076,9 +967,6 @@ class WebRtcPeer(
         )?.let(peerConnection::addIceCandidate)
     }
 
-    // Backend presence is advisory signaling telemetry, not transport truth.
-    // A temporary signaling disconnect must not override a healthy WebRTC
-    // peer connection and ordered control channel.
     override fun onRemotePresence(online: Boolean) = Unit
 
     override fun onSignalingDiagnostic(message: String) {
@@ -1101,17 +989,6 @@ class WebRtcPeer(
         newState: PeerConnection.IceConnectionState
     ) {
         listener.onDiagnostic("ICE state → " + newState.name)
-        /*
-         * Some Android/libwebrtc builds surface ICE progress a little before
-         * PeerConnectionState catches up. Treat ICE CONNECTED/COMPLETED as a
-         * positive secondary liveness signal so an otherwise healthy session
-         * cannot remain stuck in Connecting just because the aggregate
-         * callback is delayed.
-         *
-         * DISCONNECTED is intentionally left to PeerConnectionState/DataChannel
-         * because mobile route handoffs can make ICE briefly flap without the
-         * transport actually becoming unusable.
-         */
         when (newState) {
             PeerConnection.IceConnectionState.CONNECTED,
             PeerConnection.IceConnectionState.COMPLETED ->
@@ -1197,19 +1074,10 @@ class WebRtcPeer(
                 true
             )
         ) {
-            /*
-             * A pre-live failure is recoverable. If signaling is not STABLE
-             * yet requestIceRestart() may decline this immediate attempt; the
-             * existing SDP redelivery/bootstrap loop then remains the bounded
-             * recovery authority. Never tear down the whole session merely
-             * because ICE and PeerConnection both reported the same failure.
-             */
             requestIceRestart(
                 forceRelay = activeIceFromBackend
             )
         }
-        // The controller stays attached for the host's recovery offer. The
-        // 60-second HELLO/session watchdogs remain the terminal authority.
     }
 
     override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
@@ -1238,6 +1106,11 @@ class WebRtcPeer(
             when (dataChannel.label()) {
                 CONTROL_CHANNEL -> {
                     bindControlChannel(dataChannel)
+                    return
+                }
+
+                LIVE_CONTROL_CHANNEL -> {
+                    bindLiveControlChannel(dataChannel)
                     return
                 }
 
@@ -1278,18 +1151,13 @@ class WebRtcPeer(
         runCatching { signaling.setPresence(false) }
         runCatching { signaling.close() }
 
-        controlChannel?.let {
-            runCatching { it.unregisterObserver() }
-            runCatching { it.close() }
-            runCatching { it.dispose() }
-        }
+        controlChannel?.let(::disposeDataChannel)
         controlChannel = null
 
-        fallbackVideoChannel?.let {
-            runCatching { it.unregisterObserver() }
-            runCatching { it.close() }
-            runCatching { it.dispose() }
-        }
+        liveControlChannel?.let(::disposeDataChannel)
+        liveControlChannel = null
+
+        fallbackVideoChannel?.let(::disposeDataChannel)
         fallbackVideoChannel = null
         fallbackReassembler.reset()
 
@@ -1308,6 +1176,12 @@ class WebRtcPeer(
         lastRemoteAnswerAppliedAtMs = 0L
         remoteDescriptionInFlight.set(false)
         remoteCandidates.reset()
+    }
+
+    private fun disposeDataChannel(channel: DataChannel) {
+        runCatching { channel.unregisterObserver() }
+        runCatching { channel.close() }
+        runCatching { channel.dispose() }
     }
 
     private fun registerNetworkHandoffObserver() {
@@ -1344,7 +1218,6 @@ class WebRtcPeer(
         onLocalDescriptionSet: (() -> Unit)? = null,
         onFailure: (() -> Unit)? = null
     ) {
-        // Redelivery/recovery timing belongs to one concrete SDP generation.
         offerRedeliveryAttempts = 0
         if (role == PeerRole.HOST) {
             lastRemoteAnswerAppliedAtMs = 0L
@@ -1445,11 +1318,6 @@ class WebRtcPeer(
                             " applied; publishing to Cloudflare"
                     )
                     if (role == PeerRole.CONTROLLER) {
-                        /*
-                         * The receiver can become usable only after the local
-                         * answer commits. Reconcile again so callback ordering
-                         * cannot strand a valid video track.
-                         */
                         reconcileRemoteVideoTrack()
                     }
                     signaling.sendDescription(
@@ -1479,9 +1347,7 @@ class WebRtcPeer(
     private fun bindControlChannel(channel: DataChannel) {
         controlChannel?.let { existing ->
             if (existing !== channel) {
-                runCatching { existing.unregisterObserver() }
-                runCatching { existing.close() }
-                runCatching { existing.dispose() }
+                disposeDataChannel(existing)
             }
         }
 
@@ -1510,20 +1376,7 @@ class WebRtcPeer(
                 }
 
                 override fun onMessage(buffer: DataChannel.Buffer) {
-                    if (!buffer.binary) return
-
-                    val source = buffer.data.slice()
-                    val size = source.remaining()
-                    if (
-                        size <= 0 ||
-                        size > MAX_CONTROL_PACKET_BYTES
-                    ) {
-                        return
-                    }
-
-                    val bytes = ByteArray(size)
-                    source.get(bytes)
-                    listener.onControlMessage(bytes)
+                    readControlMessage(buffer)
                 }
             }
         )
@@ -1534,14 +1387,64 @@ class WebRtcPeer(
         }
     }
 
+    private fun bindLiveControlChannel(channel: DataChannel) {
+        liveControlChannel?.let { existing ->
+            if (existing !== channel) {
+                disposeDataChannel(existing)
+            }
+        }
+
+        liveControlChannel = channel
+        channel.registerObserver(
+            object : DataChannel.Observer {
+                override fun onBufferedAmountChange(
+                    previousAmount: Long
+                ) = Unit
+
+                override fun onStateChange() {
+                    if (channel.state() == DataChannel.State.OPEN) {
+                        listener.onDiagnostic(
+                            "control-live-v1 DataChannel OPEN • freshness lane ready"
+                        )
+                    }
+                }
+
+                override fun onMessage(buffer: DataChannel.Buffer) {
+                    readControlMessage(buffer)
+                }
+            }
+        )
+
+        if (channel.state() == DataChannel.State.OPEN) {
+            listener.onDiagnostic(
+                "control-live-v1 DataChannel OPEN • freshness lane ready"
+            )
+        }
+    }
+
+    private fun readControlMessage(buffer: DataChannel.Buffer) {
+        if (!buffer.binary) return
+
+        val source = buffer.data.slice()
+        val size = source.remaining()
+        if (
+            size <= 0 ||
+            size > MAX_CONTROL_PACKET_BYTES
+        ) {
+            return
+        }
+
+        val bytes = ByteArray(size)
+        source.get(bytes)
+        listener.onControlMessage(bytes)
+    }
+
     private fun bindFallbackVideoChannel(
         channel: DataChannel
     ) {
         fallbackVideoChannel?.let { existing ->
             if (existing !== channel) {
-                runCatching { existing.unregisterObserver() }
-                runCatching { existing.close() }
-                runCatching { existing.dispose() }
+                disposeDataChannel(existing)
             }
         }
 
@@ -1636,12 +1539,6 @@ class WebRtcPeer(
             val codecs = capabilities.codecs
             if (codecs.isEmpty()) return@runCatching
 
-            /*
-             * VP8 is the conservative baseline for Android WebRTC screen
-             * sharing. Keep every supported fallback codec, but move VP8 and
-             * its RTX payload to the front so hardware-specific H264/VP9
-             * encoder/decoder quirks cannot silently produce a black stream.
-             */
             val vp8Payloads = codecs
                 .filter { it.name.equals("VP8", ignoreCase = true) }
                 .map { it.preferredPayloadType.toString() }
@@ -1717,14 +1614,6 @@ class WebRtcPeer(
     ) {
         runCatching {
             val parameters = sender.parameters
-            /*
-             * At healthy STANDARD/HIGH tiers, preserve source resolution so
-             * small text and controls remain crisp. When the capture governor
-             * has already stepped down to BALANCED/LOW, let libwebrtc trade
-             * frame rate and resolution more freely to keep interaction fluid.
-             * This avoids gratuitous blur on good links while still degrading
-             * gracefully on genuinely constrained mobile paths.
-             */
             parameters.degradationPreference =
                 when {
                     motionPriority ->
@@ -1740,7 +1629,9 @@ class WebRtcPeer(
                 encoding.maxFramerate = videoMaxFramerate
             }
 
-            sender.setParameters(parameters)
+            check(sender.setParameters(parameters)) {
+                "WebRTC rejected interactive video sender parameters"
+            }
         }.onFailure {
             listener.onDiagnostic(
                 "Interactive video policy fallback: " +
@@ -1766,9 +1657,6 @@ class WebRtcPeer(
                 } else {
                     PeerConnection.IceTransportsType.ALL
                 }
-            // The final ICE list is loaded immediately before signaling.
-            // Keeping the pool at zero prevents fallback-only candidates from
-            // being pre-gathered before TURN is applied with setConfiguration.
             iceCandidatePoolSize = 0
         }
     }
@@ -1780,6 +1668,7 @@ class WebRtcPeer(
         private const val MAX_FALLBACK_PACKET_BYTES = 12_500
         private const val MAX_FALLBACK_BUFFERED_BYTES = 900_000L
         private const val CONTROL_CHANNEL = "control-v1"
+        private const val LIVE_CONTROL_CHANNEL = "control-live-v1"
         private const val FALLBACK_VIDEO_CHANNEL = "fallback-video-v1"
         private const val SCREEN_STREAM_ID = "remote-screen"
         private const val MIN_VIDEO_BITRATE_BPS = 600_000
@@ -1801,12 +1690,6 @@ class WebRtcPeer(
         private const val CONTROLLER_RELAY_REFRESH_INTERVAL_MS = 4_000L
         private const val MAX_CONTROLLER_RELAY_REFRESH_ATTEMPTS = 4L
         private const val MAX_BOOTSTRAP_RECOVERY_ATTEMPTS = 5
-        /*
-         * Backend CONNECT_TTL is 180 s. Re-deliver the same pending offer with
-         * bounded backoff for almost the full connection window. This avoids
-         * noisy 5-second retry spam while still recovering a controller that
-         * attaches late. The negotiationId never changes here.
-         */
         private const val MAX_OFFER_REDELIVERY_ATTEMPTS = 9
     }
 }
