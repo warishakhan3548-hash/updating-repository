@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.graphics.Path
+import android.graphics.RectF
 import android.text.InputType
 import android.graphics.PixelFormat
 import android.view.Gravity
@@ -38,6 +39,8 @@ import java.util.ArrayDeque
 
 class AssistAccessibilityService : AccessibilityService() {
     private var stopOverlay: View? = null
+    private var stopOverlayParams: WindowManager.LayoutParams? = null
+    private var stopOverlayWindowManager: WindowManager? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val keyguard by lazy {
         getSystemService(KeyguardManager::class.java)
@@ -138,6 +141,10 @@ class AssistAccessibilityService : AccessibilityService() {
         ) {
             onResult(false)
             return
+        }
+
+        if (gestureBlockedBySensitiveFocus) {
+            moveStopOverlayAwayFrom(command)
         }
 
         when (command) {
@@ -576,6 +583,168 @@ class AssistAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun moveStopOverlayAwayFrom(
+        command: RemoteCommand
+    ) {
+        val view = stopOverlay ?: return
+        val params = stopOverlayParams ?: return
+        val windowManager = stopOverlayWindowManager ?: return
+        if (
+            view.width <= 0 ||
+            view.height <= 0
+        ) {
+            return
+        }
+
+        val points: List<Pair<Float, Float>> =
+            when (command) {
+                is TapCommand ->
+                    listOf(command.xPx to command.yPx)
+
+                is LongPressCommand ->
+                    listOf(command.xPx to command.yPx)
+
+                is SwipeCommand ->
+                    listOf(
+                        command.fromXPx to command.fromYPx,
+                        command.toXPx to command.toYPx
+                    )
+
+                is GesturePathCommand ->
+                    command.points.map {
+                        it.xPx to it.yPx
+                    }
+
+                is TwoFingerCommand ->
+                    listOf(
+                        command.firstFromXPx to command.firstFromYPx,
+                        command.firstToXPx to command.firstToYPx,
+                        command.secondFromXPx to command.secondFromYPx,
+                        command.secondToXPx to command.secondToYPx
+                    )
+
+                is GlobalActionCommand,
+                is SetTextCommand ->
+                    return
+            }
+
+        if (points.isEmpty()) return
+
+        val clearance =
+            REMOTE_OVERLAY_CLEARANCE_DP *
+                resources.displayMetrics.density
+        val minX =
+            points.minOf { it.first } - clearance
+        val maxX =
+            points.maxOf { it.first } + clearance
+        val minY =
+            points.minOf { it.second } - clearance
+        val maxY =
+            points.maxOf { it.second } + clearance
+        val commandBounds =
+            RectF(minX, minY, maxX, maxY)
+
+        val currentLocation = IntArray(2)
+        view.getLocationOnScreen(currentLocation)
+        val currentBounds =
+            RectF(
+                currentLocation[0].toFloat(),
+                currentLocation[1].toFloat(),
+                (currentLocation[0] + view.width).toFloat(),
+                (currentLocation[1] + view.height).toFloat()
+            )
+        if (!RectF.intersects(currentBounds, commandBounds)) {
+            return
+        }
+
+        val metrics = resources.displayMetrics
+        val screenWidth = metrics.widthPixels
+        val screenHeight = metrics.heightPixels
+        val maxParamX =
+            (screenWidth - view.width).coerceAtLeast(0)
+        val maxParamY =
+            (screenHeight - view.height).coerceAtLeast(0)
+        val margin =
+            (
+                OVERLAY_EDGE_MARGIN_DP *
+                    metrics.density
+                ).toInt()
+                .coerceAtLeast(0)
+        val nearX = margin.coerceAtMost(maxParamX)
+        val farX =
+            (maxParamX - margin)
+                .coerceAtLeast(0)
+        val nearY = margin.coerceAtMost(maxParamY)
+        val farY =
+            (maxParamY - margin)
+                .coerceAtLeast(0)
+
+        val candidates =
+            listOf(
+                nearX to nearY,
+                farX to nearY,
+                nearX to farY,
+                farX to farY
+            ).distinct()
+
+        val commandCenterX =
+            (commandBounds.left + commandBounds.right) / 2f
+        val commandCenterY =
+            (commandBounds.top + commandBounds.bottom) / 2f
+
+        val best =
+            candidates.maxByOrNull { (candidateX, candidateY) ->
+                /*
+                 * Gravity.END means LayoutParams.x is the distance from the
+                 * right edge, not an absolute left coordinate.
+                 */
+                val left =
+                    screenWidth -
+                        view.width -
+                        candidateX
+                val top = candidateY
+                val candidateBounds =
+                    RectF(
+                        left.toFloat(),
+                        top.toFloat(),
+                        (left + view.width).toFloat(),
+                        (top + view.height).toFloat()
+                    )
+                val clear =
+                    !RectF.intersects(
+                        candidateBounds,
+                        commandBounds
+                    )
+                val centerX =
+                    candidateBounds.centerX()
+                val centerY =
+                    candidateBounds.centerY()
+                val dx = centerX - commandCenterX
+                val dy = centerY - commandCenterY
+                (
+                    if (clear) CLEAR_CANDIDATE_BONUS else 0f
+                    ) +
+                    dx * dx +
+                    dy * dy
+            } ?: return
+
+        if (
+            params.x == best.first &&
+            params.y == best.second
+        ) {
+            return
+        }
+
+        params.x = best.first
+        params.y = best.second
+        runCatching {
+            windowManager.updateViewLayout(
+                view,
+                params
+            )
+        }
+    }
+
     private fun showStopOverlay(isLive: Boolean) {
         val label =
             if (isLive) {
@@ -705,15 +874,21 @@ class AssistAccessibilityService : AccessibilityService() {
         runCatching {
             windowManager.addView(button, params)
             stopOverlay = button
+            stopOverlayParams = params
+            stopOverlayWindowManager = windowManager
         }
     }
 
     private fun hideStopOverlay() {
         val view = stopOverlay ?: return
+        val windowManager =
+            stopOverlayWindowManager
+                ?: getSystemService(WindowManager::class.java)
         stopOverlay = null
+        stopOverlayParams = null
+        stopOverlayWindowManager = null
         runCatching {
-            getSystemService(WindowManager::class.java)
-                .removeView(view)
+            windowManager.removeView(view)
         }
     }
 
@@ -722,6 +897,9 @@ class AssistAccessibilityService : AccessibilityService() {
         private const val MAX_REMOTE_FIELD_CHARS = 4000
         private const val MAX_PENDING_COMMANDS = 16
         private const val COMMAND_EXECUTION_TIMEOUT_MS = 3_000L
+        private const val REMOTE_OVERLAY_CLEARANCE_DP = 18f
+        private const val OVERLAY_EDGE_MARGIN_DP = 16f
+        private const val CLEAR_CANDIDATE_BONUS = 1_000_000_000f
         @Volatile
         private var instance = WeakReference<AssistAccessibilityService>(null)
 
