@@ -27,7 +27,7 @@ class ControllerWebRtcSession(
         fun onConnectivityChanged(connected: Boolean)
         fun onRemoteVideoTrack(track: VideoTrack)
         fun onCommandResult(sequence: Long, applied: Boolean)
-        fun onDiagnostic(message: String)
+        fun onDiagnostic(message: String) = Unit
         fun onRecoverableError(error: Throwable)
         fun onTerminalError(error: Throwable)
     }
