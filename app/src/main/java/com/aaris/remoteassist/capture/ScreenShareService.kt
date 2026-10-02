@@ -261,7 +261,19 @@ class ScreenShareService : Service() {
                         }
                     }
 
-                    override fun onError(error: Throwable) {
+                    override fun onRecoverableError(
+                        error: Throwable
+                    ) {
+                        /*
+                         * WebRTC owns bounded SDP/ICE/TURN recovery.
+                         * Keep MediaProjection and the foreground service
+                         * alive while that recovery budget is running.
+                         */
+                    }
+
+                    override fun onTerminalError(
+                        error: Throwable
+                    ) {
                         mainHandler.post {
                             stopActiveSession(
                                 "webrtc_transport_failed"
