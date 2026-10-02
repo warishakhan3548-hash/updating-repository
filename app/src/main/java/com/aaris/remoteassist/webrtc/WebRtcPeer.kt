@@ -40,6 +40,7 @@ class WebRtcPeer(
         fun onControlChannelClosed()
         fun onControlMessage(bytes: ByteArray)
         fun onRemoteVideoTrack(track: VideoTrack)
+        fun onRemoteMediaRecoveryRequested() = Unit
         fun onDiagnostic(message: String) = Unit
         fun onError(error: Throwable)
     }
@@ -915,6 +916,13 @@ class WebRtcPeer(
 
     override fun onRemoteIceRestartRequested() {
         if (closed.get() || role != PeerRole.HOST) return
+
+        /*
+         * A controller can request recovery because control is healthy while
+         * video frames are missing. Give the host capture owner a chance to
+         * refresh MediaProjection before renegotiating the transport.
+         */
+        listener.onRemoteMediaRecoveryRequested()
 
         /*
          * If an offer is already pending, it is already the authoritative
