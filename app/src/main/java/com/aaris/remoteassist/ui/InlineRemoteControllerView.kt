@@ -86,6 +86,12 @@ class InlineRemoteControllerView(
     @Volatile
     private var frameHeight = 0
 
+    @Volatile
+    private var latestObservedFrameWidth = 0
+
+    @Volatile
+    private var latestObservedFrameHeight = 0
+
     private val touchSlop =
         ViewConfiguration.get(activity).scaledTouchSlop.toFloat()
     private val gesturePoints =
@@ -137,6 +143,9 @@ class InlineRemoteControllerView(
     private val renderSink = VideoSink { frame ->
         val rotatedWidth = frame.rotatedWidth
         val rotatedHeight = frame.rotatedHeight
+        latestObservedFrameWidth = rotatedWidth
+        latestObservedFrameHeight = rotatedHeight
+
         val currentGeometry = geometry
         val geometryMatches =
             currentGeometry == null ||
@@ -286,6 +295,10 @@ class InlineRemoteControllerView(
                         track.setEnabled(true)
                         rawFrameSeen.set(false)
                         renderedFrameSeen.set(false)
+                        frameWidth = 0
+                        frameHeight = 0
+                        latestObservedFrameWidth = 0
+                        latestObservedFrameHeight = 0
                         mediaRecoveryAttempts = 0
                         rendererRecoveryAttempts = 0
                     }
@@ -455,6 +468,26 @@ class InlineRemoteControllerView(
         rendererContainer.setBackgroundColor(Color.BLACK)
         rendererContainer.setOnTouchListener { _, event ->
             handleTouch(event)
+        }
+        rendererContainer.addOnLayoutChangeListener {
+                _,
+                left,
+                top,
+                right,
+                bottom,
+                oldLeft,
+                oldTop,
+                oldRight,
+                oldBottom ->
+            val widthChanged =
+                right - left != oldRight - oldLeft
+            val heightChanged =
+                bottom - top != oldBottom - oldTop
+
+            if (widthChanged || heightChanged) {
+                updateVideoViewport()
+                positionControlHandleIfNeeded()
+            }
         }
         rendererContainer.addView(
             textureView,
@@ -965,6 +998,9 @@ class InlineRemoteControllerView(
                     return@runOnUiThread
                 }
 
+                latestObservedFrameWidth = oriented.width
+                latestObservedFrameHeight = oriented.height
+
                 val currentGeometry = geometry
                 if (
                     currentGeometry != null &&
@@ -1220,7 +1256,7 @@ class InlineRemoteControllerView(
             latencyOptimizedGestureDuration(rawDuration)
 
         val path = sampledGesturePoints()
-            .mapNotNullIndexed { index, point ->
+            .mapIndexedNotNull { index, point ->
                 normalize(
                     x = point.x,
                     y = point.y,
@@ -1245,17 +1281,6 @@ class InlineRemoteControllerView(
                 expectedGeneration = geometry.generation
             )
         }
-    }
-
-    private inline fun <T, R : Any> Iterable<T>.mapNotNullIndexed(
-        transform: (Int, T) -> R?
-    ): List<R> {
-        val destination = ArrayList<R>()
-        var index = 0
-        for (item in this) {
-            transform(index++, item)?.let(destination::add)
-        }
-        return destination
     }
 
     private fun appendGesturePoint(
@@ -1409,6 +1434,26 @@ class InlineRemoteControllerView(
         geometry: RemoteGeometry,
         clampToContent: Boolean = false
     ): NormalizedRemotePoint? {
+        val observedWidth = latestObservedFrameWidth
+        val observedHeight = latestObservedFrameHeight
+        if (
+            observedWidth > 0 &&
+            observedHeight > 0 &&
+            !RemoteViewportMapper.frameMatchesRemote(
+                remoteWidth = geometry.widthPx,
+                remoteHeight = geometry.heightPx,
+                frameWidth = observedWidth,
+                frameHeight = observedHeight
+            )
+        ) {
+            /*
+             * Rotation changes the visible pixels before HELLO can rotate the
+             * logical control generation. Reject that tiny stale window rather
+             * than risk injecting a tap at the wrong physical coordinate.
+             */
+            return null
+        }
+
         val candidateFrameWidth =
             frameWidth.takeIf {
                 it > 0 &&
