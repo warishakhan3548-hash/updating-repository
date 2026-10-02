@@ -208,6 +208,7 @@ private class PollingSessionObserver(
     private val closed = AtomicBoolean(false)
     private val executor = Executors.newSingleThreadExecutor()
     private var lastFingerprint: String? = null
+    private var lastBackendState: String? = null
 
     init {
         executor.execute(::runLoop)
@@ -236,6 +237,7 @@ private class PollingSessionObserver(
                         }
                 )
                 failures = 0
+                lastBackendState = backend.state
                 val fingerprint =
                     "${backend.state}:" +
                         "${backend.displayGeneration}:" +
@@ -254,9 +256,30 @@ private class PollingSessionObserver(
                     break
                 }
                 failures += 1
-                if (failures >= MAX_CONSECUTIVE_FAILURES) {
+
+                /*
+                 * Once screen sharing has reached its transport phase,
+                 * backend polling is telemetry/state recovery rather than
+                 * transport truth. A short Cloudflare/mobile-network wobble
+                 * must not tear down an otherwise healthy WebRTC peer and
+                 * ordered control DataChannel.
+                 */
+                val transportPhase =
+                    lastBackendState == "SCREEN_READY" ||
+                        lastBackendState == "LIVE"
+
+                if (
+                    !transportPhase &&
+                    failures >= MAX_CONSECUTIVE_FAILURES
+                ) {
                     onError(error)
                     break
+                }
+
+                if (transportPhase) {
+                    failures = failures.coerceAtMost(
+                        MAX_CONSECUTIVE_FAILURES
+                    )
                 }
             }
 
@@ -275,6 +298,6 @@ private class PollingSessionObserver(
 
     companion object {
         private const val POLL_INTERVAL_MS = 650L
-        private const val MAX_CONSECUTIVE_FAILURES = 4
+        private const val MAX_CONSECUTIVE_FAILURES = 6
     }
 }
