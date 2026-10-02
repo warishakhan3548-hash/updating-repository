@@ -119,6 +119,29 @@ class ControllerWebRtcSession(
 
     fun requestMediaRecovery(): Boolean {
         if (closed.get()) return false
+
+        val lease = leaseSecret
+        if (
+            lease != null &&
+            peer.sendControl(
+                ControlProtocol.encode(
+                    ControlPacket.VideoRecoveryRequest(
+                        leaseSecret = lease
+                    )
+                )
+            )
+        ) {
+            listener.onDiagnostic(
+                "Video recovery requested over healthy control channel"
+            )
+            return true
+        }
+
+        /*
+         * Only fall back to transport-level signaling if the ordered control
+         * channel is unavailable. A black picture alone must not disturb a
+         * healthy ICE/DataChannel path.
+         */
         return peer.requestRemoteRecovery()
     }
 
