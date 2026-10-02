@@ -107,12 +107,6 @@ class HostWebRtcSession(
             onDiagnostic = listener::onDiagnostic
         )
 
-    private val fallbackDisable = Runnable {
-        if (!closed.get()) {
-            fallbackStreamer.disable()
-        }
-    }
-
     private val captureProbe = VideoSink {
         if (localCaptureFrameSeen.compareAndSet(false, true)) {
             listener.onDiagnostic("MediaProjection produced first capture frame")
@@ -495,6 +489,21 @@ class HostWebRtcSession(
                 handleMediaRecoveryRequest()
             }
 
+            is ControlPacket.PrimaryVideoReady -> {
+                val currentLease = lease ?: return
+                if (
+                    packet.leaseSecret !=
+                    currentLease.leaseSecret
+                ) {
+                    return
+                }
+
+                fallbackStreamer.disable()
+                listener.onDiagnostic(
+                    "Primary screen renderer confirmed healthy • fallback stopped"
+                )
+            }
+
             is ControlPacket.CommandResult,
             is ControlPacket.Hello -> Unit
         }
@@ -517,11 +526,6 @@ class HostWebRtcSession(
             "Controller requested video recovery • enabling compatibility stream"
         )
         fallbackStreamer.enable()
-        displayHandler.removeCallbacks(fallbackDisable)
-        displayHandler.postDelayed(
-            fallbackDisable,
-            FALLBACK_VIDEO_WINDOW_MS
-        )
 
         /*
          * Keep the authenticated/control session alive. Refreshing the capture
@@ -579,7 +583,6 @@ class HostWebRtcSession(
         displayHandler.removeCallbacks(iceRestart)
         displayHandler.removeCallbacks(startupControlRecovery)
         displayHandler.removeCallbacks(captureFrameWatchdog)
-        displayHandler.removeCallbacks(fallbackDisable)
         displayHandler.removeCallbacks(
             leaseWatchdog
         )
@@ -676,7 +679,6 @@ class HostWebRtcSession(
         private const val CAPTURE_RECOVERY_INTERVAL_MS = 8_000L
         private const val MAX_CAPTURE_RECOVERY_ATTEMPTS = 3
         private const val VIDEO_RECOVERY_TRACK_PULSE_MS = 180L
-        private const val FALLBACK_VIDEO_WINDOW_MS = 12_000L
         private const val LEASE_WATCHDOG_MS = 3_000L
     }
 }
