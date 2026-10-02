@@ -427,6 +427,12 @@ class HostWebRtcSession(
         )
     }
 
+    override fun onVideoHealth(
+        snapshot: VideoHealthSnapshot
+    ) {
+        listener.onDiagnostic(snapshot.compact())
+    }
+
     override fun onDiagnostic(message: String) {
         listener.onDiagnostic(message)
     }
