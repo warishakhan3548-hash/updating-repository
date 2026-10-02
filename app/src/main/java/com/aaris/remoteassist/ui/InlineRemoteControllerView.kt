@@ -127,7 +127,9 @@ class InlineRemoteControllerView(
     private var handleDownRawY = 0f
     private var handleStartX = 0f
     private var handleStartY = 0f
+    private var handleDownAt = 0L
     private var handleDragging = false
+    private var handleWasParkedOnDown = false
     private var controlHandleUserMoved = false
     private var controlHandleParked = false
     private var controlHandleOnRight = true
@@ -616,7 +618,7 @@ class InlineRemoteControllerView(
             isAllCaps = false
             visibility = View.GONE
             contentDescription =
-                "Remote controls. Drag to move this button."
+                "Remote controls. Drag to move. When parked, tap controls the screen underneath; hold to open controls."
             setOnClickListener {
                 setControlsVisible(true)
             }
@@ -625,8 +627,12 @@ class InlineRemoteControllerView(
                     MotionEvent.ACTION_DOWN -> {
                         mainHandler.removeCallbacks(handlePeek)
                         view.animate().cancel()
-                        view.alpha = 1f
-                        controlHandleParked = false
+                        handleWasParkedOnDown =
+                            controlHandleParked
+                        if (!handleWasParkedOnDown) {
+                            view.alpha = 1f
+                            controlHandleParked = false
+                        }
                         controlHandleOnRight =
                             view.x + view.width / 2f >=
                                 root.width / 2f
@@ -634,6 +640,7 @@ class InlineRemoteControllerView(
                         handleDownRawY = event.rawY
                         handleStartX = view.x
                         handleStartY = view.y
+                        handleDownAt = event.eventTime
                         handleDragging = false
                         true
                     }
@@ -647,6 +654,8 @@ class InlineRemoteControllerView(
                             touchSlop * touchSlop
                         ) {
                             handleDragging = true
+                            controlHandleParked = false
+                            view.alpha = 1f
                         }
 
                         if (handleDragging) {
@@ -674,14 +683,38 @@ class InlineRemoteControllerView(
                         if (handleDragging) {
                             controlHandleUserMoved = true
                             snapControlHandleToNearestEdge()
+                        } else if (handleWasParkedOnDown) {
+                            val heldFor =
+                                event.eventTime -
+                                    handleDownAt
+                            if (
+                                heldFor >=
+                                ViewConfiguration.getLongPressTimeout()
+                            ) {
+                                controlHandleParked = false
+                                setControlsVisible(true)
+                            } else {
+                                forwardParkedHandleTap(
+                                    event.rawX,
+                                    event.rawY
+                                )
+                                controlHandleParked = true
+                                applyParkedHandlePosition()
+                                scheduleControlHandlePeek()
+                            }
                         } else {
                             view.performClick()
                         }
+                        handleWasParkedOnDown = false
                         true
                     }
 
                     MotionEvent.ACTION_CANCEL -> {
                         handleDragging = false
+                        handleWasParkedOnDown = false
+                        if (controlHandleParked) {
+                            applyParkedHandlePosition()
+                        }
                         scheduleControlHandlePeek()
                         true
                     }
@@ -698,6 +731,38 @@ class InlineRemoteControllerView(
                 Gravity.TOP or Gravity.START
             )
         )
+    }
+
+    private fun forwardParkedHandleTap(
+        rawX: Float,
+        rawY: Float
+    ) {
+        val currentGeometry = geometry ?: return
+        val currentSession = session() ?: return
+        if (
+            !rawX.isFinite() ||
+            !rawY.isFinite()
+        ) {
+            return
+        }
+
+        val location = IntArray(2)
+        rendererContainer.getLocationOnScreen(location)
+        val point =
+            normalize(
+                x = rawX - location[0],
+                y = rawY - location[1],
+                geometry = currentGeometry,
+                clampToContent = false
+            ) ?: return
+
+        beginRemoteMotion()
+        currentSession.sendTap(
+            point.x,
+            point.y,
+            currentGeometry.generation
+        )
+        scheduleRemoteMotionIdle()
     }
 
     private fun setControlsVisible(visible: Boolean) {
