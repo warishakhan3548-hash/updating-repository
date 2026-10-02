@@ -44,6 +44,12 @@ No `google-services.json` or Firebase build secret is required.
 GitHub CI runs unit tests, debug/release lint, debug/release assembly, and a live Cloudflare backend smoke test. Codemagic can create the signed release APK using the configured Android signing identity.
 
 
+### 1.8.6 no-video recovery hardening
+
+- **Missing-track recovery:** once the controller receives the authenticated WebRTC/control HELLO, it now starts bounded video recovery even if Android/libwebrtc never delivers the initial remote `VideoTrack` callback.
+- This closes the remaining state where both phones could be connected and controllable while the controller stayed on “waiting for screen video” forever.
+- Cloudflare Worker signaling/TURN configuration is unchanged because account-side telemetry shows successful ICE credential responses and healthy Durable Object/WebSocket infrastructure.
+
 ### 1.8.5 connectivity hardening
 
 - **Controller waiting room:** entering a pairing code no longer opens the heavy WebRTC viewer before the sharing phone has approved MediaProjection. The controller stays in-app until Cloudflare reports `SCREEN_READY`.

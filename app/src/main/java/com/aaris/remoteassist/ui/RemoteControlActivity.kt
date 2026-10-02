@@ -473,6 +473,21 @@ class RemoteControlActivity : ComponentActivity() {
                                 "Connected • waiting for screen video…"
                             )
                         }
+
+                        /*
+                         * HELLO proves the peer + ordered control channel +
+                         * host capture producer are alive. A missing onTrack
+                         * callback must therefore be treated as a recoverable
+                         * media-path failure, not as a state we can wait in
+                         * forever. Start the same bounded recovery watchdog
+                         * even when no remote VideoTrack has arrived yet.
+                         */
+                        if (
+                            !firstRemoteFrameRendered &&
+                            videoFrameWatchdog == null
+                        ) {
+                            scheduleVideoFrameWatchdog()
+                        }
                     }
                 }
 
