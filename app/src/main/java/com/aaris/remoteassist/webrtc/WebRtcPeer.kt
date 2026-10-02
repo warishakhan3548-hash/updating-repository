@@ -493,7 +493,15 @@ class WebRtcPeer(
                 emptyList()
             )
         )
-        listener.onDiagnostic("Controller RECV_ONLY video transceiver ready")
+        controllerVideoTransceiver?.let {
+            preferBaselineScreenCodec(
+                transceiver = it,
+                senderSide = false
+            )
+        }
+        listener.onDiagnostic(
+            "Controller RECV_ONLY video transceiver ready • VP8 preferred"
+        )
     }
 
     fun addLocalVideoTrack(track: VideoTrack) {
@@ -525,7 +533,13 @@ class WebRtcPeer(
             )
         )
         localScreenTransceiver = transceiver
-        listener.onDiagnostic("Host SEND_ONLY screen transceiver ready")
+        preferBaselineScreenCodec(
+            transceiver = transceiver,
+            senderSide = true
+        )
+        listener.onDiagnostic(
+            "Host SEND_ONLY screen transceiver ready • VP8 preferred"
+        )
         applyInteractiveVideoPolicy(transceiver.sender)
     }
 
@@ -1385,6 +1399,75 @@ class WebRtcPeer(
     private fun publishPeerDisconnected() {
         if (connectivity.onDisconnected()) {
             listener.onPeerDisconnected()
+        }
+    }
+
+    private fun preferBaselineScreenCodec(
+        transceiver: RtpTransceiver,
+        senderSide: Boolean
+    ) {
+        runCatching {
+            val capabilities =
+                if (senderSide) {
+                    factory.getRtpSenderCapabilities(
+                        MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO
+                    )
+                } else {
+                    factory.getRtpReceiverCapabilities(
+                        MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO
+                    )
+                }
+
+            val codecs = capabilities.codecs
+            if (codecs.isEmpty()) return@runCatching
+
+            /*
+             * VP8 is the conservative baseline for Android WebRTC screen
+             * sharing. Keep every supported fallback codec, but move VP8 and
+             * its RTX payload to the front so hardware-specific H264/VP9
+             * encoder/decoder quirks cannot silently produce a black stream.
+             */
+            val vp8Payloads = codecs
+                .filter { it.name.equals("VP8", ignoreCase = true) }
+                .map { it.preferredPayloadType.toString() }
+                .toSet()
+
+            fun rank(codec: org.webrtc.RtpCapabilities.CodecCapability): Int {
+                val name = codec.name.uppercase()
+                if (name == "VP8") return 0
+
+                if (
+                    name == "RTX" &&
+                    codec.parameters["apt"] in vp8Payloads
+                ) {
+                    return 1
+                }
+
+                return when (name) {
+                    "RED", "ULPFEC", "FLEXFEC-03" -> 2
+                    "VP9" -> 3
+                    "H264" -> 4
+                    "AV1", "AV1X", "AV1F" -> 5
+                    "RTX" -> 6
+                    else -> 7
+                }
+            }
+
+            val ordered = codecs.withIndex()
+                .sortedWith(
+                    compareBy<IndexedValue<org.webrtc.RtpCapabilities.CodecCapability>>(
+                        { rank(it.value) },
+                        { it.index }
+                    )
+                )
+                .map { it.value }
+
+            transceiver.setCodecPreferences(ordered)
+        }.onFailure {
+            listener.onDiagnostic(
+                "Video codec preference fallback: " +
+                    (it.message ?: it.javaClass.simpleName)
+            )
         }
     }
 
