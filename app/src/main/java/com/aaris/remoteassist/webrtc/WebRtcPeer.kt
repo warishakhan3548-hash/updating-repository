@@ -424,6 +424,18 @@ class WebRtcPeer(
         applyInteractiveVideoPolicy(sender)
     }
 
+    fun requestRemoteRecovery(): Boolean {
+        if (
+            closed.get() ||
+            role != PeerRole.CONTROLLER
+        ) {
+            return false
+        }
+
+        signaling.requestRemoteIceRestart()
+        return true
+    }
+
     fun requestIceRestart(
         forceRelay: Boolean = false
     ): Boolean {

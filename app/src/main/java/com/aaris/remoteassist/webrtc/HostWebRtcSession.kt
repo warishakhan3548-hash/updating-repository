@@ -15,6 +15,7 @@ import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionRuntime
 import java.io.Closeable
 import java.util.concurrent.atomic.AtomicBoolean
+import org.webrtc.VideoSink
 import org.webrtc.VideoTrack
 
 class HostWebRtcSession(
@@ -54,6 +55,8 @@ class HostWebRtcSession(
     private var transportReady = false
 
     private var startupControlRecoveryAttempts = 0
+    private var captureRecoveryAttempts = 0
+    private val localCaptureFrameSeen = AtomicBoolean(false)
 
     @Volatile
     private var lease: LiveLease? = null
@@ -79,6 +82,36 @@ class HostWebRtcSession(
         grant = projectionGrant,
         onProjectionStopped = listener::onProjectionStopped
     )
+
+    private val captureProbe = VideoSink {
+        if (localCaptureFrameSeen.compareAndSet(false, true)) {
+            displayHandler.removeCallbacks(captureFrameWatchdog)
+        }
+    }
+
+    private val captureFrameWatchdog = object : Runnable {
+        override fun run() {
+            if (closed.get() || localCaptureFrameSeen.get()) {
+                return
+            }
+
+            if (captureRecoveryAttempts < MAX_CAPTURE_RECOVERY_ATTEMPTS) {
+                captureRecoveryAttempts += 1
+                capture.update(profile)
+                displayHandler.postDelayed(
+                    this,
+                    CAPTURE_RECOVERY_INTERVAL_MS
+                )
+                return
+            }
+
+            listener.onError(
+                IllegalStateException(
+                    "Screen capture produced no video frames"
+                )
+            )
+        }
+    }
 
     private val connectionWatchdog = Runnable {
         if (
@@ -192,8 +225,18 @@ class HostWebRtcSession(
             displayHandler
         )
 
+        capture.videoTrack.addSink(captureProbe)
         peer.addLocalVideoTrack(capture.videoTrack)
         capture.start(profile)
+
+        captureRecoveryAttempts = 0
+        localCaptureFrameSeen.set(false)
+        displayHandler.removeCallbacks(captureFrameWatchdog)
+        displayHandler.postDelayed(
+            captureFrameWatchdog,
+            CAPTURE_FIRST_FRAME_TIMEOUT_MS
+        )
+
         displayHandler.removeCallbacks(connectionWatchdog)
         displayHandler.postDelayed(
             connectionWatchdog,
@@ -344,11 +387,15 @@ class HostWebRtcSession(
         displayHandler.removeCallbacks(connectionWatchdog)
         displayHandler.removeCallbacks(iceRestart)
         displayHandler.removeCallbacks(startupControlRecovery)
+        displayHandler.removeCallbacks(captureFrameWatchdog)
         displayHandler.removeCallbacks(
             leaseWatchdog
         )
         runCatching {
             displayManager.unregisterDisplayListener(displayListener)
+        }
+        runCatching {
+            capture.videoTrack.removeSink(captureProbe)
         }
         runCatching { peer.close() }
         runCatching { capture.close() }
@@ -427,6 +474,9 @@ class HostWebRtcSession(
         private const val STARTUP_CONTROL_RECOVERY_INITIAL_DELAY_MS = 8_000L
         private const val STARTUP_CONTROL_RECOVERY_INTERVAL_MS = 8_000L
         private const val MAX_STARTUP_CONTROL_RECOVERY_ATTEMPTS = 2
+        private const val CAPTURE_FIRST_FRAME_TIMEOUT_MS = 8_000L
+        private const val CAPTURE_RECOVERY_INTERVAL_MS = 5_000L
+        private const val MAX_CAPTURE_RECOVERY_ATTEMPTS = 2
         private const val LEASE_WATCHDOG_MS = 3_000L
     }
 }
