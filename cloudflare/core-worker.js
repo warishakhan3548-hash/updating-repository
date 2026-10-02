@@ -201,8 +201,13 @@ export default{
       if(request.method==="POST"&&u.pathname==="/v1/sessions/redeem"){
         const x=await body(request),c=String(x.code||"").replace(/\D/g,"");
         if(!/^\d{12}$/.test(c))return fail(400,"invalid_code","Enter a valid 12-digit code.");
-        const controllerToken=String(x.controllerToken||"");
-        if(!/^[A-Za-z0-9_-]{43,128}$/.test(controllerToken)){
+        let controllerToken=String(x.controllerToken||"");
+        if(controllerToken===""){
+          // Backward compatibility for the first 1.8.0 Cloudflare build.
+          // 1.8.1+ supplies its own stable token so an ambiguous redeem can
+          // be retried idempotently.
+          controllerToken=token();
+        }else if(!/^[A-Za-z0-9_-]{43,128}$/.test(controllerToken)){
           return fail(400,"invalid_controller_token","Controller token is invalid.");
         }
         const id=await directory(env).lookup(await sha(c),Date.now());
