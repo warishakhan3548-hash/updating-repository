@@ -147,8 +147,9 @@ export class AarisSession extends DurableObject{
   async publishEvent(h,kind,payload,now){
     const s=await this.session(),r=this.role(s,h);
     if(!r)return{ok:false,status:401,code:"unauthorized"};
-    if(!["SCREEN_READY","LIVE"].includes(s.state))return{ok:false,status:409,code:"signaling_not_ready"};
     if(!["description","candidate","ice_restart","presence"].includes(kind))return{ok:false,status:400,code:"bad_event_kind"};
+    const prewarmPresence=s.state==="HOST_APPROVED"&&r==="controller"&&kind==="presence";
+    if(!prewarmPresence&&!["SCREEN_READY","LIVE"].includes(s.state))return{ok:false,status:409,code:"signaling_not_ready"};
     if(JSON.stringify(payload||{}).length>655360)return{ok:false,status:413,code:"event_too_large"};
     let e;
     await this.ctx.storage.transaction(async t=>{
