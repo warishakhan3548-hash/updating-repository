@@ -820,12 +820,7 @@ class MainActivity : ComponentActivity() {
                                     "Waiting for your friend to tap START…"
                             }
 
-                            "HOST_APPROVED" -> {
-                                controllerViewerReadyPending = false
-                                status.text =
-                                    "Your friend approved • waiting for screen permission…"
-                            }
-
+                            "HOST_APPROVED",
                             "SCREEN_READY",
                             "LIVE" -> {
                                 if (
@@ -841,7 +836,11 @@ class MainActivity : ComponentActivity() {
                                     } else {
                                         controllerViewerReadyPending = true
                                         status.text =
-                                            "Screen is ready • reopen Aaris Remote to continue."
+                                            if (backend.state == "HOST_APPROVED") {
+                                                "Approved • reopen Aaris Remote to continue."
+                                            } else {
+                                                "Screen is ready • reopen Aaris Remote to continue."
+                                            }
                                     }
                                 }
                             }
@@ -919,7 +918,7 @@ class MainActivity : ComponentActivity() {
         controllerDeadlineJob?.cancel()
         controllerDeadlineJob = null
         status.text =
-            "Screen is ready • opening remote view…"
+            "Opening secure remote view…"
 
         runCatching {
             remoteControlLauncher.launch(
@@ -975,6 +974,11 @@ class MainActivity : ComponentActivity() {
             current = SessionCoordinator.snapshot()
         }
 
+        /*
+         * The viewer may now open at HOST_APPROVED, before screen consent.
+         * Keep local state truthful: do not manufacture SCREEN_CONSENT /
+         * CONNECTING until the backend later proves SCREEN_READY.
+         */
         if (current.state == SessionState.PAIR_PENDING) {
             SessionCoordinator.transition(
                 sessionId,
@@ -983,25 +987,11 @@ class MainActivity : ComponentActivity() {
             current = SessionCoordinator.snapshot()
         }
 
-        if (current.state == SessionState.HOST_APPROVED) {
-            SessionCoordinator.transition(
-                sessionId,
-                SessionState.SCREEN_CONSENT
-            )
-            current = SessionCoordinator.snapshot()
-        }
-
-        if (current.state == SessionState.SCREEN_CONSENT) {
-            SessionCoordinator.transition(
-                sessionId,
-                SessionState.CONNECTING
-            )
-            current = SessionCoordinator.snapshot()
-        }
-
         current.sessionId == sessionId &&
             (
-                current.state == SessionState.CONNECTING ||
+                current.state == SessionState.HOST_APPROVED ||
+                    current.state == SessionState.SCREEN_CONSENT ||
+                    current.state == SessionState.CONNECTING ||
                     current.state == SessionState.LIVE
                 )
     }.getOrDefault(false)
