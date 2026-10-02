@@ -34,6 +34,7 @@ class ControllerWebRtcSession(
 
     private val appContext = context.applicationContext
     private val closed = AtomicBoolean(false)
+    private val screenReadyArmed = AtomicBoolean(false)
     private val sequence = AtomicLong(0L)
     private val handler = Handler(Looper.getMainLooper())
     private val transport = ControlTransportTracker()
@@ -87,12 +88,27 @@ class ControllerWebRtcSession(
 
     fun start() {
         check(!closed.get())
+        /*
+         * Preconnect may start at HOST_APPROVED, minutes before the host has
+         * completed MediaProjection consent. Do not start the HELLO timeout
+         * yet; otherwise the controller can self-destruct while the user is
+         * still legitimately approving screen sharing.
+         */
+        peer.start()
+    }
+
+    fun onScreenReady() {
+        if (closed.get()) return
+        if (!screenReadyArmed.compareAndSet(false, true)) return
+
         handler.removeCallbacks(helloWatchdog)
         handler.postDelayed(
             helloWatchdog,
             HELLO_TIMEOUT_MS
         )
-        peer.start()
+        listener.onDiagnostic(
+            "SCREEN_READY confirmed; controller handshake watchdog armed"
+        )
     }
 
     fun remoteGeometry(): RemoteGeometry? = geometry
@@ -389,6 +405,7 @@ class ControllerWebRtcSession(
     fun close(notifyRemote: Boolean) {
         if (!closed.compareAndSet(false, true)) return
 
+        screenReadyArmed.set(false)
         handler.removeCallbacks(helloWatchdog)
         handler.removeCallbacks(heartbeat)
         if (notifyRemote) {
