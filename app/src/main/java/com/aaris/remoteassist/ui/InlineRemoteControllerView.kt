@@ -370,8 +370,8 @@ class InlineRemoteControllerView(
                                     holder: SurfaceHolder
                                 ) {
                                     sinkTrack?.let {
-                                        created.removeSink(
-                                            it
+                                        it.removeSink(
+                                            created
                                         )
                                     }
                                     sinkTrack = null
