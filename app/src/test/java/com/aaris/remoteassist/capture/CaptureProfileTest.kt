@@ -16,7 +16,7 @@ class CaptureProfileTest {
         assertEquals(720, profile.captureWidthPx)
         assertEquals(1600, profile.captureHeightPx)
         assertEquals(30, profile.fps)
-        assertEquals(5_200_000, profile.maxVideoBitrateBps)
+        assertEquals(6_000_000, profile.maxVideoBitrateBps)
     }
 
     @Test
@@ -31,7 +31,7 @@ class CaptureProfileTest {
         assertEquals(864, profile.captureWidthPx)
         assertEquals(1920, profile.captureHeightPx)
         assertEquals(30, profile.fps)
-        assertEquals(5_200_000, profile.maxVideoBitrateBps)
+        assertEquals(6_000_000, profile.maxVideoBitrateBps)
     }
 
     @Test
@@ -46,7 +46,22 @@ class CaptureProfileTest {
         assertEquals(540, profile.captureWidthPx)
         assertEquals(1200, profile.captureHeightPx)
         assertEquals(24, profile.fps)
-        assertEquals(2_800_000, profile.maxVideoBitrateBps)
+        assertEquals(3_000_000, profile.maxVideoBitrateBps)
+    }
+
+    @Test
+    fun highTierKeepsFullModernPhoneGeometryWithinWebRtcCeiling() {
+        val profile =
+            CaptureProfile.forDisplay(
+                displayWidthPx = 1080,
+                displayHeightPx = 2400,
+                tier = CaptureTier.HIGH
+            )
+
+        assertEquals(1080, profile.captureWidthPx)
+        assertEquals(2400, profile.captureHeightPx)
+        assertEquals(30, profile.fps)
+        assertEquals(8_000_000, profile.maxVideoBitrateBps)
     }
 
     @Test
