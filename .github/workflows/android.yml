@@ -210,6 +210,36 @@ jobs:
                   )
                   assert offer["event"]["payload"]["type"] == "offer"
 
+              # Also prove the late-attach recovery path. A mature remoting
+              # client must be able to reconnect its signaling channel and
+              # replay the persisted host offer instead of requiring a brand
+              # new pairing session.
+              async with websockets.connect(
+                  f"{ws_base}/v1/sessions/{sid}/socket?after=0",
+                  additional_headers=headers,
+                  open_timeout=8,
+                  close_timeout=3,
+              ) as replay_ws:
+                  replay_session = await recv_match(
+                      replay_ws,
+                      lambda x: (
+                          x.get("kind") == "session"
+                          and x.get("session", {}).get("state") == "SCREEN_READY"
+                      ),
+                  )
+                  assert replay_session["session"]["state"] == "SCREEN_READY"
+                  replay_offer = await recv_match(
+                      replay_ws,
+                      lambda x: (
+                          x.get("kind") == "signal_event"
+                          and x.get("event", {}).get("kind") == "description"
+                          and x.get("event", {}).get("senderRole") == "host"
+                          and x.get("event", {}).get("payload", {}).get("negotiationId")
+                              == "ci-prewarm:1"
+                      ),
+                  )
+                  assert replay_offer["event"]["payload"]["type"] == "offer"
+
           asyncio.run(main())
           PY
 
