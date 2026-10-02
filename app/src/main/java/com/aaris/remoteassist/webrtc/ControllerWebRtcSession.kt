@@ -95,6 +95,11 @@ class ControllerWebRtcSession(
 
     fun remoteGeometry(): RemoteGeometry? = geometry
 
+    fun requestMediaRecovery(): Boolean {
+        if (closed.get()) return false
+        return peer.requestRemoteRecovery()
+    }
+
     fun sendTap(
         nx: Float,
         ny: Float,
