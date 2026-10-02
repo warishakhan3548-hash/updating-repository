@@ -26,6 +26,7 @@ class ControllerWebRtcSession(
         fun onLive(geometry: RemoteGeometry)
         fun onConnectivityChanged(connected: Boolean)
         fun onRemoteVideoTrack(track: VideoTrack)
+        fun onFallbackVideoFrame(frame: FallbackVideoFrame) = Unit
         fun onCommandResult(sequence: Long, applied: Boolean)
         fun onDiagnostic(message: String) = Unit
         fun onRecoverableError(error: Throwable)
@@ -391,6 +392,12 @@ class ControllerWebRtcSession(
 
     override fun onRemoteVideoTrack(track: VideoTrack) {
         listener.onRemoteVideoTrack(track)
+    }
+
+    override fun onFallbackVideoFrame(
+        frame: FallbackVideoFrame
+    ) {
+        listener.onFallbackVideoFrame(frame)
     }
 
     override fun onDiagnostic(message: String) {
