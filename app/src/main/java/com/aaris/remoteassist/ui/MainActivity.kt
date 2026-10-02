@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity() {
     private val gateway by lazy { CloudflarePairingGateway(this) }
 
     private lateinit var status: TextView
+    private lateinit var hostTrace: TextView
     private lateinit var statusProgress: ProgressBar
     private lateinit var connectButton: Button
     private lateinit var shareButton: Button
@@ -83,9 +84,10 @@ class MainActivity : ComponentActivity() {
             runOnUiThread {
                 if (
                     activeHostSessionId == sessionId &&
-                    ::status.isInitialized
+                    ::hostTrace.isInitialized
                 ) {
-                    status.text =
+                    hostTrace.visibility = View.VISIBLE
+                    hostTrace.text =
                         "LIVE CONNECTION TRACE\n" + report
                 }
             }
@@ -2191,6 +2193,32 @@ class MainActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
                 topMargin = dp(22)
+            }
+        )
+
+        hostTrace = TextView(this).apply {
+            visibility = View.GONE
+            textSize = 11.5f
+            setTextColor(AarisUi.TEXT_PRIMARY)
+            typeface = Typeface.create(
+                "monospace",
+                Typeface.NORMAL
+            )
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = AarisUi.panel(
+                context = this@MainActivity,
+                fill = AarisUi.SURFACE,
+                radiusDp = 14,
+                strokeColor = AarisUi.BORDER
+            )
+        }
+        root.addView(
+            hostTrace,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(10)
             }
         )
 
