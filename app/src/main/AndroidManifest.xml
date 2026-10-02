@@ -18,11 +18,6 @@
         android:theme="@style/Theme.AarisRemote">
 
         <activity
-            android:name=".ui.RemoteControlActivity"
-            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden"
-            android:exported="false" />
-
-        <activity
             android:name=".ui.MainActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden"
             android:exported="true"
