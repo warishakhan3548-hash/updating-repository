@@ -85,6 +85,9 @@ class RemoteControlActivity : ComponentActivity() {
     private var diagnosticVideoTrack = false
     private var diagnosticFirstFrame = false
     private var diagnosticFailure: String? = null
+    private var lastBackendStateForDiagnostics: String? = null
+    private val diagnosticHistory = ArrayDeque<String>()
+    private val diagnosticStartedAtMs = SystemClock.elapsedRealtime()
 
     private var downX = 0f
     private var downY = 0f
@@ -136,6 +139,12 @@ class RemoteControlActivity : ComponentActivity() {
         val viewerReady = runCatching {
             setContentView(buildUi())
         }.isSuccess
+
+        if (viewerReady) {
+            recordDiagnostic(
+                "Controller monitor opened; pairing code/session already verified"
+            )
+        }
 
         if (!viewerReady) {
             BackendSessionCloser.close(this, requestedSessionId)
@@ -227,6 +236,12 @@ class RemoteControlActivity : ComponentActivity() {
                 listener = { backend ->
                     runOnUiThread {
                         markDiagnostic(DiagnosticStage.CLOUDFLARE)
+                        if (lastBackendStateForDiagnostics != backend.state) {
+                            lastBackendStateForDiagnostics = backend.state
+                            recordDiagnostic(
+                                "Cloudflare session state → " + backend.state
+                            )
+                        }
                         updateControllerDeadline(
                             id = id,
                             deadlineAtEpochMs = backend.deadlineAtEpochMs,
@@ -424,6 +439,9 @@ class RemoteControlActivity : ComponentActivity() {
     private fun ensureRtcStarted(id: String) {
         if (rtcSession != null) return
 
+        recordDiagnostic(
+            "SCREEN_READY verified; starting controller WebRTC transport"
+        )
         showStatus("Establishing low-latency link…")
 
         var createdSession: ControllerWebRtcSession? = null
@@ -576,6 +594,14 @@ class RemoteControlActivity : ComponentActivity() {
                                 "Video connected • waiting for screen frames…"
                             )
                             scheduleVideoFrameWatchdog()
+                        }
+                    }
+                }
+
+                override fun onDiagnostic(message: String) {
+                    runOnUiThread {
+                        if (!disconnecting) {
+                            recordDiagnostic(message)
                         }
                     }
                 }
@@ -823,6 +849,7 @@ class RemoteControlActivity : ComponentActivity() {
                             }
 
                             firstRemoteFrameRendered = true
+                            recordDiagnostic("FIRST REMOTE FRAME rendered")
                             markDiagnostic(DiagnosticStage.FIRST_FRAME)
                             videoRecoveryAttempts = 0
                             videoFrameWatchdog?.cancel()
@@ -1671,6 +1698,27 @@ class RemoteControlActivity : ComponentActivity() {
 
     private fun showDiagnosticFailure(message: String) {
         diagnosticFailure = message
+        recordDiagnostic(message, failure = true)
+        updateDiagnosticDetail()
+    }
+
+    private fun recordDiagnostic(
+        message: String,
+        failure: Boolean = false
+    ) {
+        val elapsedMs =
+            (SystemClock.elapsedRealtime() - diagnosticStartedAtMs)
+                .coerceAtLeast(0L)
+        val seconds = elapsedMs / 1_000L
+        val tenths = (elapsedMs % 1_000L) / 100L
+        val prefix = if (failure) "✕" else "✓"
+        val line = "[+$seconds.$tenths s] $prefix $message"
+
+        if (diagnosticHistory.lastOrNull() == line) return
+        diagnosticHistory.addLast(line)
+        while (diagnosticHistory.size > MAX_DIAGNOSTIC_LINES) {
+            diagnosticHistory.removeFirst()
+        }
         updateDiagnosticDetail()
     }
 
@@ -1715,9 +1763,17 @@ class RemoteControlActivity : ComponentActivity() {
                 "Verified: " + verified.joinToString(" • ")
             }
 
-        return diagnosticFailure
-            ?.let { "$verifiedText\nProblem: $it" }
-            ?: verifiedText
+        val trace =
+            if (diagnosticHistory.isEmpty()) {
+                ""
+            } else {
+                "\n" + diagnosticHistory.joinToString("\n")
+            }
+
+        val problem =
+            diagnosticFailure?.let { "\nProblem: $it" } ?: ""
+
+        return verifiedText + trace + problem
     }
 
     private fun updateDiagnosticDetail() {
@@ -1778,6 +1834,7 @@ class RemoteControlActivity : ComponentActivity() {
         private const val FIRST_VIDEO_FRAME_TIMEOUT_MS = 8_000L
         private const val VIDEO_RECOVERY_INTERVAL_MS = 6_000L
         private const val MAX_VIDEO_RECOVERY_ATTEMPTS = 2
+        private const val MAX_DIAGNOSTIC_LINES = 8
         private const val MAX_GESTURE_PATH_POINTS = 96
         private const val MIN_GESTURE_SAMPLE_DELTA = 0.0015f
     }
