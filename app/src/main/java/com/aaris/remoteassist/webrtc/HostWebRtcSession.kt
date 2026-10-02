@@ -389,6 +389,36 @@ class HostWebRtcSession(
 
     override fun onRemoteVideoTrack(track: VideoTrack) = Unit
 
+    override fun onRemoteMediaRecoveryRequested() {
+        if (closed.get()) return
+
+        listener.onDiagnostic(
+            "Controller requested video recovery • refreshing MediaProjection"
+        )
+
+        /*
+         * Keep the authenticated/control session alive. Refreshing the capture
+         * format forces ScreenCapturerAndroid/VirtualDisplay to push fresh
+         * frames without requiring another Android screen-share consent.
+         */
+        runCatching {
+            capture.videoTrack.setEnabled(false)
+            capture.update(profile)
+        }
+
+        displayHandler.postDelayed(
+            {
+                if (!closed.get()) {
+                    runCatching {
+                        capture.videoTrack.setEnabled(true)
+                        capture.update(profile)
+                    }
+                }
+            },
+            VIDEO_RECOVERY_TRACK_PULSE_MS
+        )
+    }
+
     override fun onDiagnostic(message: String) {
         listener.onDiagnostic(message)
     }
@@ -498,6 +528,7 @@ class HostWebRtcSession(
         private const val CAPTURE_FIRST_FRAME_TIMEOUT_MS = 12_000L
         private const val CAPTURE_RECOVERY_INTERVAL_MS = 8_000L
         private const val MAX_CAPTURE_RECOVERY_ATTEMPTS = 3
+        private const val VIDEO_RECOVERY_TRACK_PULSE_MS = 180L
         private const val LEASE_WATCHDOG_MS = 3_000L
     }
 }
