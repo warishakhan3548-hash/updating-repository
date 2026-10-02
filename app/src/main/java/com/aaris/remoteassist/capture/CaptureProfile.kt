@@ -9,19 +9,22 @@ import kotlin.math.roundToInt
 
 enum class CaptureTier {
     LOW,
+    BALANCED,
     STANDARD,
     HIGH;
 
     fun lower(): CaptureTier? =
         when (this) {
             HIGH -> STANDARD
-            STANDARD -> LOW
+            STANDARD -> BALANCED
+            BALANCED -> LOW
             LOW -> null
         }
 
     fun higher(): CaptureTier? =
         when (this) {
-            LOW -> STANDARD
+            LOW -> BALANCED
+            BALANCED -> STANDARD
             STANDARD -> HIGH
             HIGH -> null
         }
@@ -38,14 +41,17 @@ data class CaptureProfile(
 ) {
     companion object {
         private const val LOW_CAPTURE_LONG_SIDE = 720
+        private const val BALANCED_CAPTURE_LONG_SIDE = 1080
         private const val STANDARD_CAPTURE_LONG_SIDE = 1600
         private const val HIGH_CAPTURE_LONG_SIDE = 1920
 
         private const val LOW_FPS = 15
+        private const val BALANCED_FPS = 24
         private const val STANDARD_FPS = 30
         private const val HIGH_FPS = 30
 
         private const val LOW_BITRATE_BPS = 1_200_000
+        private const val BALANCED_BITRATE_BPS = 2_400_000
         private const val STANDARD_BITRATE_BPS = 4_000_000
         private const val HIGH_BITRATE_BPS = 5_500_000
 
@@ -105,6 +111,7 @@ data class CaptureProfile(
             val maxCaptureLongSide =
                 when (tier) {
                     CaptureTier.LOW -> LOW_CAPTURE_LONG_SIDE
+                    CaptureTier.BALANCED -> BALANCED_CAPTURE_LONG_SIDE
                     CaptureTier.STANDARD -> STANDARD_CAPTURE_LONG_SIDE
                     CaptureTier.HIGH -> HIGH_CAPTURE_LONG_SIDE
                 }
@@ -129,6 +136,7 @@ data class CaptureProfile(
             val fps =
                 when (tier) {
                     CaptureTier.LOW -> LOW_FPS
+                    CaptureTier.BALANCED -> BALANCED_FPS
                     CaptureTier.STANDARD -> STANDARD_FPS
                     CaptureTier.HIGH -> HIGH_FPS
                 }
@@ -136,6 +144,7 @@ data class CaptureProfile(
             val maxVideoBitrateBps =
                 when (tier) {
                     CaptureTier.LOW -> LOW_BITRATE_BPS
+                    CaptureTier.BALANCED -> BALANCED_BITRATE_BPS
                     CaptureTier.STANDARD -> STANDARD_BITRATE_BPS
                     CaptureTier.HIGH -> HIGH_BITRATE_BPS
                 }
