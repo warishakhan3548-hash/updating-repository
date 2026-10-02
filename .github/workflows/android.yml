@@ -45,6 +45,7 @@ jobs:
         run: |
           set -euo pipefail
           BASE="https://aaris-remote-ice.aaris-remote-wk3548.workers.dev"
+          export BASE
 
           HEALTH="$(curl --retry 3 --retry-all-errors -fsS "$BASE/healthz")"
           printf '%s' "$HEALTH" | python3 -c '
