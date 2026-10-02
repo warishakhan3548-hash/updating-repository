@@ -71,6 +71,19 @@ class HostWebRtcSession(
     @Volatile
     private var transportReady = false
 
+    @Volatile
+    private var interactionActive = false
+
+    private val interactionPriorityTimeout = Runnable {
+        if (!closed.get() && interactionActive) {
+            interactionActive = false
+            applyVideoPolicy(profile)
+            listener.onDiagnostic(
+                "Remote interaction idle • restoring clarity-first video policy"
+            )
+        }
+    }
+
     private var startupControlRecoveryAttempts = 0
     private var captureRecoveryAttempts = 0
     private val localCaptureFrameSeen = AtomicBoolean(false)
@@ -305,11 +318,7 @@ class HostWebRtcSession(
 
         profile = latest
         capture.update(latest)
-        peer.updateInteractiveVideoPolicy(
-            maxBitrateBps = latest.maxVideoBitrateBps,
-            maxFramerate = latest.fps,
-            preserveResolution = latest.prefersSharpness()
-        )
+        applyVideoPolicy(latest)
 
         /*
          * Capture resolution/FPS may adapt without changing the remote phone's
@@ -352,11 +361,7 @@ class HostWebRtcSession(
             )
         profile = next
         capture.update(next)
-        peer.updateInteractiveVideoPolicy(
-            maxBitrateBps = next.maxVideoBitrateBps,
-            maxFramerate = next.fps,
-            preserveResolution = next.prefersSharpness()
-        )
+        applyVideoPolicy(next)
 
         listener.onDiagnostic(
             "Adaptive screen quality → " +
@@ -395,6 +400,7 @@ class HostWebRtcSession(
     override fun onPeerDisconnected() {
         peerConnected = false
         transportReady = false
+        updateInteractionPriority(false)
         displayHandler.removeCallbacks(startupControlRecovery)
         transport.onPeerDisconnected()
             ?.let(listener::onConnectivityChanged)
@@ -420,6 +426,7 @@ class HostWebRtcSession(
     override fun onControlChannelClosed() {
         controlOpen = false
         transportReady = false
+        updateInteractionPriority(false)
         transport.onControlChannelClosed()
             ?.let(listener::onConnectivityChanged)
         if (!closed.get()) {
@@ -449,8 +456,10 @@ class HostWebRtcSession(
                 }
             }
 
-            ControlPacket.Disconnect ->
+            ControlPacket.Disconnect -> {
+                updateInteractionPriority(false)
                 listener.onRemoteDisconnect()
+            }
 
             is ControlPacket.Tap,
             is ControlPacket.LongPress,
@@ -505,6 +514,17 @@ class HostWebRtcSession(
                 listener.onDiagnostic(
                     "Primary screen renderer confirmed healthy • fallback stopped"
                 )
+            }
+
+            is ControlPacket.InteractionState -> {
+                val currentLease = lease ?: return
+                if (
+                    packet.leaseSecret !=
+                    currentLease.leaseSecret
+                ) {
+                    return
+                }
+                updateInteractionPriority(packet.active)
             }
 
             is ControlPacket.CommandResult,
@@ -577,6 +597,38 @@ class HostWebRtcSession(
         }
     }
 
+    private fun updateInteractionPriority(active: Boolean) {
+        displayHandler.removeCallbacks(interactionPriorityTimeout)
+
+        if (interactionActive != active) {
+            interactionActive = active
+            applyVideoPolicy(profile)
+            listener.onDiagnostic(
+                if (active) {
+                    "Remote interaction active • prioritizing fresh motion frames"
+                } else {
+                    "Remote interaction ended • restoring clarity-first video policy"
+                }
+            )
+        }
+
+        if (active && !closed.get()) {
+            displayHandler.postDelayed(
+                interactionPriorityTimeout,
+                INTERACTION_PRIORITY_TIMEOUT_MS
+            )
+        }
+    }
+
+    private fun applyVideoPolicy(target: CaptureProfile) {
+        peer.updateInteractiveVideoPolicy(
+            maxBitrateBps = target.maxVideoBitrateBps,
+            maxFramerate = target.fps,
+            preserveResolution = target.prefersSharpness(),
+            motionPriority = interactionActive
+        )
+    }
+
     private fun CaptureProfile.prefersSharpness(): Boolean =
         tier == CaptureTier.STANDARD ||
             tier == CaptureTier.HIGH
@@ -596,6 +648,7 @@ class HostWebRtcSession(
         displayHandler.removeCallbacks(iceRestart)
         displayHandler.removeCallbacks(startupControlRecovery)
         displayHandler.removeCallbacks(captureFrameWatchdog)
+        displayHandler.removeCallbacks(interactionPriorityTimeout)
         displayHandler.removeCallbacks(
             leaseWatchdog
         )
@@ -613,6 +666,7 @@ class HostWebRtcSession(
         everConnected = false
         controlOpen = false
         transportReady = false
+        interactionActive = false
         lease = null
     }
 
@@ -693,5 +747,6 @@ class HostWebRtcSession(
         private const val MAX_CAPTURE_RECOVERY_ATTEMPTS = 3
         private const val VIDEO_RECOVERY_TRACK_PULSE_MS = 180L
         private const val LEASE_WATCHDOG_MS = 3_000L
+        private const val INTERACTION_PRIORITY_TIMEOUT_MS = 3_000L
     }
 }
