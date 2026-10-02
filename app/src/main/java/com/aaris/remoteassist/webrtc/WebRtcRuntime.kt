@@ -1,8 +1,8 @@
 package com.aaris.remoteassist.webrtc
 
 import android.content.Context
-import org.webrtc.SoftwareVideoDecoderFactory
-import org.webrtc.SoftwareVideoEncoderFactory
+import org.webrtc.DefaultVideoDecoderFactory
+import org.webrtc.DefaultVideoEncoderFactory
 import org.webrtc.EglBase
 import org.webrtc.PeerConnectionFactory
 
@@ -34,18 +34,32 @@ object WebRtcRuntime {
 
             val eglBase = EglBase.create()
             /*
-             * Screen sharing reliability beats peak hardware throughput here.
-             * Some Android vendor MediaCodec implementations accept an RTC
-             * encoder session but then emit no usable frames. Meta has publicly
-             * described the same class of mobile RTC problem and uses software
-             * codecs when hardware behavior is unsuitable.
+             * Prefer Android's hardware codec path for screen sharing, but do
+             * not make hardware success a correctness requirement.
              *
-             * Aaris therefore starts with libwebrtc software codecs (VP8 first)
-             * for deterministic cross-device behavior. The capture profile is
-             * intentionally capped so this remains practical on low-end phones.
+             * DefaultVideoEncoderFactory/DefaultVideoDecoderFactory compose
+             * hardware and software implementations and fall back when a
+             * vendor MediaCodec cannot service the requested codec/profile.
+             * This keeps the deterministic cross-device safety net that Aaris
+             * previously got from software-only VP8 while removing a major CPU
+             * bottleneck on healthy devices. The same EGL context is shared by
+             * capture, codecs and rendering so texture-backed frames can stay
+             * on the GPU path instead of paying avoidable CPU copies.
+             *
+             * H264 high-profile remains disabled because the media contract is
+             * deliberately VP8-first for compatibility. Intel VP8 acceleration
+             * is harmless on ARM and useful for x86/ChromeOS-class devices.
              */
-            val encoderFactory = SoftwareVideoEncoderFactory()
-            val decoderFactory = SoftwareVideoDecoderFactory()
+            val encoderFactory =
+                DefaultVideoEncoderFactory(
+                    eglBase.eglBaseContext,
+                    true,
+                    false
+                )
+            val decoderFactory =
+                DefaultVideoDecoderFactory(
+                    eglBase.eglBaseContext
+                )
 
             val peerFactory = PeerConnectionFactory.builder()
                 .setVideoEncoderFactory(encoderFactory)
