@@ -1484,6 +1484,8 @@ class RemoteControlActivity : ComponentActivity() {
             "establishing",
             "syncing",
             "reconnecting",
+            "recovering",
+            "video",
             "ending"
         ).any(value::contains)
 
@@ -1498,6 +1500,9 @@ class RemoteControlActivity : ComponentActivity() {
         const val EXTRA_RESULT_MESSAGE = "result_message"
         private const val CLIENT_DEADLINE_GRACE_MS = 2_000L
         private const val DISCONNECT_GRACE_MS = 25_000L
+        private const val FIRST_VIDEO_FRAME_TIMEOUT_MS = 8_000L
+        private const val VIDEO_RECOVERY_INTERVAL_MS = 6_000L
+        private const val MAX_VIDEO_RECOVERY_ATTEMPTS = 2
         private const val MAX_GESTURE_PATH_POINTS = 96
         private const val MIN_GESTURE_SAMPLE_DELTA = 0.0015f
     }
