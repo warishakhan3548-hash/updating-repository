@@ -65,6 +65,9 @@ jobs:
           if [ -f "$AAPT2" ]; then cp "$AAPT2" signing-tool/aapt2; fi
           AAPT="$(dirname "$APKSIGNER")/aapt"
           if [ -f "$AAPT" ]; then cp "$AAPT" signing-tool/aapt; fi
+          mkdir -p signing-tool/lib64
+          LIBCXX="$(dirname "$APKSIGNER")/lib64/libc++.so"
+          if [ -f "$LIBCXX" ]; then cp "$LIBCXX" signing-tool/lib64/libc++.so; fi
       - uses: actions/upload-artifact@v7
         with:
           name: Android-signing-tools
