@@ -30,6 +30,7 @@ class HostWebRtcSession(
         fun onProjectionStopped()
         fun onRemoteDisconnect()
         fun onLocalControlUnavailable()
+        fun onDiagnostic(message: String)
         fun onRecoverableError(error: Throwable)
         fun onTerminalError(error: Throwable)
     }
@@ -86,6 +87,7 @@ class HostWebRtcSession(
 
     private val captureProbe = VideoSink {
         if (localCaptureFrameSeen.compareAndSet(false, true)) {
+            listener.onDiagnostic("MediaProjection produced first capture frame")
             displayHandler.removeCallbacks(captureFrameWatchdog)
             displayHandler.post {
                 if (!closed.get()) {
@@ -234,6 +236,7 @@ class HostWebRtcSession(
         captureRecoveryAttempts = 0
         localCaptureFrameSeen.set(false)
 
+        listener.onDiagnostic("Starting MediaProjection capture")
         capture.videoTrack.addSink(captureProbe)
         peer.addLocalVideoTrack(capture.videoTrack)
         capture.start(profile)
@@ -272,6 +275,7 @@ class HostWebRtcSession(
     }
 
     override fun onPeerConnected() {
+        listener.onDiagnostic("Host WebRTC transport CONNECTED")
         peerConnected = true
         everConnected = true
         displayHandler.removeCallbacks(iceRestart)
@@ -306,6 +310,7 @@ class HostWebRtcSession(
     }
 
     override fun onControlChannelOpen() {
+        listener.onDiagnostic("Host control-v1 DataChannel OPEN")
         controlOpen = true
         displayHandler.removeCallbacks(startupControlRecovery)
         transport.onControlChannelOpen()
@@ -384,6 +389,10 @@ class HostWebRtcSession(
 
     override fun onRemoteVideoTrack(track: VideoTrack) = Unit
 
+    override fun onDiagnostic(message: String) {
+        listener.onDiagnostic(message)
+    }
+
     override fun onError(error: Throwable) {
         listener.onRecoverableError(error)
     }
@@ -454,10 +463,14 @@ class HostWebRtcSession(
         )
 
         if (firstLive) {
+            listener.onDiagnostic(
+                "Host prerequisites complete: WebRTC + control + capture + Accessibility"
+            )
             listener.onLive()
         }
 
         sendHello(currentLease, profile)
+        listener.onDiagnostic("HELLO sent to controller")
     }
 
     private fun sendHello(
