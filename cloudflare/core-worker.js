@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 
-const CODE_TTL=300000,APPROVAL_TTL=120000,CONNECT_TTL=120000;
+const CODE_TTL=300000,APPROVAL_TTL=180000,CONNECT_TTL=180000;
 const CLOSED_RETENTION=3600000,MAX_EVENTS=512;
 const j=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store","x-content-type-options":"nosniff"}});
 const fail=(status,error,message)=>j({ok:false,error,message},status);
