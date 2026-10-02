@@ -162,10 +162,16 @@ class FallbackScreenStreamer(
                 )
 
             var allSent = true
-            packets.forEach { packet ->
+            for (packet in packets) {
                 if (!sendPacket(packet)) {
+                    /*
+                     * One missing chunk makes this best-effort JPEG frame
+                     * undecodable. Stop immediately instead of filling the
+                     * unordered DataChannel with chunks the receiver can never
+                     * assemble. The next sampled frame is more valuable.
+                     */
                     allSent = false
-                    return@forEach
+                    break
                 }
             }
 
@@ -264,10 +270,15 @@ class FallbackScreenStreamer(
     }
 
     companion object {
-        private const val FRAME_INTERVAL_MS = 500L
-        private const val JPEG_QUALITY = 58
-        private const val MAX_DIMENSION = 2048
-        private const val MAX_JPEG_BYTES = 700_000
-        private const val MAX_JPEG_ESTIMATE_BYTES = 256_000
+        /*
+         * HIGH capture tops out at a 2400 px long side. Keep the fallback
+         * safety bound above that tier so a capable phone never loses its black
+         * screen recovery solely because the primary capture is high quality.
+         */
+        private const val MAX_DIMENSION = 2560
+        private const val FRAME_INTERVAL_MS = 450L
+        private const val JPEG_QUALITY = 62
+        private const val MAX_JPEG_BYTES = 800_000
+        private const val MAX_JPEG_ESTIMATE_BYTES = 320_000
     }
 }
