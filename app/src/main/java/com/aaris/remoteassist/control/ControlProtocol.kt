@@ -101,6 +101,10 @@ sealed interface ControlPacket {
         val applied: Boolean
     ) : ControlPacket
 
+    data class VideoRecoveryRequest(
+        val leaseSecret: Long
+    ) : ControlPacket
+
     data object Disconnect : ControlPacket
 }
 
@@ -120,6 +124,7 @@ object ControlProtocol {
     private const val TWO_FINGER: Byte = 11
     private const val GESTURE_PATH: Byte = 12
     private const val COMMAND_RESULT: Byte = 13
+    private const val VIDEO_RECOVERY_REQUEST: Byte = 14
 
     private const val MAX_TEXT_BYTES = 2048
     private const val MAX_GESTURE_PATH_POINTS = 96
@@ -160,6 +165,7 @@ object ControlProtocol {
             is ControlPacket.Recents -> 2 + 8 + 4 + 8
             is ControlPacket.Text -> 2 + 8 + 4 + 8 + 2 + checkNotNull(textBytes).size
             is ControlPacket.CommandResult -> 2 + 8 + 1
+            is ControlPacket.VideoRecoveryRequest -> 2 + 8
             ControlPacket.Disconnect -> 2
         }
 
@@ -295,6 +301,10 @@ object ControlProtocol {
             is ControlPacket.CommandResult -> {
                 buffer.putLong(packet.sequence)
                 buffer.put((if (packet.applied) 1 else 0).toByte())
+            }
+
+            is ControlPacket.VideoRecoveryRequest -> {
+                buffer.putLong(packet.leaseSecret)
             }
 
             ControlPacket.Disconnect -> Unit
@@ -465,6 +475,13 @@ object ControlProtocol {
                     ControlPacket.CommandResult(sequence, applied)
                 }
 
+                VIDEO_RECOVERY_REQUEST -> {
+                    require(buffer.remaining() == 8)
+                    ControlPacket.VideoRecoveryRequest(
+                        leaseSecret = buffer.long
+                    )
+                }
+
                 DISCONNECT -> {
                     require(buffer.remaining() == 0)
                     ControlPacket.Disconnect
@@ -586,6 +603,7 @@ object ControlProtocol {
             is ControlPacket.Hello,
             is ControlPacket.Heartbeat,
             is ControlPacket.CommandResult,
+            is ControlPacket.VideoRecoveryRequest,
             ControlPacket.Disconnect -> null
         }
     }
@@ -637,6 +655,8 @@ object ControlProtocol {
         is ControlPacket.Recents -> RECENTS
         is ControlPacket.Text -> TEXT
         is ControlPacket.CommandResult -> COMMAND_RESULT
+        is ControlPacket.VideoRecoveryRequest ->
+            VIDEO_RECOVERY_REQUEST
         ControlPacket.Disconnect -> DISCONNECT
     }
 }
