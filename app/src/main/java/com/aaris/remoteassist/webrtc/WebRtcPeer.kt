@@ -421,11 +421,31 @@ class WebRtcPeer(
 
     fun addLocalVideoTrack(track: VideoTrack) {
         check(!closed.get())
-        val sender = peerConnection.addTrack(
+        check(role == PeerRole.HOST) {
+            "Only the host may publish the screen track"
+        }
+
+        /*
+         * Screen video is intentionally modeled as one authoritative
+         * SEND_ONLY Unified-Plan transceiver instead of relying on addTrack()
+         * to create an implicit SEND_RECV transceiver.
+         *
+         * The app has asymmetric media semantics: host -> controller is the
+         * only video direction. Making that direction explicit guarantees
+         * that the very first host offer contains a send-capable m=video
+         * section and that every later ICE-restart offer reuses the same media
+         * section. The control DataChannel stays on this same PeerConnection,
+         * so a connected control path can no longer mask an accidentally
+         * non-sendable video negotiation.
+         */
+        val transceiver = peerConnection.addTransceiver(
             track,
-            listOf(SCREEN_STREAM_ID)
+            RtpTransceiver.RtpTransceiverInit(
+                RtpTransceiver.RtpTransceiverDirection.SEND_ONLY,
+                listOf(SCREEN_STREAM_ID)
+            )
         )
-        applyInteractiveVideoPolicy(sender)
+        applyInteractiveVideoPolicy(transceiver.sender)
     }
 
     fun requestRemoteRecovery(): Boolean {
