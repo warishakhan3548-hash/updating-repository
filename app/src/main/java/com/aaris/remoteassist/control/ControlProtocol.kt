@@ -56,6 +56,16 @@ sealed interface ControlPacket {
         val durationMs: Int
     ) : ControlPacket
 
+    data class GestureStream(
+        val leaseSecret: Long,
+        val generation: Int,
+        val sequence: Long,
+        val streamId: Long,
+        val phase: GestureStreamPhase,
+        val points: List<ControlPathPoint>,
+        val durationMs: Int
+    ) : ControlPacket
+
     data class TwoFinger(
         val leaseSecret: Long,
         val generation: Int,
@@ -136,9 +146,11 @@ object ControlProtocol {
     private const val VIDEO_RECOVERY_REQUEST: Byte = 14
     private const val PRIMARY_VIDEO_READY: Byte = 15
     private const val INTERACTION_STATE: Byte = 16
+    private const val GESTURE_STREAM: Byte = 17
 
     private const val MAX_TEXT_BYTES = 2048
     private const val MAX_GESTURE_PATH_POINTS = 96
+    private const val MAX_GESTURE_STREAM_POINTS = 16
 
     fun encode(packet: ControlPacket): ByteArray {
         val textBytes = (packet as? ControlPacket.Text)
@@ -161,6 +173,17 @@ object ControlProtocol {
             }
         }
 
+        if (packet is ControlPacket.GestureStream) {
+            require(
+                packet.points.size in 1..MAX_GESTURE_STREAM_POINTS &&
+                    packet.points.all {
+                        it.nx.isFinite() && it.ny.isFinite()
+                    }
+            ) {
+                "Remote gesture stream segment is invalid"
+            }
+        }
+
         val size = when (packet) {
             is ControlPacket.Hello -> 2 + 8 + 4 + 4 + 4
             is ControlPacket.Heartbeat -> 2 + 8
@@ -169,6 +192,9 @@ object ControlProtocol {
             is ControlPacket.Swipe -> 2 + 8 + 4 + 8 + 2 + 2 + 2 + 2 + 2
             is ControlPacket.GesturePath ->
                 2 + 8 + 4 + 8 + 1 + (packet.points.size * 4) + 2
+            is ControlPacket.GestureStream ->
+                2 + 8 + 4 + 8 + 8 + 1 + 1 +
+                    (packet.points.size * 4) + 2
             is ControlPacket.TwoFinger ->
                 2 + 8 + 4 + 8 + 2 + 2 + 2 + 2 + 2 + 2 + 2 + 2 + 2
             is ControlPacket.Back,
@@ -255,6 +281,25 @@ object ControlProtocol {
                 }
                 buffer.putShort(
                     packet.durationMs.coerceIn(80, 5_000).toShort()
+                )
+            }
+
+            is ControlPacket.GestureStream -> {
+                putCommandHeader(
+                    buffer,
+                    packet.leaseSecret,
+                    packet.generation,
+                    packet.sequence
+                )
+                buffer.putLong(packet.streamId)
+                buffer.put(packet.phase.ordinal.toByte())
+                buffer.put(packet.points.size.toByte())
+                packet.points.forEach { point ->
+                    putUnit(buffer, point.nx)
+                    putUnit(buffer, point.ny)
+                }
+                buffer.putShort(
+                    packet.durationMs.coerceIn(12, 1_000).toShort()
                 )
             }
 
@@ -418,6 +463,35 @@ object ControlProtocol {
                         header.sequence,
                         points,
                         buffer.short.toInt() and 0xffff
+                    )
+                }
+
+                GESTURE_STREAM -> {
+                    require(buffer.remaining() >= 36)
+                    val header = readHeader(buffer)
+                    val streamId = buffer.long
+                    val phaseIndex = buffer.get().toInt() and 0xff
+                    val phase =
+                        GestureStreamPhase.values()
+                            .getOrNull(phaseIndex)
+                            ?: error("Invalid gesture stream phase")
+                    val count = buffer.get().toInt() and 0xff
+                    require(count in 1..MAX_GESTURE_STREAM_POINTS)
+                    require(buffer.remaining() == count * 4 + 2)
+                    val points = List(count) {
+                        ControlPathPoint(
+                            nx = getUnit(buffer),
+                            ny = getUnit(buffer)
+                        )
+                    }
+                    ControlPacket.GestureStream(
+                        leaseSecret = header.leaseSecret,
+                        generation = header.generation,
+                        sequence = header.sequence,
+                        streamId = streamId,
+                        phase = phase,
+                        points = points,
+                        durationMs = buffer.short.toInt() and 0xffff
                     )
                 }
 
@@ -595,6 +669,22 @@ object ControlProtocol {
                 durationMs = packet.durationMs.toLong()
             )
 
+            is ControlPacket.GestureStream -> GestureStreamCommand(
+                sessionId = sessionId,
+                leaseSecret = packet.leaseSecret,
+                generation = packet.generation,
+                sequence = packet.sequence,
+                streamId = packet.streamId,
+                phase = packet.phase,
+                points = packet.points.map { point ->
+                    RemotePathPoint(
+                        xPx = x(point.nx),
+                        yPx = y(point.ny)
+                    )
+                },
+                durationMs = packet.durationMs.toLong()
+            )
+
             is ControlPacket.TwoFinger -> TwoFingerCommand(
                 sessionId = sessionId,
                 leaseSecret = packet.leaseSecret,
@@ -694,6 +784,7 @@ object ControlProtocol {
         is ControlPacket.LongPress -> LONG_PRESS
         is ControlPacket.Swipe -> SWIPE
         is ControlPacket.GesturePath -> GESTURE_PATH
+        is ControlPacket.GestureStream -> GESTURE_STREAM
         is ControlPacket.TwoFinger -> TWO_FINGER
         is ControlPacket.Back -> BACK
         is ControlPacket.Home -> HOME
