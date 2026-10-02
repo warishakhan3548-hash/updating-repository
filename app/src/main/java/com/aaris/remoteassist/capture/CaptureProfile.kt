@@ -15,10 +15,10 @@ data class CaptureProfile(
     val fps: Int
 ) {
     companion object {
-        private const val MAX_CAPTURE_LONG_SIDE = 1280
-        private const val LOW_RAM_CAPTURE_LONG_SIDE = 960
-        private const val DEFAULT_FPS = 30
-        private const val LOW_RAM_FPS = 24
+        private const val MAX_CAPTURE_LONG_SIDE = 960
+        private const val LOW_RAM_CAPTURE_LONG_SIDE = 720
+        private const val DEFAULT_FPS = 20
+        private const val LOW_RAM_FPS = 15
 
         @Suppress("DEPRECATION")
         fun current(context: Context): CaptureProfile {
