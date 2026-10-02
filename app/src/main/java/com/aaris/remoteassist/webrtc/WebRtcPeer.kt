@@ -723,11 +723,27 @@ class WebRtcPeer(
         bytes: ByteArray,
         freshnessSensitive: Boolean = false
     ): Boolean {
-        if (
-            freshnessSensitive &&
-            sendFreshControl(bytes)
-        ) {
-            return true
+        if (freshnessSensitive) {
+            val liveChannel = liveControlChannel
+            if (liveChannel?.state() == DataChannel.State.OPEN) {
+                /*
+                 * Once the freshness lane is open it owns every CONTINUE
+                 * sample. Backpressure here means the sample is already stale,
+                 * so drop it instead of feeding it into the reliable ordered
+                 * lane and recreating head-of-line pointer lag.
+                 *
+                 * Reliable fallback is used only before the auxiliary lane has
+                 * opened, which keeps startup compatibility without degrading
+                 * steady-state latency under packet loss/congestion.
+                 */
+                if (
+                    liveChannel.bufferedAmount() >=
+                    MAX_FRESH_CONTROL_BUFFERED_BYTES
+                ) {
+                    return false
+                }
+                return sendBinary(liveChannel, bytes)
+            }
         }
 
         val channel = controlChannel ?: return false
@@ -737,27 +753,6 @@ class WebRtcPeer(
             freshnessSensitive &&
             channel.bufferedAmount() >=
                 MAX_FRESH_CONTROL_BUFFERED_BYTES
-        ) {
-            return false
-        }
-
-        return sendBinary(channel, bytes)
-    }
-
-    private fun sendFreshControl(bytes: ByteArray): Boolean {
-        val channel = liveControlChannel ?: return false
-        if (channel.state() != DataChannel.State.OPEN) return false
-
-        /*
-         * CONTINUE positions expire as soon as a newer finger position exists.
-         * Put them on an unordered, non-retransmitted lane so packet loss cannot
-         * head-of-line block taps, END, navigation or newer motion. If the
-         * auxiliary lane is not ready yet, sendControl() falls back to the
-         * reliable ordered channel so startup compatibility is preserved.
-         */
-        if (
-            channel.bufferedAmount() >=
-            MAX_FRESH_CONTROL_BUFFERED_BYTES
         ) {
             return false
         }
