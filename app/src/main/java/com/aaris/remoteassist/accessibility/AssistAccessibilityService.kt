@@ -24,6 +24,8 @@ import com.aaris.remoteassist.capture.ScreenShareService
 import com.aaris.remoteassist.control.CommandGate
 import com.aaris.remoteassist.control.GlobalAction
 import com.aaris.remoteassist.control.GesturePathCommand
+import com.aaris.remoteassist.control.GestureStreamCommand
+import com.aaris.remoteassist.control.GestureStreamPhase
 import com.aaris.remoteassist.control.GlobalActionCommand
 import com.aaris.remoteassist.control.LongPressCommand
 import com.aaris.remoteassist.control.RemoteCommand
@@ -62,6 +64,19 @@ class AssistAccessibilityService : AccessibilityService() {
     private val pendingCommands = ArrayDeque<PendingCommand>()
     private var activeCommand: PendingCommand? = null
     private var activeCommandTimeout: Runnable? = null
+
+    private data class ActiveGestureStream(
+        val streamId: Long,
+        var stroke: GestureDescription.StrokeDescription,
+        var lastX: Float,
+        var lastY: Float
+    )
+
+    private var activeGestureStream: ActiveGestureStream? = null
+
+    private val gestureStreamWatchdog = Runnable {
+        releaseStaleGestureStream()
+    }
 
     private val sessionListener: (SessionSnapshot) -> Unit = { snapshot ->
         mainHandler.post {
@@ -133,6 +148,7 @@ class AssistAccessibilityService : AccessibilityService() {
                 command is LongPressCommand ||
                 command is SwipeCommand ||
                 command is GesturePathCommand ||
+                command is GestureStreamCommand ||
                 command is TwoFingerCommand
 
         if (
@@ -194,6 +210,10 @@ class AssistAccessibilityService : AccessibilityService() {
                 onResult
             )
             is GesturePathCommand -> gesturePath(
+                command,
+                onResult
+            )
+            is GestureStreamCommand -> gestureStream(
                 command,
                 onResult
             )
@@ -409,6 +429,188 @@ class AssistAccessibilityService : AccessibilityService() {
         )
     }
 
+    private fun gestureStream(
+        command: GestureStreamCommand,
+        onResult: (Boolean) -> Unit
+    ) {
+        if (
+            command.streamId <= 0L ||
+            command.points.isEmpty() ||
+            command.points.any {
+                !it.xPx.isFinite() || !it.yPx.isFinite()
+            }
+        ) {
+            onResult(false)
+            return
+        }
+
+        val duration =
+            command.durationMs.coerceIn(
+                MIN_STREAM_SEGMENT_MS,
+                MAX_STREAM_SEGMENT_MS
+            )
+        mainHandler.removeCallbacks(gestureStreamWatchdog)
+
+        when (command.phase) {
+            GestureStreamPhase.START -> {
+                /*
+                 * A new START intentionally supersedes any stale continued
+                 * pointer. Android cancels the previous injected gesture when
+                 * a new one is dispatched, while our watchdog state is replaced.
+                 */
+                activeGestureStream = null
+
+                val first = command.points.first()
+                val path = Path().apply {
+                    moveTo(first.xPx, first.yPx)
+                    for (index in 1 until command.points.size) {
+                        val point = command.points[index]
+                        lineTo(point.xPx, point.yPx)
+                    }
+                }
+                val last = command.points.last()
+                val stroke =
+                    GestureDescription.StrokeDescription(
+                        path,
+                        0L,
+                        duration,
+                        true
+                    )
+                val state =
+                    ActiveGestureStream(
+                        streamId = command.streamId,
+                        stroke = stroke,
+                        lastX = last.xPx,
+                        lastY = last.yPx
+                    )
+                activeGestureStream = state
+
+                dispatchGestureWithResult(
+                    GestureDescription.Builder()
+                        .addStroke(stroke)
+                        .build()
+                ) { applied ->
+                    if (
+                        !applied &&
+                        activeGestureStream?.streamId ==
+                        command.streamId
+                    ) {
+                        activeGestureStream = null
+                    } else if (applied) {
+                        scheduleGestureStreamWatchdog()
+                    }
+                    onResult(applied)
+                }
+            }
+
+            GestureStreamPhase.CONTINUE,
+            GestureStreamPhase.END -> {
+                val current = activeGestureStream
+                if (
+                    current == null ||
+                    current.streamId != command.streamId
+                ) {
+                    onResult(false)
+                    return
+                }
+
+                /*
+                 * The continuation path MUST begin at the exact endpoint of
+                 * the previous Android StrokeDescription. Build that point on
+                 * the host instead of trusting a quantized network coordinate.
+                 */
+                val path = Path().apply {
+                    moveTo(current.lastX, current.lastY)
+                    command.points.forEach { point ->
+                        if (
+                            point.xPx != current.lastX ||
+                            point.yPx != current.lastY
+                        ) {
+                            lineTo(point.xPx, point.yPx)
+                        }
+                    }
+                }
+                val willContinue =
+                    command.phase != GestureStreamPhase.END
+                val nextStroke = runCatching {
+                    current.stroke.continueStroke(
+                        path,
+                        0L,
+                        duration,
+                        willContinue
+                    )
+                }.getOrElse {
+                    activeGestureStream = null
+                    onResult(false)
+                    return
+                }
+                val last = command.points.last()
+                current.stroke = nextStroke
+                current.lastX = last.xPx
+                current.lastY = last.yPx
+
+                if (!willContinue) {
+                    activeGestureStream = null
+                }
+
+                dispatchGestureWithResult(
+                    GestureDescription.Builder()
+                        .addStroke(nextStroke)
+                        .build()
+                ) { applied ->
+                    if (!applied) {
+                        if (
+                            activeGestureStream?.streamId ==
+                            command.streamId
+                        ) {
+                            activeGestureStream = null
+                        }
+                    } else if (willContinue) {
+                        scheduleGestureStreamWatchdog()
+                    }
+                    onResult(applied)
+                }
+            }
+        }
+    }
+
+    private fun scheduleGestureStreamWatchdog() {
+        mainHandler.removeCallbacks(gestureStreamWatchdog)
+        if (activeGestureStream != null) {
+            mainHandler.postDelayed(
+                gestureStreamWatchdog,
+                GESTURE_STREAM_WATCHDOG_MS
+            )
+        }
+    }
+
+    private fun releaseStaleGestureStream() {
+        val current = activeGestureStream ?: return
+        activeGestureStream = null
+
+        val path = Path().apply {
+            moveTo(current.lastX, current.lastY)
+        }
+        val finalStroke = runCatching {
+            current.stroke.continueStroke(
+                path,
+                0L,
+                MIN_STREAM_SEGMENT_MS,
+                false
+            )
+        }.getOrNull() ?: return
+
+        runCatching {
+            dispatchGesture(
+                GestureDescription.Builder()
+                    .addStroke(finalStroke)
+                    .build(),
+                null,
+                mainHandler
+            )
+        }
+    }
+
     private fun twoFingerGesture(
         command: TwoFingerCommand,
         onResult: (Boolean) -> Unit
@@ -595,6 +797,8 @@ class AssistAccessibilityService : AccessibilityService() {
         activeCommandTimeout?.let(
             mainHandler::removeCallbacks
         )
+        mainHandler.removeCallbacks(gestureStreamWatchdog)
+        activeGestureStream = null
         activeCommandTimeout = null
         activeCommand?.complete(false)
         activeCommand = null
@@ -633,6 +837,11 @@ class AssistAccessibilityService : AccessibilityService() {
                     )
 
                 is GesturePathCommand ->
+                    command.points.map {
+                        it.xPx to it.yPx
+                    }
+
+                is GestureStreamCommand ->
                     command.points.map {
                         it.xPx to it.yPx
                     }
@@ -933,6 +1142,9 @@ class AssistAccessibilityService : AccessibilityService() {
         private const val OVERLAY_EDGE_MARGIN_DP = 16f
         private const val CLEAR_CANDIDATE_BONUS = 1_000_000_000f
         private const val OVERLAY_REPOSITION_SETTLE_MS = 16L
+        private const val MIN_STREAM_SEGMENT_MS = 12L
+        private const val MAX_STREAM_SEGMENT_MS = 120L
+        private const val GESTURE_STREAM_WATCHDOG_MS = 1_800L
         @Volatile
         private var instance = WeakReference<AssistAccessibilityService>(null)
 
