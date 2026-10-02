@@ -1880,7 +1880,7 @@ class MainActivity : ComponentActivity() {
         }
 
         // Do not require NET_CAPABILITY_VALIDATED here. Android validation can
-        // lag behind a usable route; Firebase's bounded timeout remains the
+        // lag behind a usable route; the backend's bounded timeout remains the
         // authority for uncertain-but-potentially-working networks.
         return null
     }
