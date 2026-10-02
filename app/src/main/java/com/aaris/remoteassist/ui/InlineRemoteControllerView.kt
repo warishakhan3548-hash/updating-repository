@@ -58,6 +58,7 @@ class InlineRemoteControllerView(
         val y: Float,
         val atMs: Long
     )
+
     private val root = FrameLayout(activity)
     private val status = TextView(activity)
     private val dock = LinearLayout(activity)
@@ -99,6 +100,7 @@ class InlineRemoteControllerView(
         ViewConfiguration.get(activity).scaledTouchSlop.toFloat()
     private val gesturePoints =
         ArrayList<LocalTouchPoint>(MAX_LOCAL_GESTURE_POINTS)
+    private val gestureStreamPacer = GestureStreamPacer()
 
     private var downX = 0f
     private var downY = 0f
@@ -135,8 +137,10 @@ class InlineRemoteControllerView(
     private var controlHandleOnRight = true
 
     private var attached = false
+
     @Volatile
     private var fallbackActive = false
+
     private val lastFallbackFrameId = AtomicLong(-1L)
     private val pendingFallbackFrame =
         AtomicReference<FallbackVideoFrame?>(null)
@@ -412,6 +416,7 @@ class InlineRemoteControllerView(
             ensureRenderer()
             updateVideoViewport()
             positionControlHandleIfNeeded()
+            scheduleControlHandlePeek()
             ControllerConnectionRuntime.replayUiState(
                 sessionId
             )
@@ -546,8 +551,11 @@ class InlineRemoteControllerView(
                 "sans-serif-medium",
                 Typeface.NORMAL
             )
-            setBackgroundColor(
-                Color.argb(190, 15, 23, 42)
+            background = AarisUi.panel(
+                context = activity,
+                fill = Color.argb(190, 15, 23, 42),
+                radiusDp = 16,
+                strokeColor = AarisUi.REMOTE_BORDER
             )
             setPadding(
                 dp(14),
@@ -569,18 +577,29 @@ class InlineRemoteControllerView(
             }
         )
 
+        /*
+         * Keep remote-phone bottom controls fully exposed. The old full-width
+         * bottom dock could cover exactly the button the controller was trying
+         * to press. A compact side rail occupies far less useful screen area and
+         * collapses to the pass-through parked handle when not actively used.
+         */
         dock.apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
+            visibility = View.GONE
             setPadding(
-                dp(6),
-                dp(6),
-                dp(6),
-                dp(6)
+                dp(5),
+                dp(5),
+                dp(5),
+                dp(5)
             )
-            setBackgroundColor(
-                Color.argb(215, 15, 23, 42)
+            background = AarisUi.panel(
+                context = activity,
+                fill = AarisUi.REMOTE_PANEL,
+                radiusDp = 20,
+                strokeColor = AarisUi.REMOTE_BORDER
             )
+            elevation = dp(8).toFloat()
         }
 
         addButton("Back", autoHide = true) {
@@ -602,13 +621,11 @@ class InlineRemoteControllerView(
         root.addView(
             dock,
             FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.END or Gravity.CENTER_VERTICAL
             ).apply {
-                marginStart = dp(10)
                 marginEnd = dp(10)
-                bottomMargin = dp(14)
             }
         )
 
@@ -616,10 +633,19 @@ class InlineRemoteControllerView(
             text = "⋮"
             textSize = 22f
             isAllCaps = false
-            visibility = View.GONE
+            setTextColor(Color.WHITE)
+            visibility = View.VISIBLE
+            background = AarisUi.panel(
+                context = activity,
+                fill = AarisUi.REMOTE_PANEL,
+                radiusDp = 18,
+                strokeColor = AarisUi.REMOTE_BORDER
+            )
+            elevation = dp(6).toFloat()
             contentDescription =
                 "Remote controls. Drag to move when visible. When parked, tap or swipe controls the screen underneath; hold to open controls."
             setOnClickListener {
+                AarisUi.haptic(this)
                 setControlsVisible(true)
             }
             setOnTouchListener { view, event ->
@@ -712,6 +738,7 @@ class InlineRemoteControllerView(
                                         ViewConfiguration
                                             .getLongPressTimeout() -> {
                                     controlHandleParked = false
+                                    AarisUi.haptic(view)
                                     setControlsVisible(true)
                                 }
 
@@ -1002,8 +1029,7 @@ class InlineRemoteControllerView(
                 root.width / 2f
         controlHandleParked = true
 
-        val targetX =
-            parkedHandleX()
+        val targetX = parkedHandleX()
 
         controlHandle.animate()
             .x(targetX)
@@ -1414,8 +1440,18 @@ class InlineRemoteControllerView(
         dock.addView(
             Button(activity).apply {
                 text = label
-                isAllCaps = false
+                AarisUi.remoteDockButton(
+                    this,
+                    danger = label == "End"
+                )
+                contentDescription =
+                    when (label) {
+                        "Apps" -> "Remote recent apps"
+                        "End" -> "End remote session"
+                        else -> "Remote $label"
+                    }
                 setOnClickListener {
+                    AarisUi.haptic(this)
                     if (autoHide) {
                         beginRemoteMotion()
                     }
@@ -1427,12 +1463,11 @@ class InlineRemoteControllerView(
                 }
             },
             LinearLayout.LayoutParams(
-                0,
-                dp(48),
-                1f
+                dp(68),
+                dp(44)
             ).apply {
-                marginStart = dp(3)
-                marginEnd = dp(3)
+                topMargin = dp(2)
+                bottomMargin = dp(2)
             }
         )
     }
@@ -1678,25 +1713,26 @@ class InlineRemoteControllerView(
             if (sent) {
                 liveGestureStreamId = streamId
                 liveGestureStreamActive = true
-                liveGestureLastEventTime =
-                    event.eventTime
+                liveGestureLastEventTime = event.eventTime
+                gestureStreamPacer.onSent(event.eventTime)
             }
+            return
+        }
+
+        if (!gestureStreamPacer.shouldAttempt(event.eventTime)) {
             return
         }
 
         val elapsed =
             event.eventTime -
                 liveGestureLastEventTime
-        if (elapsed < STREAM_SEGMENT_INTERVAL_MS) {
-            return
-        }
 
         /*
-         * Preserve the shape of fast curved drags without increasing network
-         * cadence. MotionEvent history already contains sub-frame samples, so
-         * batch the newest few points into one compact stream segment. The host
-         * freshness queue can then skip stale segments while the active Android
-         * stroke still follows the actual finger path.
+         * Preserve the shape of fast curved drags while pacing the transport
+         * independently from the 30 fps video path. Healthy control traffic can
+         * run at a 60 Hz-class cadence; DataChannel backpressure immediately
+         * stretches that cadence and the host independently coalesces queued
+         * CONTINUE segments, preventing old pointer positions from accumulating.
          */
         val points =
             liveGesturePointsSince(
@@ -1718,8 +1754,10 @@ class InlineRemoteControllerView(
                     geometry.generation
             )
         if (sent) {
-            liveGestureLastEventTime =
-                event.eventTime
+            liveGestureLastEventTime = event.eventTime
+            gestureStreamPacer.onSent(event.eventTime)
+        } else {
+            gestureStreamPacer.onBackpressure(event.eventTime)
         }
     }
 
@@ -1824,6 +1862,7 @@ class InlineRemoteControllerView(
         liveGestureStreamId = 0L
         liveGestureStreamActive = false
         liveGestureLastEventTime = 0L
+        gestureStreamPacer.reset()
     }
 
     private fun streamSegmentDuration(
@@ -2159,7 +2198,7 @@ class InlineRemoteControllerView(
         private const val MAX_MEDIA_RECOVERY_ATTEMPTS = 2
         private const val MAX_RENDERER_RECOVERY_ATTEMPTS = 2
 
-        private const val CONTROLS_AUTO_HIDE_MS = 5_000L
+        private const val CONTROLS_AUTO_HIDE_MS = 3_500L
         private const val HANDLE_EDGE_MARGIN_DP = 8
         private const val HANDLE_SNAP_MS = 140L
         private const val HANDLE_PEEK_DELAY_MS = 450L
@@ -2168,17 +2207,11 @@ class InlineRemoteControllerView(
         private const val HANDLE_PEEK_ALPHA = 0.38f
         private const val REMOTE_MOTION_TAIL_MS = 1_400L
 
-        /*
-         * ~30 Hz control updates align with the 30 fps visual path while keeping
-         * DataChannel traffic bounded. Each segment can carry several historical
-         * touch samples, so curved motion stays faithful without packet spam.
-         */
-        private const val STREAM_SEGMENT_INTERVAL_MS = 32L
         private const val MIN_STREAM_SEGMENT_MS = 16
         private const val MAX_STREAM_SEGMENT_MS = 56
         private const val MAX_LIVE_STREAM_POINTS = 8
 
-        private const val TOUCH_SAMPLE_INTERVAL_MS = 24L
+        private const val TOUCH_SAMPLE_INTERVAL_MS = 12L
         private const val MAX_LOCAL_GESTURE_POINTS = 192
         private const val MAX_GESTURE_POINTS = 64
         private const val MIN_REMOTE_GESTURE_MS = 80
