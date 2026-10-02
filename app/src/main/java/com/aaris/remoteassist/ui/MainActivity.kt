@@ -172,12 +172,13 @@ class MainActivity : ComponentActivity() {
         ConnectionFlightRecorder.addListener(
             hostDiagnosticListener
         )
-        showPreviousCrashIfAny()
+        val previousControllerCrash =
+            showPreviousCrashIfAny()
         installBackHandler()
 
         val restoredHostSession = recoverPersistedHostSession()
         val restoredControllerSession =
-            if (!restoredHostSession) {
+            if (!restoredHostSession && !previousControllerCrash) {
                 recoverPersistedControllerSession()
             } else {
                 false
@@ -197,16 +198,34 @@ class MainActivity : ComponentActivity() {
         handleIncomingJoin(intent)
     }
 
-    private fun showPreviousCrashIfAny() {
-        val crash = CrashRecorder.consume(this) ?: return
+    private fun showPreviousCrashIfAny(): Boolean {
+        val crash = CrashRecorder.consume(this) ?: return false
+        val pendingController = prefs.getString(
+            KEY_PENDING_CONTROLLER_SESSION,
+            null
+        )
+
+        if (pendingController != null) {
+            prefs.edit()
+                .remove(KEY_PENDING_CONTROLLER_SESSION)
+                .apply()
+            pendingControllerSessionId = null
+            controllerViewerLaunching = false
+            BackendSessionCloser.close(this, pendingController)
+            SessionCoordinator.close(pendingController)
+        }
+
         AlertDialog.Builder(this)
             .setTitle("Aaris Remote stopped unexpectedly")
             .setMessage(
-                "Last crash captured on this phone:\n\n" +
+                "The previous controller screen crashed, so its stale session " +
+                    "was stopped instead of auto-launching it again.\n\n" +
                     crash.take(2_500)
             )
             .setPositiveButton("OK", null)
             .show()
+
+        return pendingController != null
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -270,7 +289,9 @@ class MainActivity : ComponentActivity() {
             if (!controllerViewerLaunching) {
                 status.text =
                     "Restoring connection monitor…"
-                launchControllerMonitor(pendingController)
+                if (controllerObserver == null) {
+                    observeControllerSession(pendingController)
+                }
             }
             return
         }
@@ -703,20 +724,21 @@ class MainActivity : ComponentActivity() {
                 .apply()
 
             status.text =
-                "Code verified • opening connection monitor…"
-            launchControllerMonitor(request.sessionId)
+                "Code verified • waiting for your friend to approve…"
+            observeControllerSession(request.sessionId)
         }
     }
 
     /*
-     * Keep the controller inside one Activity from the moment the code is
-     * redeemed until the WebRTC session is live. Previously MainActivity
-     * waited for SCREEN_READY and only then launched RemoteControlActivity.
-     * The physical-device trace showed the host publishing SCREEN_READY,
-     * TURN, SDP offer and ICE candidates while the controller never opened
-     * its signaling socket. Removing that late Activity handoff makes the
-     * controller observer authoritative and continuously alive across
-     * PAIR_PENDING -> HOST_APPROVED -> SCREEN_READY -> CONNECTING.
+     * Do not launch the heavy remote-view Activity immediately after code
+     * redemption. A physical Android device repeatedly crashed exactly at
+     * that handoff while the backend was still only PAIR_PENDING.
+     *
+     * MainActivity now remains the lightweight authoritative observer through
+     * PAIR_PENDING -> HOST_APPROVED -> SCREEN_READY. Only once SCREEN_READY
+     * proves that host consent/capture setup completed do we open the viewer
+     * and start WebRTC. This also avoids racing the Activity launch against
+     * the Connect dialog/IME teardown on OEM Android builds.
      */
     private fun launchControllerMonitor(sessionId: String) {
         if (
@@ -1906,7 +1928,7 @@ class MainActivity : ComponentActivity() {
 
         setButtonsEnabled(false)
         status.text = "Restoring connection monitor…"
-        launchControllerMonitor(sessionId)
+        observeControllerSession(sessionId)
         return true
     }
 
