@@ -69,10 +69,18 @@ jobs:
           }
           trap cleanup EXIT
 
-          CONTROLLER="$(curl --retry 3 --retry-all-errors -fsS -X POST "$BASE/v1/sessions/redeem" -H "content-type: application/json" -d "{\"code\":\"$CODE\"}")"
-          export CONTROLLER
-          CONTROLLER_TOKEN="$(python3 -c 'import json,os; d=json.loads(os.environ["CONTROLLER"]); print(d["controllerToken"])')"
+          CONTROLLER_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
           export CONTROLLER_TOKEN
+          CONTROLLER="$(curl --retry 3 --retry-all-errors -fsS -X POST "$BASE/v1/sessions/redeem" -H "content-type: application/json" -d "{\"code\":\"$CODE\",\"controllerToken\":\"$CONTROLLER_TOKEN\"}")"
+          export CONTROLLER
+
+          RETRY="$(curl --retry 3 --retry-all-errors -fsS -X POST "$BASE/v1/sessions/redeem" -H "content-type: application/json" -d "{\"code\":\"$CODE\",\"controllerToken\":\"$CONTROLLER_TOKEN\"}")"
+          export RETRY
+          python3 -c 'import json,os; a=json.loads(os.environ["CONTROLLER"]); b=json.loads(os.environ["RETRY"]); assert a["sessionId"]==b["sessionId"]==os.environ["SID"]'
+
+          OTHER_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+          STATUS="$(curl -sS -o /tmp/redeem-other.json -w '%{http_code}' -X POST "$BASE/v1/sessions/redeem" -H "content-type: application/json" -d "{\"code\":\"$CODE\",\"controllerToken\":\"$OTHER_TOKEN\"}")"
+          test "$STATUS" = "409"
 
           state() {
             curl --retry 3 --retry-all-errors -fsS "$BASE/v1/sessions/$SID"               -H "authorization: Bearer $1" |
@@ -96,6 +104,82 @@ jobs:
           events=d.get("events",[])
           assert any(e.get("kind")=="description" and e.get("senderRole")=="host" for e in events)
           '
+
+          python3 -m pip install --quiet "websockets==15.0.1"
+          python3 - <<'PY'
+          import asyncio, json, os, urllib.request
+          import websockets
+
+          base = os.environ["BASE"]
+          sid = os.environ["SID"]
+          host_token = os.environ["HOST_TOKEN"]
+          controller_token = os.environ["CONTROLLER_TOKEN"]
+          ws_base = base.replace("https://", "wss://")
+
+          async def recv_match(ws, predicate):
+              for _ in range(20):
+                  raw = await asyncio.wait_for(ws.recv(), timeout=5)
+                  if isinstance(raw, bytes):
+                      raw = raw.decode()
+                  data = json.loads(raw)
+                  if predicate(data):
+                      return data
+              raise AssertionError("Expected WebSocket event was not delivered")
+
+          def post_presence():
+              payload = json.dumps({
+                  "kind": "presence",
+                  "payload": {"online": True, "probe": "ci-websocket"}
+              }).encode()
+              request = urllib.request.Request(
+                  f"{base}/v1/sessions/{sid}/events",
+                  data=payload,
+                  method="POST",
+                  headers={
+                      "authorization": f"Bearer {host_token}",
+                      "content-type": "application/json",
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=8) as response:
+                  assert response.status == 201
+
+          async def main():
+              host_headers = {"Authorization": f"Bearer {host_token}"}
+              controller_headers = {"Authorization": f"Bearer {controller_token}"}
+              async with websockets.connect(
+                  f"{ws_base}/v1/sessions/{sid}/socket?after=0",
+                  additional_headers=host_headers,
+                  open_timeout=8,
+                  close_timeout=3,
+              ) as host_ws, websockets.connect(
+                  f"{ws_base}/v1/sessions/{sid}/socket?after=0",
+                  additional_headers=controller_headers,
+                  open_timeout=8,
+                  close_timeout=3,
+              ) as controller_ws:
+                  await recv_match(
+                      host_ws,
+                      lambda x: x.get("kind") == "session"
+                  )
+                  await recv_match(
+                      controller_ws,
+                      lambda x: x.get("kind") == "session"
+                  )
+                  await asyncio.to_thread(post_presence)
+                  event = await recv_match(
+                      controller_ws,
+                      lambda x: (
+                          x.get("kind") == "signal_event"
+                          and x.get("event", {}).get("kind") == "presence"
+                          and x.get("event", {}).get("senderRole") == "host"
+                          and x.get("event", {}).get("payload", {}).get("probe")
+                              == "ci-websocket"
+                      ),
+                  )
+                  assert event["event"]["seq"] > 0
+
+          asyncio.run(main())
+          PY
 
           ICE="$(curl --retry 3 --retry-all-errors -fsS -X POST "$BASE/v1/sessions/$SID/ice"             -H "authorization: Bearer $CONTROLLER_TOKEN"             -H "content-type: application/json" -d "{}")"
           printf '%s' "$ICE" | python3 -c '
