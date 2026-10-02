@@ -6,6 +6,8 @@ import android.os.Handler
 import android.os.Looper
 import com.aaris.remoteassist.accessibility.AssistAccessibilityService
 import com.aaris.remoteassist.capture.CaptureProfile
+import com.aaris.remoteassist.capture.CaptureQualityGovernor
+import com.aaris.remoteassist.capture.CaptureTier
 import com.aaris.remoteassist.capture.ProjectionGrant
 import com.aaris.remoteassist.capture.ScreenCaptureTrack
 import com.aaris.remoteassist.control.ControlPacket
@@ -41,8 +43,21 @@ class HostWebRtcSession(
         appContext.getSystemService(DisplayManager::class.java)
     private val displayHandler = Handler(Looper.getMainLooper())
 
+    private val maxCaptureTier =
+        CaptureProfile.recommendedTier(appContext)
+
     @Volatile
-    private var profile = CaptureProfile.current(appContext)
+    private var captureTier = maxCaptureTier
+
+    @Volatile
+    private var profile =
+        CaptureProfile.current(appContext, captureTier)
+
+    private val captureQualityGovernor =
+        CaptureQualityGovernor(
+            initialTier = captureTier,
+            maxTier = maxCaptureTier
+        )
 
     @Volatile
     private var peerConnected = false
@@ -243,9 +258,22 @@ class HostWebRtcSession(
         captureRecoveryAttempts = 0
         localCaptureFrameSeen.set(false)
 
-        listener.onDiagnostic("Starting MediaProjection capture")
+        listener.onDiagnostic(
+            "Starting MediaProjection capture • " +
+                profile.captureWidthPx +
+                "x" +
+                profile.captureHeightPx +
+                "@" +
+                profile.fps +
+                " • tier=" +
+                profile.tier.name
+        )
         capture.videoTrack.addSink(captureProbe)
-        peer.addLocalVideoTrack(capture.videoTrack)
+        peer.addLocalVideoTrack(
+            track = capture.videoTrack,
+            maxBitrateBps = profile.maxVideoBitrateBps,
+            maxFramerate = profile.fps
+        )
         capture.start(profile)
 
         displayHandler.removeCallbacks(captureFrameWatchdog)
@@ -266,11 +294,32 @@ class HostWebRtcSession(
     fun refreshDisplayProfile() {
         if (closed.get()) return
 
-        val latest = CaptureProfile.current(appContext)
-        if (latest == profile) return
+        val previous = profile
+        val latest =
+            CaptureProfile.current(
+                appContext,
+                captureTier
+            )
+        if (latest == previous) return
 
         profile = latest
         capture.update(latest)
+        peer.updateInteractiveVideoPolicy(
+            maxBitrateBps = latest.maxVideoBitrateBps,
+            maxFramerate = latest.fps
+        )
+
+        /*
+         * Capture resolution/FPS may adapt without changing the remote phone's
+         * logical display geometry. Only rotate the control generation when
+         * the actual display dimensions changed (rotation/display resize).
+         */
+        if (
+            latest.displayWidthPx == previous.displayWidthPx &&
+            latest.displayHeightPx == previous.displayHeightPx
+        ) {
+            return
+        }
 
         val currentLease = lease ?: return
         val rotated = SessionCoordinator.bumpDisplayGeneration(
@@ -279,6 +328,46 @@ class HostWebRtcSession(
 
         lease = rotated
         sendHello(rotated, latest)
+    }
+
+    @Synchronized
+    private fun applyCaptureTier(
+        nextTier: CaptureTier
+    ) {
+        if (
+            closed.get() ||
+            nextTier == captureTier ||
+            nextTier.ordinal > maxCaptureTier.ordinal
+        ) {
+            return
+        }
+
+        captureTier = nextTier
+        val next =
+            CaptureProfile.current(
+                appContext,
+                nextTier
+            )
+        profile = next
+        capture.update(next)
+        peer.updateInteractiveVideoPolicy(
+            maxBitrateBps = next.maxVideoBitrateBps,
+            maxFramerate = next.fps
+        )
+
+        listener.onDiagnostic(
+            "Adaptive screen quality → " +
+                next.tier.name +
+                " • " +
+                next.captureWidthPx +
+                "x" +
+                next.captureHeightPx +
+                "@" +
+                next.fps +
+                " • max=" +
+                next.maxVideoBitrateBps +
+                "bps"
+        )
     }
 
     override fun onPeerConnected() {
@@ -400,6 +489,21 @@ class HostWebRtcSession(
                 handleMediaRecoveryRequest()
             }
 
+            is ControlPacket.PrimaryVideoReady -> {
+                val currentLease = lease ?: return
+                if (
+                    packet.leaseSecret !=
+                    currentLease.leaseSecret
+                ) {
+                    return
+                }
+
+                fallbackStreamer.disable()
+                listener.onDiagnostic(
+                    "Primary screen renderer confirmed healthy • fallback stopped"
+                )
+            }
+
             is ControlPacket.CommandResult,
             is ControlPacket.Hello -> Unit
         }
@@ -451,6 +555,17 @@ class HostWebRtcSession(
         snapshot: VideoHealthSnapshot
     ) {
         listener.onDiagnostic(snapshot.compact())
+
+        if (snapshot.direction != "outbound") return
+        val reason = snapshot.qualityLimitationReason ?: return
+
+        displayHandler.post {
+            if (closed.get()) return@post
+
+            captureQualityGovernor
+                .observeQualityLimitation(reason)
+                ?.let(::applyCaptureTier)
+        }
     }
 
     override fun onDiagnostic(message: String) {

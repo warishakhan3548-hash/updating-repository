@@ -267,6 +267,21 @@ class ControlProtocolTest {
     }
 
     @Test
+    fun primaryVideoReadyRoundTrips() {
+        val source =
+            ControlPacket.PrimaryVideoReady(
+                leaseSecret = 88L
+            )
+
+        assertEquals(
+            source,
+            ControlProtocol.decode(
+                ControlProtocol.encode(source)
+            )
+        )
+    }
+
+    @Test
     fun rejectsWrongProtocolVersion() {
         val encoded = ControlProtocol.encode(
             ControlPacket.Heartbeat(7L)

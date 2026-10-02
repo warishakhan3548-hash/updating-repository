@@ -117,6 +117,19 @@ class ControllerWebRtcSession(
 
     fun remoteGeometry(): RemoteGeometry? = geometry
 
+    fun confirmPrimaryVideoRendered(): Boolean {
+        if (closed.get()) return false
+        val lease = leaseSecret ?: return false
+
+        return peer.sendControl(
+            ControlProtocol.encode(
+                ControlPacket.PrimaryVideoReady(
+                    leaseSecret = lease
+                )
+            )
+        )
+    }
+
     fun requestMediaRecovery(): Boolean {
         if (closed.get()) return false
 

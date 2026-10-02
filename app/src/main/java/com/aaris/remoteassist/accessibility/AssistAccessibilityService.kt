@@ -11,7 +11,9 @@ import android.graphics.Path
 import android.text.InputType
 import android.graphics.PixelFormat
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -616,6 +618,88 @@ class AssistAccessibilityService : AccessibilityService() {
             gravity = Gravity.TOP or Gravity.END
             x = 20
             y = 72
+        }
+
+        /*
+         * The safety control must always remain reachable, but it must not
+         * permanently make the app underneath untappable. A tap still stops
+         * sharing; dragging moves the pill away from whatever the remote user
+         * needs to press.
+         */
+        val touchSlop =
+            ViewConfiguration.get(this).scaledTouchSlop.toFloat()
+        var downRawX = 0f
+        var downRawY = 0f
+        var startX = 0
+        var startY = 0
+        var dragging = false
+
+        button.contentDescription =
+            "Stop sharing. Drag to move this button."
+        button.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    startX = params.x
+                    startY = params.y
+                    dragging = false
+                    true
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - downRawX
+                    val dy = event.rawY - downRawY
+
+                    if (
+                        !dragging &&
+                        dx * dx + dy * dy >=
+                        touchSlop * touchSlop
+                    ) {
+                        dragging = true
+                    }
+
+                    if (dragging) {
+                        val metrics = resources.displayMetrics
+                        val maxX =
+                            (metrics.widthPixels - view.width)
+                                .coerceAtLeast(0)
+                        val maxY =
+                            (metrics.heightPixels - view.height)
+                                .coerceAtLeast(0)
+
+                        // Gravity.END means positive x moves inward from right.
+                        params.x =
+                            (startX - dx.toInt())
+                                .coerceIn(0, maxX)
+                        params.y =
+                            (startY + dy.toInt())
+                                .coerceIn(0, maxY)
+
+                        runCatching {
+                            windowManager.updateViewLayout(
+                                button,
+                                params
+                            )
+                        }
+                    }
+                    true
+                }
+
+                MotionEvent.ACTION_UP -> {
+                    if (!dragging) {
+                        view.performClick()
+                    }
+                    true
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
+                    dragging = false
+                    true
+                }
+
+                else -> true
+            }
         }
 
         runCatching {

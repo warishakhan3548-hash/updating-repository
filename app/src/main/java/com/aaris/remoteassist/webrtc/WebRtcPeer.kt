@@ -291,6 +291,12 @@ class WebRtcPeer(
     private var publishedRemoteVideoTrack: VideoTrack? = null
 
     @Volatile
+    private var videoMaxBitrateBps = DEFAULT_VIDEO_BITRATE_BPS
+
+    @Volatile
+    private var videoMaxFramerate = DEFAULT_VIDEO_FRAMERATE
+
+    @Volatile
     private var activeIceServers = IceServerProvider.fallbackServers()
 
     @Volatile
@@ -540,7 +546,11 @@ class WebRtcPeer(
         )
     }
 
-    fun addLocalVideoTrack(track: VideoTrack) {
+    fun addLocalVideoTrack(
+        track: VideoTrack,
+        maxBitrateBps: Int = DEFAULT_VIDEO_BITRATE_BPS,
+        maxFramerate: Int = DEFAULT_VIDEO_FRAMERATE
+    ) {
         check(!closed.get())
         check(role == PeerRole.HOST) {
             "Only the host may publish the screen track"
@@ -548,6 +558,17 @@ class WebRtcPeer(
         check(localScreenTransceiver == null) {
             "Screen video transceiver already exists"
         }
+
+        videoMaxBitrateBps =
+            maxBitrateBps.coerceIn(
+                MIN_VIDEO_BITRATE_BPS,
+                MAX_VIDEO_BITRATE_BPS
+            )
+        videoMaxFramerate =
+            maxFramerate.coerceIn(
+                MIN_VIDEO_FRAMERATE,
+                MAX_VIDEO_FRAMERATE
+            )
 
         /*
          * Screen video is intentionally modeled as one authoritative
@@ -1635,20 +1656,53 @@ class WebRtcPeer(
         }
     }
 
+    fun updateInteractiveVideoPolicy(
+        maxBitrateBps: Int,
+        maxFramerate: Int
+    ) {
+        if (closed.get() || role != PeerRole.HOST) return
+
+        videoMaxBitrateBps =
+            maxBitrateBps.coerceIn(
+                MIN_VIDEO_BITRATE_BPS,
+                MAX_VIDEO_BITRATE_BPS
+            )
+        videoMaxFramerate =
+            maxFramerate.coerceIn(
+                MIN_VIDEO_FRAMERATE,
+                MAX_VIDEO_FRAMERATE
+            )
+
+        localScreenTransceiver
+            ?.sender
+            ?.let(::applyInteractiveVideoPolicy)
+    }
+
     private fun applyInteractiveVideoPolicy(
         sender: RtpSender
     ) {
         runCatching {
             val parameters = sender.parameters
+            /*
+             * Remote-control video needs both readable text and responsive
+             * motion. BALANCED lets libwebrtc trade a little resolution or
+             * frame rate under real congestion instead of permanently
+             * sacrificing sharpness just to hold a fixed FPS.
+             */
             parameters.degradationPreference =
-                RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
+                RtpParameters.DegradationPreference.BALANCED
 
             parameters.encodings.forEach { encoding ->
-                encoding.maxBitrateBps = MAX_VIDEO_BITRATE_BPS
-                encoding.maxFramerate = MAX_VIDEO_FRAMERATE
+                encoding.maxBitrateBps = videoMaxBitrateBps
+                encoding.maxFramerate = videoMaxFramerate
             }
 
             sender.setParameters(parameters)
+        }.onFailure {
+            listener.onDiagnostic(
+                "Interactive video policy fallback: " +
+                    (it.message ?: it.javaClass.simpleName)
+            )
         }
     }
 
@@ -1684,8 +1738,12 @@ class WebRtcPeer(
         private const val CONTROL_CHANNEL = "control-v1"
         private const val FALLBACK_VIDEO_CHANNEL = "fallback-video-v1"
         private const val SCREEN_STREAM_ID = "remote-screen"
-        private const val MAX_VIDEO_BITRATE_BPS = 1_500_000
-        private const val MAX_VIDEO_FRAMERATE = 20
+        private const val MIN_VIDEO_BITRATE_BPS = 600_000
+        private const val DEFAULT_VIDEO_BITRATE_BPS = 1_800_000
+        private const val MAX_VIDEO_BITRATE_BPS = 6_000_000
+        private const val MIN_VIDEO_FRAMERATE = 10
+        private const val DEFAULT_VIDEO_FRAMERATE = 20
+        private const val MAX_VIDEO_FRAMERATE = 30
         private const val VIDEO_STATS_INITIAL_DELAY_MS = 1_500L
         private const val VIDEO_STATS_INTERVAL_MS = 3_000L
         private const val RESTART_ICE_REFRESH_TIMEOUT_MS = 1_500L

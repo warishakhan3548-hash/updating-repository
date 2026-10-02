@@ -7,56 +7,149 @@ import android.view.WindowManager
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+enum class CaptureTier {
+    LOW,
+    STANDARD,
+    HIGH;
+
+    fun lower(): CaptureTier? =
+        when (this) {
+            HIGH -> STANDARD
+            STANDARD -> LOW
+            LOW -> null
+        }
+
+    fun higher(): CaptureTier? =
+        when (this) {
+            LOW -> STANDARD
+            STANDARD -> HIGH
+            HIGH -> null
+        }
+}
+
 data class CaptureProfile(
     val displayWidthPx: Int,
     val displayHeightPx: Int,
     val captureWidthPx: Int,
     val captureHeightPx: Int,
-    val fps: Int
+    val fps: Int,
+    val maxVideoBitrateBps: Int,
+    val tier: CaptureTier
 ) {
     companion object {
-        private const val MAX_CAPTURE_LONG_SIDE = 960
-        private const val LOW_RAM_CAPTURE_LONG_SIDE = 720
-        private const val DEFAULT_FPS = 20
-        private const val LOW_RAM_FPS = 15
+        private const val LOW_CAPTURE_LONG_SIDE = 720
+        private const val STANDARD_CAPTURE_LONG_SIDE = 1600
+        private const val HIGH_CAPTURE_LONG_SIDE = 1920
+
+        private const val LOW_FPS = 15
+        private const val STANDARD_FPS = 30
+        private const val HIGH_FPS = 30
+
+        private const val LOW_BITRATE_BPS = 1_200_000
+        private const val STANDARD_BITRATE_BPS = 4_000_000
+        private const val HIGH_BITRATE_BPS = 5_500_000
+
+        private const val LOW_MEMORY_BYTES = 3L * 1024L * 1024L * 1024L
+        private const val HIGH_MEMORY_BYTES = 6L * 1024L * 1024L * 1024L
+
+        fun recommendedTier(context: Context): CaptureTier {
+            val manager =
+                context.getSystemService(ActivityManager::class.java)
+            if (manager?.isLowRamDevice == true) {
+                return CaptureTier.LOW
+            }
+
+            val memoryInfo = ActivityManager.MemoryInfo()
+            val totalMemory =
+                runCatching {
+                    manager?.getMemoryInfo(memoryInfo)
+                    memoryInfo.totalMem
+                }.getOrDefault(0L)
+
+            return when {
+                totalMemory in 1L..LOW_MEMORY_BYTES ->
+                    CaptureTier.LOW
+                totalMemory >= HIGH_MEMORY_BYTES ->
+                    CaptureTier.HIGH
+                else ->
+                    CaptureTier.STANDARD
+            }
+        }
 
         @Suppress("DEPRECATION")
-        fun current(context: Context): CaptureProfile {
+        fun current(
+            context: Context,
+            tier: CaptureTier = recommendedTier(context)
+        ): CaptureProfile {
             val metrics = DisplayMetrics()
             context.getSystemService(WindowManager::class.java)
                 .defaultDisplay
                 .getRealMetrics(metrics)
 
-            val displayWidth = metrics.widthPixels.coerceAtLeast(1)
-            val displayHeight = metrics.heightPixels.coerceAtLeast(1)
+            return forDisplay(
+                displayWidthPx = metrics.widthPixels.coerceAtLeast(1),
+                displayHeightPx = metrics.heightPixels.coerceAtLeast(1),
+                tier = tier
+            )
+        }
+
+        internal fun forDisplay(
+            displayWidthPx: Int,
+            displayHeightPx: Int,
+            tier: CaptureTier
+        ): CaptureProfile {
+            val displayWidth = displayWidthPx.coerceAtLeast(1)
+            val displayHeight = displayHeightPx.coerceAtLeast(1)
             val longSide = max(displayWidth, displayHeight)
-            val lowRam = context
-                .getSystemService(ActivityManager::class.java)
-                ?.isLowRamDevice == true
+
             val maxCaptureLongSide =
-                if (lowRam) {
-                    LOW_RAM_CAPTURE_LONG_SIDE
-                } else {
-                    MAX_CAPTURE_LONG_SIDE
+                when (tier) {
+                    CaptureTier.LOW -> LOW_CAPTURE_LONG_SIDE
+                    CaptureTier.STANDARD -> STANDARD_CAPTURE_LONG_SIDE
+                    CaptureTier.HIGH -> HIGH_CAPTURE_LONG_SIDE
                 }
 
-            val scale = if (longSide > maxCaptureLongSide) {
-                maxCaptureLongSide.toFloat() / longSide.toFloat()
-            } else {
-                1f
-            }
+            val scale =
+                if (longSide > maxCaptureLongSide) {
+                    maxCaptureLongSide.toFloat() /
+                        longSide.toFloat()
+                } else {
+                    1f
+                }
 
             fun even(value: Int): Int {
                 val clamped = value.coerceAtLeast(2)
-                return if (clamped % 2 == 0) clamped else clamped - 1
+                return if (clamped % 2 == 0) {
+                    clamped
+                } else {
+                    clamped - 1
+                }
             }
+
+            val fps =
+                when (tier) {
+                    CaptureTier.LOW -> LOW_FPS
+                    CaptureTier.STANDARD -> STANDARD_FPS
+                    CaptureTier.HIGH -> HIGH_FPS
+                }
+
+            val maxVideoBitrateBps =
+                when (tier) {
+                    CaptureTier.LOW -> LOW_BITRATE_BPS
+                    CaptureTier.STANDARD -> STANDARD_BITRATE_BPS
+                    CaptureTier.HIGH -> HIGH_BITRATE_BPS
+                }
 
             return CaptureProfile(
                 displayWidthPx = displayWidth,
                 displayHeightPx = displayHeight,
-                captureWidthPx = even((displayWidth * scale).roundToInt()),
-                captureHeightPx = even((displayHeight * scale).roundToInt()),
-                fps = if (lowRam) LOW_RAM_FPS else DEFAULT_FPS
+                captureWidthPx =
+                    even((displayWidth * scale).roundToInt()),
+                captureHeightPx =
+                    even((displayHeight * scale).roundToInt()),
+                fps = fps,
+                maxVideoBitrateBps = maxVideoBitrateBps,
+                tier = tier
             )
         }
     }
