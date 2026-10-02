@@ -143,10 +143,31 @@ class AssistAccessibilityService : AccessibilityService() {
             return
         }
 
-        if (gestureBlockedBySensitiveFocus) {
+        if (
+            gestureBlockedBySensitiveFocus &&
             moveStopOverlayAwayFrom(command)
+        ) {
+            /*
+             * WindowManager layout updates cross a process boundary. Give the
+             * relocated safety pill one display tick to settle before injecting
+             * the gesture so an old overlay surface cannot eat the remote tap.
+             */
+            mainHandler.postDelayed(
+                {
+                    performCommand(command, onResult)
+                },
+                OVERLAY_REPOSITION_SETTLE_MS
+            )
+            return
         }
 
+        performCommand(command, onResult)
+    }
+
+    private fun performCommand(
+        command: RemoteCommand,
+        onResult: (Boolean) -> Unit
+    ) {
         when (command) {
             is TapCommand -> gesture(
                 command.xPx,
@@ -585,15 +606,16 @@ class AssistAccessibilityService : AccessibilityService() {
 
     private fun moveStopOverlayAwayFrom(
         command: RemoteCommand
-    ) {
-        val view = stopOverlay ?: return
-        val params = stopOverlayParams ?: return
-        val windowManager = stopOverlayWindowManager ?: return
+    ): Boolean {
+        val view = stopOverlay ?: return false
+        val params = stopOverlayParams ?: return false
+        val windowManager =
+            stopOverlayWindowManager ?: return false
         if (
             view.width <= 0 ||
             view.height <= 0
         ) {
-            return
+            return false
         }
 
         val points: List<Pair<Float, Float>> =
@@ -625,10 +647,10 @@ class AssistAccessibilityService : AccessibilityService() {
 
                 is GlobalActionCommand,
                 is SetTextCommand ->
-                    return
+                    return false
             }
 
-        if (points.isEmpty()) return
+        if (points.isEmpty()) return false
 
         val clearance =
             REMOTE_OVERLAY_CLEARANCE_DP *
@@ -654,7 +676,7 @@ class AssistAccessibilityService : AccessibilityService() {
                 (currentLocation[1] + view.height).toFloat()
             )
         if (!RectF.intersects(currentBounds, commandBounds)) {
-            return
+            return false
         }
 
         val metrics = resources.displayMetrics
@@ -726,23 +748,23 @@ class AssistAccessibilityService : AccessibilityService() {
                     ) +
                     dx * dx +
                     dy * dy
-            } ?: return
+            } ?: return false
 
         if (
             params.x == best.first &&
             params.y == best.second
         ) {
-            return
+            return false
         }
 
         params.x = best.first
         params.y = best.second
-        runCatching {
+        return runCatching {
             windowManager.updateViewLayout(
                 view,
                 params
             )
-        }
+        }.isSuccess
     }
 
     private fun showStopOverlay(isLive: Boolean) {
@@ -900,6 +922,7 @@ class AssistAccessibilityService : AccessibilityService() {
         private const val REMOTE_OVERLAY_CLEARANCE_DP = 18f
         private const val OVERLAY_EDGE_MARGIN_DP = 16f
         private const val CLEAR_CANDIDATE_BONUS = 1_000_000_000f
+        private const val OVERLAY_REPOSITION_SETTLE_MS = 24L
         @Volatile
         private var instance = WeakReference<AssistAccessibilityService>(null)
 
