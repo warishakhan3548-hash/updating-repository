@@ -122,6 +122,8 @@ class InlineRemoteControllerView(
     private var handleStartY = 0f
     private var handleDragging = false
     private var controlHandleUserMoved = false
+    private var controlHandleParked = false
+    private var controlHandleOnRight = true
 
     private var attached = false
     @Volatile
@@ -137,6 +139,16 @@ class InlineRemoteControllerView(
     private val controlsAutoHide = Runnable {
         if (attached) {
             setControlsVisible(false)
+        }
+    }
+
+    private val handlePeek = Runnable {
+        if (
+            attached &&
+            dock.visibility != View.VISIBLE &&
+            controlHandle.visibility == View.VISIBLE
+        ) {
+            parkControlHandle()
         }
     }
 
@@ -395,6 +407,7 @@ class InlineRemoteControllerView(
 
         mainHandler.removeCallbacks(mediaWatchdog)
         mainHandler.removeCallbacks(controlsAutoHide)
+        mainHandler.removeCallbacks(handlePeek)
         ControllerConnectionRuntime.detach(listener)
         detachCurrentTrack()
         releaseRenderer()
@@ -592,6 +605,13 @@ class InlineRemoteControllerView(
             setOnTouchListener { view, event ->
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
+                        mainHandler.removeCallbacks(handlePeek)
+                        view.animate().cancel()
+                        view.alpha = 1f
+                        controlHandleParked = false
+                        controlHandleOnRight =
+                            view.x + view.width / 2f >=
+                                root.width / 2f
                         handleDownRawX = event.rawX
                         handleDownRawY = event.rawY
                         handleStartX = view.x
@@ -644,6 +664,7 @@ class InlineRemoteControllerView(
 
                     MotionEvent.ACTION_CANCEL -> {
                         handleDragging = false
+                        scheduleControlHandlePeek()
                         true
                     }
 
@@ -663,18 +684,25 @@ class InlineRemoteControllerView(
 
     private fun setControlsVisible(visible: Boolean) {
         mainHandler.removeCallbacks(controlsAutoHide)
+        mainHandler.removeCallbacks(handlePeek)
         dock.visibility =
             if (visible) View.VISIBLE else View.GONE
         controlHandle.visibility =
             if (visible) View.GONE else View.VISIBLE
 
         if (visible) {
+            controlHandleParked = false
+            controlHandle.animate().cancel()
+            controlHandle.alpha = 1f
             mainHandler.postDelayed(
                 controlsAutoHide,
                 CONTROLS_AUTO_HIDE_MS
             )
         } else {
+            controlHandle.animate().cancel()
+            controlHandle.alpha = 1f
             positionControlHandleIfNeeded()
+            scheduleControlHandlePeek()
         }
     }
 
@@ -695,7 +723,7 @@ class InlineRemoteControllerView(
             (root.height - controlHandle.height).toFloat() - margin
 
         if (!controlHandleUserMoved) {
-            controlHandle.x = maxX.coerceAtLeast(margin)
+            controlHandleOnRight = true
             controlHandle.y =
                 ((root.height - controlHandle.height) / 2f)
                     .coerceIn(
@@ -703,16 +731,28 @@ class InlineRemoteControllerView(
                         maxY.coerceAtLeast(margin)
                     )
         } else {
-            controlHandle.x =
-                controlHandle.x.coerceIn(
-                    margin,
-                    maxX.coerceAtLeast(margin)
-                )
             controlHandle.y =
                 controlHandle.y.coerceIn(
                     margin,
                     maxY.coerceAtLeast(margin)
                 )
+            if (!controlHandleParked) {
+                controlHandleOnRight =
+                    controlHandle.x +
+                        controlHandle.width / 2f >=
+                        root.width / 2f
+            }
+        }
+
+        if (controlHandleParked) {
+            applyParkedHandlePosition()
+        } else {
+            controlHandle.x =
+                if (controlHandleOnRight) {
+                    maxX.coerceAtLeast(margin)
+                } else {
+                    margin
+                }
         }
     }
 
@@ -736,17 +776,86 @@ class InlineRemoteControllerView(
         val center =
             controlHandle.x +
                 controlHandle.width / 2f
+        controlHandleOnRight =
+            center >= root.width / 2f
+        controlHandleParked = false
 
         controlHandle.animate()
             .x(
-                if (center < root.width / 2f) {
-                    left
-                } else {
+                if (controlHandleOnRight) {
                     right
+                } else {
+                    left
                 }
             )
+            .alpha(1f)
             .setDuration(HANDLE_SNAP_MS)
+            .withEndAction {
+                scheduleControlHandlePeek()
+            }
             .start()
+    }
+
+    private fun scheduleControlHandlePeek() {
+        mainHandler.removeCallbacks(handlePeek)
+        if (
+            attached &&
+            dock.visibility != View.VISIBLE &&
+            controlHandle.visibility == View.VISIBLE
+        ) {
+            mainHandler.postDelayed(
+                handlePeek,
+                HANDLE_PEEK_DELAY_MS
+            )
+        }
+    }
+
+    private fun parkControlHandle() {
+        if (
+            root.width <= 0 ||
+            controlHandle.width <= 0 ||
+            dock.visibility == View.VISIBLE ||
+            controlHandle.visibility != View.VISIBLE
+        ) {
+            return
+        }
+
+        controlHandleOnRight =
+            controlHandle.x +
+                controlHandle.width / 2f >=
+                root.width / 2f
+        controlHandleParked = true
+
+        val targetX =
+            parkedHandleX()
+
+        controlHandle.animate()
+            .x(targetX)
+            .alpha(HANDLE_PEEK_ALPHA)
+            .setDuration(HANDLE_PEEK_ANIMATION_MS)
+            .start()
+    }
+
+    private fun applyParkedHandlePosition() {
+        if (
+            root.width <= 0 ||
+            controlHandle.width <= 0
+        ) {
+            return
+        }
+
+        controlHandle.animate().cancel()
+        controlHandle.x = parkedHandleX()
+        controlHandle.alpha = HANDLE_PEEK_ALPHA
+    }
+
+    private fun parkedHandleX(): Float {
+        val peek = dp(HANDLE_PEEK_DP).toFloat()
+        return if (controlHandleOnRight) {
+            root.width.toFloat() - peek
+        } else {
+            -(controlHandle.width.toFloat() - peek)
+        }
     }
 
     private fun ensureRenderer(): Boolean {
@@ -1506,6 +1615,10 @@ class InlineRemoteControllerView(
         private const val CONTROLS_AUTO_HIDE_MS = 5_000L
         private const val HANDLE_EDGE_MARGIN_DP = 8
         private const val HANDLE_SNAP_MS = 140L
+        private const val HANDLE_PEEK_DELAY_MS = 1_500L
+        private const val HANDLE_PEEK_ANIMATION_MS = 120L
+        private const val HANDLE_PEEK_DP = 14
+        private const val HANDLE_PEEK_ALPHA = 0.58f
 
         private const val TOUCH_SAMPLE_INTERVAL_MS = 24L
         private const val MAX_LOCAL_GESTURE_POINTS = 192
