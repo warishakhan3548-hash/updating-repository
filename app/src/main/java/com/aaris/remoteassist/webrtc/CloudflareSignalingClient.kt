@@ -29,7 +29,7 @@ class CloudflareSignalingClient(
     }
     private val reconnectAttempt = AtomicInteger(0)
     private val reconnectScheduled = AtomicBoolean(false)
-    private val lastSequence = AtomicLong(0L)
+    private val sequenceTracker = SignalingSequenceTracker()
     private val restartRequestSequence = AtomicLong(0L)
     private val descriptionDeliverySequence = AtomicLong(0L)
     private val candidateGate =
@@ -137,6 +137,7 @@ class CloudflareSignalingClient(
         writer.shutdownNow()
         mainHandler.removeCallbacksAndMessages(null)
         candidateGate.reset()
+        sequenceTracker.reset()
         lastLocalDescription = null
         lastAcceptedRemoteDescription = null
         listener = null
@@ -148,7 +149,7 @@ class CloudflareSignalingClient(
             CloudflareBackend.socketRequest(
                 appContext,
                 sessionId,
-                lastSequence.get()
+                sequenceTracker.reconnectAfter()
             )
         }.getOrElse {
             dispatchError(it)
@@ -246,8 +247,16 @@ class CloudflareSignalingClient(
 
         val event = root.getJSONObject("event")
         val sequence = event.getLong("seq")
-        if (sequence <= lastSequence.get()) return
-        lastSequence.updateAndGet { maxOf(it, sequence) }
+        if (!sequenceTracker.accept(sequence)) return
+
+        /*
+         * Cloudflare assigns a single monotonically increasing sequence to
+         * events from both peers. HTTP event publications and WebSocket
+         * broadcasts can complete out of order, so a higher event must never
+         * cause a lower-but-unseen remote ICE candidate to be discarded.
+         * The tracker processes every unique event while advancing the
+         * reconnect cursor only across a contiguous prefix.
+         */
         if (event.optString("senderRole") == roleWireName()) return
 
         val payload =
