@@ -110,7 +110,19 @@ data class VideoHealthSnapshot(
 
             val remoteInbound =
                 if (role == PeerRole.HOST) {
+                    /*
+                     * remote-inbound-rtp.localId points back to the local
+                     * outbound RTP stats object. Correlate that relationship
+                     * first so audio/other RTP stats cannot accidentally drive
+                     * the screen-quality governor when a platform omits "kind".
+                     * Keep the older video-shaped fallback for vendor builds
+                     * that do not expose localId.
+                     */
                     stats.values.firstOrNull { stat ->
+                        stat.type == "remote-inbound-rtp" &&
+                            stat.members["localId"]
+                                ?.toString() == selected.id
+                    } ?: stats.values.firstOrNull { stat ->
                         if (stat.type != "remote-inbound-rtp") {
                             return@firstOrNull false
                         }
