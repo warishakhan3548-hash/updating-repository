@@ -12,6 +12,7 @@ import com.aaris.remoteassist.capture.ProjectionGrant
 import com.aaris.remoteassist.capture.ScreenCaptureTrack
 import com.aaris.remoteassist.control.ControlPacket
 import com.aaris.remoteassist.control.ControlProtocol
+import com.aaris.remoteassist.control.GestureStreamPhase
 import com.aaris.remoteassist.session.LiveLease
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionRuntime
@@ -480,6 +481,22 @@ class HostWebRtcSession(
                 ) ?: return
 
                 AssistAccessibilityService.dispatch(command) { applied ->
+                    /*
+                     * Live CONTINUE success is intentionally unacknowledged.
+                     * The controller does not gate future motion on success
+                     * results, and returning an ACK for every ~30 Hz position
+                     * just competes with fresh input on mobile SCTP links.
+                     * Failures still travel back so genuine injection problems
+                     * remain visible and diagnosable.
+                     */
+                    if (
+                        applied &&
+                        packet is ControlPacket.GestureStream &&
+                        packet.phase == GestureStreamPhase.CONTINUE
+                    ) {
+                        return@dispatch
+                    }
+
                     peer.sendControl(
                         ControlProtocol.encode(
                             ControlPacket.CommandResult(
