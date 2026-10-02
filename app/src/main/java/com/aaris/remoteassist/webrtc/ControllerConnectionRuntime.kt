@@ -34,6 +34,9 @@ object ControllerConnectionRuntime {
     @Volatile
     private var remoteTrack: VideoTrack? = null
 
+    @Volatile
+    private var fallbackFrame: FallbackVideoFrame? = null
+
     fun ensureStarted(
         context: Context,
         sessionId: String
@@ -51,6 +54,7 @@ object ControllerConnectionRuntime {
             connected = false
             geometry = null
             remoteTrack = null
+            fallbackFrame = null
             activeSessionId = sessionId
 
             val created = ControllerWebRtcSession(
@@ -100,6 +104,7 @@ object ControllerConnectionRuntime {
         }
         geometry?.let(listener::onLive)
         remoteTrack?.let(listener::onRemoteVideoTrack)
+        fallbackFrame?.let(listener::onFallbackVideoFrame)
     }
 
     fun detachUi() {
@@ -118,6 +123,7 @@ object ControllerConnectionRuntime {
         }
         geometry?.let(listener::onLive)
         remoteTrack?.let(listener::onRemoteVideoTrack)
+        fallbackFrame?.let(listener::onFallbackVideoFrame)
 
         return session
     }
@@ -151,6 +157,7 @@ object ControllerConnectionRuntime {
             connected = false
             geometry = null
             remoteTrack = null
+            fallbackFrame = null
         }
     }
 
@@ -174,6 +181,14 @@ object ControllerConnectionRuntime {
                 remoteTrack = track
                 ownerListener?.onRemoteVideoTrack(track)
                 uiListener?.onRemoteVideoTrack(track)
+            }
+
+            override fun onFallbackVideoFrame(
+                frame: FallbackVideoFrame
+            ) {
+                fallbackFrame = frame
+                ownerListener?.onFallbackVideoFrame(frame)
+                uiListener?.onFallbackVideoFrame(frame)
             }
 
             override fun onCommandResult(
