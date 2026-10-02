@@ -478,6 +478,10 @@ class HostWebRtcSession(
             is ControlPacket.Home,
             is ControlPacket.Recents,
             is ControlPacket.Text -> {
+                if (packet is ControlPacket.GestureStream) {
+                    refreshInteractionPriorityTimeout()
+                }
+
                 val currentProfile = profile
                 val command = ControlProtocol.toRemoteCommand(
                     sessionId = sessionId,
@@ -643,12 +647,19 @@ class HostWebRtcSession(
             )
         }
 
-        if (active && !closed.get()) {
-            displayHandler.postDelayed(
-                interactionPriorityTimeout,
-                INTERACTION_PRIORITY_TIMEOUT_MS
-            )
+        if (active) {
+            refreshInteractionPriorityTimeout()
         }
+    }
+
+    private fun refreshInteractionPriorityTimeout() {
+        if (closed.get() || !interactionActive) return
+
+        displayHandler.removeCallbacks(interactionPriorityTimeout)
+        displayHandler.postDelayed(
+            interactionPriorityTimeout,
+            INTERACTION_PRIORITY_TIMEOUT_MS
+        )
     }
 
     private fun applyVideoPolicy(target: CaptureProfile) {
