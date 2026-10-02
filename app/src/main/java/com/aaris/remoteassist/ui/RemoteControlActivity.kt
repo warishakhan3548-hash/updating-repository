@@ -53,6 +53,7 @@ class RemoteControlActivity : ComponentActivity() {
     private lateinit var statusPanel: LinearLayout
     private lateinit var statusProgress: ProgressBar
     private lateinit var status: TextView
+    private lateinit var statusDetail: TextView
     private lateinit var controlDock: LinearLayout
     private lateinit var controlHandle: Button
 
@@ -76,6 +77,14 @@ class RemoteControlActivity : ComponentActivity() {
     private var rendererInitialized = false
     private var videoRecoveryAttempts = 0
     private var lastCommandResultSequence = 0L
+
+    private var diagnosticBackendVerified = false
+    private var diagnosticScreenReady = false
+    private var diagnosticRtcConnected = false
+    private var diagnosticHostHandshake = false
+    private var diagnosticVideoTrack = false
+    private var diagnosticFirstFrame = false
+    private var diagnosticFailure: String? = null
 
     private var downX = 0f
     private var downY = 0f
@@ -217,6 +226,7 @@ class RemoteControlActivity : ComponentActivity() {
                 id,
                 listener = { backend ->
                     runOnUiThread {
+                        markDiagnostic(DiagnosticStage.CLOUDFLARE)
                         updateControllerDeadline(
                             id = id,
                             deadlineAtEpochMs = backend.deadlineAtEpochMs,
@@ -235,6 +245,7 @@ class RemoteControlActivity : ComponentActivity() {
                                 )
 
                             "SCREEN_READY" -> {
+                                markDiagnostic(DiagnosticStage.SCREEN_READY)
                                 // SCREEN_READY is authoritative backend proof
                                 // that this authenticated controller already
                                 // redeemed the code and the host granted screen
@@ -265,6 +276,7 @@ class RemoteControlActivity : ComponentActivity() {
                             }
 
                             "LIVE" -> {
+                                markDiagnostic(DiagnosticStage.SCREEN_READY)
                                 if (rtcSession == null) {
                                     advanceControllerState(id)
                                     val local =
@@ -325,6 +337,9 @@ class RemoteControlActivity : ComponentActivity() {
                 onError = {
                     runOnUiThread {
                         if (!disconnecting) {
+                            showDiagnosticFailure(
+                                "Cloudflare session updates stopped. Check this phone's internet connection."
+                            )
                             finishController(
                                 "Connection lost. Check internet and try again."
                             )
@@ -419,6 +434,7 @@ class RemoteControlActivity : ComponentActivity() {
             listener = object : ControllerWebRtcSession.Listener {
                 override fun onLive(geometry: RemoteGeometry) {
                     runOnUiThread {
+                        markDiagnostic(DiagnosticStage.HOST_HANDSHAKE)
                         /*
                          * WebRTC + control-channel HELLO is stronger liveness
                          * proof than a lagging backend state write. Do not let
@@ -500,6 +516,7 @@ class RemoteControlActivity : ComponentActivity() {
                         disconnectTimeout = null
 
                         if (connected) {
+                            markDiagnostic(DiagnosticStage.RTC)
                             if (
                                 remoteTrack != null &&
                                 remoteGeometry != null &&
@@ -508,6 +525,9 @@ class RemoteControlActivity : ComponentActivity() {
                                 statusPanel.visibility = View.GONE
                             }
                         } else {
+                            showDiagnosticFailure(
+                                "WebRTC transport disconnected. Cloudflare may still be online, but the phone-to-phone network/ICE path dropped."
+                            )
                             showStatus("Reconnecting…")
                             disconnectTimeout = scope.launch {
                                 delay(DISCONNECT_GRACE_MS)
@@ -523,7 +543,11 @@ class RemoteControlActivity : ComponentActivity() {
 
                 override fun onRemoteVideoTrack(track: VideoTrack) {
                     runOnUiThread {
+                        markDiagnostic(DiagnosticStage.VIDEO_TRACK)
                         if (!ensureRendererInitialized()) {
+                            showDiagnosticFailure(
+                                "Video track reached this phone, but Android could not initialize the screen renderer."
+                            )
                             finishController(
                                 "Could not initialize the remote screen. Try again."
                             )
@@ -574,9 +598,14 @@ class RemoteControlActivity : ComponentActivity() {
                                 status.text.toString() ==
                                 COMMAND_NOT_APPLIED_MESSAGE
                             ) {
+                                diagnosticFailure = null
+                                updateDiagnosticDetail()
                                 statusPanel.visibility = View.GONE
                             }
                         } else {
+                            showDiagnosticFailure(
+                                "Screen/control link is live, but the sharing phone's Accessibility service did not apply this command."
+                            )
                             showStatus(
                                 COMMAND_NOT_APPLIED_MESSAGE
                             )
@@ -587,6 +616,20 @@ class RemoteControlActivity : ComponentActivity() {
                 override fun onRecoverableError(error: Throwable) {
                     runOnUiThread {
                         if (!disconnecting) {
+                            val detail = error.message
+                                ?.take(140)
+                                ?.takeIf(String::isNotBlank)
+                            showDiagnosticFailure(
+                                buildString {
+                                    append(
+                                        currentDiagnosticFailureHint()
+                                    )
+                                    if (detail != null) {
+                                        append(" • ")
+                                        append(detail)
+                                    }
+                                }
+                            )
                             showStatus(
                                 "Connection issue • recovering…"
                             )
@@ -597,8 +640,22 @@ class RemoteControlActivity : ComponentActivity() {
                 override fun onTerminalError(error: Throwable) {
                     runOnUiThread {
                         if (!disconnecting) {
+                            val detail = error.message
+                                ?.take(140)
+                                ?.takeIf(String::isNotBlank)
+                            showDiagnosticFailure(
+                                buildString {
+                                    append(
+                                        currentDiagnosticFailureHint()
+                                    )
+                                    if (detail != null) {
+                                        append(" • ")
+                                        append(detail)
+                                    }
+                                }
+                            )
                             finishController(
-                                "Connection failed. Check internet and try again."
+                                "Connection failed. See the diagnostic below."
                             )
                         }
                     }
@@ -682,6 +739,9 @@ class RemoteControlActivity : ComponentActivity() {
                 }
 
                 videoRecoveryAttempts += 1
+                showDiagnosticFailure(
+                    currentDiagnosticFailureHint()
+                )
                 showStatus(
                     "Screen stream stalled • recovering…"
                 )
@@ -692,6 +752,9 @@ class RemoteControlActivity : ComponentActivity() {
                 !disconnecting &&
                 !firstRemoteFrameRendered
             ) {
+                showDiagnosticFailure(
+                    currentDiagnosticFailureHint()
+                )
                 showStatus(
                     "Connected, but screen video is not arriving. " +
                         "Keeping the session alive…"
@@ -725,11 +788,18 @@ class RemoteControlActivity : ComponentActivity() {
             SessionCoordinator.close(id)
         }
 
+        val resultMessage =
+            if (diagnosticFailure != null) {
+                message + "\n" + diagnosticReport()
+            } else {
+                message
+            }
+
         setResult(
             RESULT_OK,
             Intent().putExtra(
                 EXTRA_RESULT_MESSAGE,
-                message
+                resultMessage
             )
         )
 
@@ -753,6 +823,7 @@ class RemoteControlActivity : ComponentActivity() {
                             }
 
                             firstRemoteFrameRendered = true
+                            markDiagnostic(DiagnosticStage.FIRST_FRAME)
                             videoRecoveryAttempts = 0
                             videoFrameWatchdog?.cancel()
                             videoFrameWatchdog = null
@@ -819,7 +890,7 @@ class RemoteControlActivity : ComponentActivity() {
         )
 
         statusPanel = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
             background = AarisUi.panel(
                 context = this@RemoteControlActivity,
@@ -831,11 +902,16 @@ class RemoteControlActivity : ComponentActivity() {
             elevation = dp(4).toFloat()
         }
 
+        val statusRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
         statusProgress = ProgressBar(this).apply {
             isIndeterminate = true
             AarisUi.tintProgress(this, AarisUi.REMOTE_ACCENT)
         }
-        statusPanel.addView(
+        statusRow.addView(
             statusProgress,
             LinearLayout.LayoutParams(
                 dp(20),
@@ -856,12 +932,33 @@ class RemoteControlActivity : ComponentActivity() {
             gravity = Gravity.CENTER_VERTICAL
         }
 
-        statusPanel.addView(
+        statusRow.addView(
             status,
             LinearLayout.LayoutParams(
                 0,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 1f
+            )
+        )
+        statusPanel.addView(
+            statusRow,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        statusDetail = TextView(this).apply {
+            textSize = 11.5f
+            setTextColor(Color.rgb(203, 213, 225))
+            setPadding(dp(30), dp(5), 0, 0)
+            text = diagnosticReport()
+        }
+        statusPanel.addView(
+            statusDetail,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
             )
         )
 
@@ -1532,9 +1629,128 @@ class RemoteControlActivity : ComponentActivity() {
         return point.x to point.y
     }
 
+    private enum class DiagnosticStage {
+        CLOUDFLARE,
+        SCREEN_READY,
+        RTC,
+        HOST_HANDSHAKE,
+        VIDEO_TRACK,
+        FIRST_FRAME
+    }
+
+    private fun markDiagnostic(stage: DiagnosticStage) {
+        when (stage) {
+            DiagnosticStage.CLOUDFLARE ->
+                diagnosticBackendVerified = true
+
+            DiagnosticStage.SCREEN_READY -> {
+                diagnosticBackendVerified = true
+                diagnosticScreenReady = true
+            }
+
+            DiagnosticStage.RTC ->
+                diagnosticRtcConnected = true
+
+            DiagnosticStage.HOST_HANDSHAKE -> {
+                diagnosticRtcConnected = true
+                diagnosticHostHandshake = true
+            }
+
+            DiagnosticStage.VIDEO_TRACK ->
+                diagnosticVideoTrack = true
+
+            DiagnosticStage.FIRST_FRAME -> {
+                diagnosticVideoTrack = true
+                diagnosticFirstFrame = true
+            }
+        }
+
+        diagnosticFailure = null
+        updateDiagnosticDetail()
+    }
+
+    private fun showDiagnosticFailure(message: String) {
+        diagnosticFailure = message
+        updateDiagnosticDetail()
+    }
+
+    private fun currentDiagnosticFailureHint(): String =
+        when {
+            !diagnosticBackendVerified ->
+                "Cloudflare/session verification has not completed."
+
+            !diagnosticScreenReady ->
+                "Pairing reached Cloudflare, but host screen permission/SCREEN_READY has not completed."
+
+            !diagnosticRtcConnected ->
+                "Cloudflare + screen permission are verified; WebRTC phone-to-phone transport has not connected."
+
+            !diagnosticHostHandshake ->
+                "WebRTC is connected, but host capture/control HELLO has not arrived yet."
+
+            !diagnosticVideoTrack ->
+                "Cloudflare, WebRTC, host capture and control are verified; the remote video track has not reached this phone."
+
+            !diagnosticFirstFrame ->
+                "Remote video track arrived, but Android has not rendered the first screen frame."
+
+            else ->
+                "Screen video is live; the latest problem is in the control/action path."
+        }
+
+    private fun diagnosticReport(): String {
+        val verified = buildList {
+            if (diagnosticBackendVerified) add("Cloudflare")
+            if (diagnosticScreenReady) add("screen permission")
+            if (diagnosticRtcConnected) add("WebRTC")
+            if (diagnosticHostHandshake) add("host capture/control")
+            if (diagnosticVideoTrack) add("video track")
+            if (diagnosticFirstFrame) add("first frame")
+        }
+
+        val verifiedText =
+            if (verified.isEmpty()) {
+                "Verified: starting checks"
+            } else {
+                "Verified: " + verified.joinToString(" • ")
+            }
+
+        return diagnosticFailure
+            ?.let { "$verifiedText\nProblem: $it" }
+            ?: verifiedText
+    }
+
+    private fun updateDiagnosticDetail() {
+        if (!::statusDetail.isInitialized) return
+
+        statusDetail.text = diagnosticReport()
+        statusDetail.setTextColor(
+            if (diagnosticFailure != null) {
+                Color.rgb(252, 165, 165)
+            } else {
+                Color.rgb(203, 213, 225)
+            }
+        )
+
+        if (::statusPanel.isInitialized) {
+            statusPanel.background = AarisUi.panel(
+                context = this,
+                fill = AarisUi.REMOTE_PANEL,
+                radiusDp = 18,
+                strokeColor =
+                    if (diagnosticFailure != null) {
+                        AarisUi.DANGER
+                    } else {
+                        AarisUi.REMOTE_BORDER
+                    }
+            )
+        }
+    }
+
     private fun showStatus(message: String) {
         statusPanel.visibility = View.VISIBLE
         status.text = message
+        updateDiagnosticDetail()
 
         val value = message.lowercase()
         val busy = listOf(
