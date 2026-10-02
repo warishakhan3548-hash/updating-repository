@@ -149,7 +149,7 @@ export class AarisSession extends DurableObject{
   }
   async fetch(request){
     const u=new URL(request.url);
-    if(u.pathname!=="/socket")return new Response("Not found",{status:404});
+    if(!u.pathname.endsWith("/socket"))return new Response("Not found",{status:404});
     if((request.headers.get("upgrade")||"").toLowerCase()!=="websocket")return new Response("Expected WebSocket",{status:426});
     const raw=bearer(request);if(!raw)return new Response("Unauthorized",{status:401});
     const h=await sha(raw),s=await this.session(),r=this.role(s,h);if(!r)return new Response("Unauthorized",{status:401});
