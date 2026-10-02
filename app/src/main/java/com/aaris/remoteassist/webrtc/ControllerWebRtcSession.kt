@@ -27,7 +27,8 @@ class ControllerWebRtcSession(
         fun onConnectivityChanged(connected: Boolean)
         fun onRemoteVideoTrack(track: VideoTrack)
         fun onCommandResult(sequence: Long, applied: Boolean)
-        fun onError(error: Throwable)
+        fun onRecoverableError(error: Throwable)
+        fun onTerminalError(error: Throwable)
     }
 
     private val appContext = context.applicationContext
@@ -58,7 +59,7 @@ class ControllerWebRtcSession(
 
     private val helloWatchdog = Runnable {
         if (!closed.get() && leaseSecret == null) {
-            listener.onError(
+            listener.onTerminalError(
                 IllegalStateException(
                     "Remote control handshake timed out"
                 )
@@ -373,7 +374,7 @@ class ControllerWebRtcSession(
     }
 
     override fun onError(error: Throwable) {
-        listener.onError(error)
+        listener.onRecoverableError(error)
     }
 
     override fun close() {
