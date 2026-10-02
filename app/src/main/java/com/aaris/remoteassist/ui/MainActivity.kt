@@ -64,6 +64,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var shareButton: Button
 
     private var hostObserver: Closeable? = null
+    private var controllerObserver: Closeable? = null
+    private var pendingControllerSessionId: String? = null
+    private var controllerViewerLaunching = false
+    private var controllerDeadlineJob: Job? = null
     private var shareDialog: AlertDialog? = null
     private var approvalDialog: AlertDialog? = null
     private var sessionDeadlineJob: Job? = null
@@ -94,6 +98,16 @@ class MainActivity : ComponentActivity() {
             val message = result.data?.getStringExtra(
                 RemoteControlActivity.EXTRA_RESULT_MESSAGE
             )
+
+            controllerViewerLaunching = false
+            controllerObserver?.close()
+            controllerObserver = null
+            controllerDeadlineJob?.cancel()
+            controllerDeadlineJob = null
+            pendingControllerSessionId = null
+            prefs.edit()
+                .remove(KEY_PENDING_CONTROLLER_SESSION)
+                .apply()
 
             if (
                 activeHostSessionId == null &&
@@ -141,7 +155,17 @@ class MainActivity : ComponentActivity() {
         installBackHandler()
 
         val restoredHostSession = recoverPersistedHostSession()
-        if (!restoredHostSession) {
+        val restoredControllerSession =
+            if (!restoredHostSession) {
+                recoverPersistedControllerSession()
+            } else {
+                false
+            }
+
+        if (
+            !restoredHostSession &&
+            !restoredControllerSession
+        ) {
             if (PermissionGate.isAccessibilityEnabled(this)) {
                 SessionCoordinator.prepareReady()
             } else {
@@ -163,6 +187,20 @@ class MainActivity : ComponentActivity() {
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
+                    val controllerId =
+                        pendingControllerSessionId
+                    if (
+                        controllerId != null &&
+                        !controllerViewerLaunching
+                    ) {
+                        endPendingControllerSession(
+                            sessionId = controllerId,
+                            message = "Connection cancelled.",
+                            closeBackend = true
+                        )
+                        return
+                    }
+
                     val id = activeHostSessionId
                     val state =
                         SessionCoordinator.snapshot().state
@@ -184,6 +222,28 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+
+        val pendingController =
+            pendingControllerSessionId
+                ?: prefs.getString(
+                    KEY_PENDING_CONTROLLER_SESSION,
+                    null
+                )
+
+        if (pendingController != null) {
+            pendingControllerSessionId = pendingController
+            setButtonsEnabled(false)
+
+            if (
+                !controllerViewerLaunching &&
+                controllerObserver == null
+            ) {
+                status.text =
+                    "Restoring remote connection…"
+                observeControllerSession(pendingController)
+            }
+            return
+        }
 
         if (hasFreshPendingShare()) {
             if (activeHostSessionId == null) {
@@ -237,6 +297,10 @@ class MainActivity : ComponentActivity() {
         accessibilityReadyJob = null
         hostObserver?.close()
         hostObserver = null
+        controllerObserver?.close()
+        controllerObserver = null
+        controllerDeadlineJob?.cancel()
+        controllerDeadlineJob = null
         sessionDeadlineJob?.cancel()
         sessionDeadlineJob = null
         shareDialog?.dismiss()
@@ -587,17 +651,285 @@ class MainActivity : ComponentActivity() {
                 return@launch
             }
 
-            status.text = "Connection request sent."
+            pendingControllerSessionId =
+                request.sessionId
+            controllerViewerLaunching = false
+            prefs.edit()
+                .putString(
+                    KEY_PENDING_CONTROLLER_SESSION,
+                    request.sessionId
+                )
+                .apply()
+
+            status.text =
+                "Waiting for your friend to tap START…"
+            observeControllerSession(request.sessionId)
+        }
+    }
+
+
+    private fun observeControllerSession(sessionId: String) {
+        controllerObserver?.close()
+        controllerObserver = runCatching {
+            gateway.observeSession(
+                sessionId = sessionId,
+                listener = { backend ->
+                    runOnUiThread {
+                        if (
+                            pendingControllerSessionId != sessionId ||
+                            controllerViewerLaunching
+                        ) {
+                            return@runOnUiThread
+                        }
+
+                        updateControllerWaitingDeadline(
+                            sessionId = sessionId,
+                            backend = backend
+                        )
+
+                        when (backend.state) {
+                            "PAIR_PENDING" ->
+                                status.text =
+                                    "Waiting for your friend to tap START…"
+
+                            "HOST_APPROVED" ->
+                                status.text =
+                                    "Your friend approved • waiting for screen permission…"
+
+                            "SCREEN_READY",
+                            "LIVE" -> {
+                                if (
+                                    ControllerViewerLaunchPolicy
+                                        .shouldLaunch(
+                                            backend.state,
+                                            controllerViewerLaunching
+                                        )
+                                ) {
+                                    launchControllerViewer(sessionId)
+                                }
+                            }
+
+                            "CLOSED" ->
+                                endPendingControllerSession(
+                                    sessionId = sessionId,
+                                    message =
+                                        "Session ended. Create a new one-time code.",
+                                    closeBackend = false
+                                )
+                        }
+                    }
+                },
+                onError = { error ->
+                    runOnUiThread {
+                        if (
+                            pendingControllerSessionId == sessionId &&
+                            !controllerViewerLaunching
+                        ) {
+                            endPendingControllerSession(
+                                sessionId = sessionId,
+                                message =
+                                    error.message
+                                        ?.takeIf { it.length <= 120 }
+                                        ?: "Connection lost. Try again.",
+                                closeBackend = false
+                            )
+                        }
+                    }
+                }
+            )
+        }.getOrElse {
+            endPendingControllerSession(
+                sessionId = sessionId,
+                message =
+                    "Could not watch the connection. Check internet and try again.",
+                closeBackend = true
+            )
+            null
+        }
+    }
+
+    private fun launchControllerViewer(sessionId: String) {
+        if (
+            pendingControllerSessionId != sessionId ||
+            controllerViewerLaunching
+        ) {
+            return
+        }
+
+        val localReady = prepareControllerViewerState(
+            sessionId
+        )
+        if (!localReady) {
+            endPendingControllerSession(
+                sessionId = sessionId,
+                message =
+                    "Could not prepare the remote screen. Try again.",
+                closeBackend = true
+            )
+            return
+        }
+
+        controllerViewerLaunching = true
+        controllerObserver?.close()
+        controllerObserver = null
+        controllerDeadlineJob?.cancel()
+        controllerDeadlineJob = null
+        status.text =
+            "Screen is ready • opening remote view…"
+
+        runCatching {
             remoteControlLauncher.launch(
                 Intent(
-                    this@MainActivity,
+                    this,
                     RemoteControlActivity::class.java
                 ).putExtra(
                     RemoteControlActivity.EXTRA_SESSION_ID,
-                    request.sessionId
+                    sessionId
                 )
             )
+        }.onFailure {
+            controllerViewerLaunching = false
+            endPendingControllerSession(
+                sessionId = sessionId,
+                message =
+                    "Could not open the remote viewer. Try again.",
+                closeBackend = true
+            )
         }
+    }
+
+    private fun prepareControllerViewerState(
+        sessionId: String
+    ): Boolean = runCatching {
+        var current = SessionCoordinator.snapshot()
+
+        if (
+            current.sessionId != null &&
+            current.sessionId != sessionId
+        ) {
+            if (current.state == SessionState.LIVE) {
+                return@runCatching false
+            }
+            SessionCoordinator.reset()
+            current = SessionCoordinator.snapshot()
+        }
+
+        if (
+            current.state == SessionState.IDLE ||
+            current.state == SessionState.SETUP_REQUIRED ||
+            current.state == SessionState.CLOSED
+        ) {
+            SessionCoordinator.prepareReady()
+            current = SessionCoordinator.snapshot()
+        }
+
+        if (current.state == SessionState.READY) {
+            SessionCoordinator.transition(
+                sessionId,
+                SessionState.PAIR_PENDING
+            )
+            current = SessionCoordinator.snapshot()
+        }
+
+        if (current.state == SessionState.PAIR_PENDING) {
+            SessionCoordinator.transition(
+                sessionId,
+                SessionState.HOST_APPROVED
+            )
+            current = SessionCoordinator.snapshot()
+        }
+
+        if (current.state == SessionState.HOST_APPROVED) {
+            SessionCoordinator.transition(
+                sessionId,
+                SessionState.SCREEN_CONSENT
+            )
+            current = SessionCoordinator.snapshot()
+        }
+
+        if (current.state == SessionState.SCREEN_CONSENT) {
+            SessionCoordinator.transition(
+                sessionId,
+                SessionState.CONNECTING
+            )
+            current = SessionCoordinator.snapshot()
+        }
+
+        current.sessionId == sessionId &&
+            (
+                current.state == SessionState.CONNECTING ||
+                    current.state == SessionState.LIVE
+                )
+    }.getOrDefault(false)
+
+    private fun updateControllerWaitingDeadline(
+        sessionId: String,
+        backend: BackendSession
+    ) {
+        if (
+            backend.state == "SCREEN_READY" ||
+            backend.state == "LIVE" ||
+            backend.state == "CLOSED"
+        ) {
+            controllerDeadlineJob?.cancel()
+            controllerDeadlineJob = null
+            return
+        }
+
+        val deadline = backend.deadlineAtEpochMs ?: return
+        controllerDeadlineJob?.cancel()
+        controllerDeadlineJob = scope.launch {
+            val remaining =
+                (
+                    deadline -
+                        System.currentTimeMillis() +
+                        CLIENT_DEADLINE_GRACE_MS
+                ).coerceAtLeast(0L)
+            delay(remaining)
+
+            if (
+                pendingControllerSessionId == sessionId &&
+                !controllerViewerLaunching
+            ) {
+                endPendingControllerSession(
+                    sessionId = sessionId,
+                    message =
+                        "Connection setup expired. Try again.",
+                    closeBackend = true
+                )
+            }
+        }
+    }
+
+    private fun endPendingControllerSession(
+        sessionId: String,
+        message: String,
+        closeBackend: Boolean
+    ) {
+        if (
+            pendingControllerSessionId != null &&
+            pendingControllerSessionId != sessionId
+        ) {
+            return
+        }
+
+        controllerObserver?.close()
+        controllerObserver = null
+        controllerDeadlineJob?.cancel()
+        controllerDeadlineJob = null
+        controllerViewerLaunching = false
+        pendingControllerSessionId = null
+        prefs.edit()
+            .remove(KEY_PENDING_CONTROLLER_SESSION)
+            .apply()
+
+        SessionCoordinator.close(sessionId)
+        if (closeBackend) {
+            BackendSessionCloser.close(this, sessionId)
+        }
+
+        status.text = message
+        refreshIdleUi()
     }
 
     private fun observeHostSession(sessionId: String) {
@@ -1451,6 +1783,42 @@ class MainActivity : ComponentActivity() {
         return true
     }
 
+
+    private fun recoverPersistedControllerSession(): Boolean {
+        val sessionId = prefs.getString(
+            KEY_PENDING_CONTROLLER_SESSION,
+            null
+        ) ?: return false
+
+        pendingControllerSessionId = sessionId
+        controllerViewerLaunching = false
+
+        val restored = runCatching {
+            SessionCoordinator.prepareReady()
+            val current = SessionCoordinator.snapshot()
+            if (current.state == SessionState.READY) {
+                SessionCoordinator.transition(
+                    sessionId,
+                    SessionState.PAIR_PENDING
+                )
+            }
+            true
+        }.getOrDefault(false)
+
+        if (!restored) {
+            prefs.edit()
+                .remove(KEY_PENDING_CONTROLLER_SESSION)
+                .apply()
+            pendingControllerSessionId = null
+            return false
+        }
+
+        setButtonsEnabled(false)
+        status.text = "Restoring remote connection…"
+        observeControllerSession(sessionId)
+        return true
+    }
+
     private fun cancelPendingHostAndFinish(sessionId: String) {
         setButtonsEnabled(false)
         status.text = "Cancelling share session…"
@@ -1463,6 +1831,7 @@ class MainActivity : ComponentActivity() {
 
     private fun isIdleForNewSession(): Boolean {
         if (activeHostSessionId != null) return false
+        if (pendingControllerSessionId != null) return false
 
         return when (SessionCoordinator.snapshot().state) {
             SessionState.IDLE,
@@ -1895,6 +2264,8 @@ class MainActivity : ComponentActivity() {
             "active_host_session"
         private const val KEY_PENDING_PROJECTION_SESSION =
             "pending_projection_session"
+        private const val KEY_PENDING_CONTROLLER_SESSION =
+            "pending_controller_session"
         private const val KEY_PENDING_NOTIFICATION_SESSION =
             "pending_notification_session"
         private const val KEY_PENDING_HOST_START_SESSION =

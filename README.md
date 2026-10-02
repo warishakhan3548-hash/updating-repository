@@ -42,3 +42,10 @@ Signaling events receive monotonic sequence numbers. A reconnecting WebSocket re
 No `google-services.json` or Firebase build secret is required.
 
 GitHub CI runs unit tests, debug/release lint, debug/release assembly, and a live Cloudflare backend smoke test. Codemagic can create the signed release APK using the configured Android signing identity.
+
+
+### 1.8.5 connectivity hardening
+
+- **Controller waiting room:** entering a pairing code no longer opens the heavy WebRTC viewer before the sharing phone has approved MediaProjection. The controller stays in-app until Cloudflare reports `SCREEN_READY`.
+- **Lazy remote renderer:** the controller's EGL-backed `SurfaceViewRenderer` is initialized only after a real remote video track exists, reducing OEM/GPU lifecycle risk during the pairing handoff.
+- Existing relay-first Cloudflare TURN startup, replay-safe signaling, capture first-frame checks, and bounded recovery remain enabled.

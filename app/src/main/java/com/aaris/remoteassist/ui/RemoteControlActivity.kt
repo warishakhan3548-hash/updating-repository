@@ -73,6 +73,7 @@ class RemoteControlActivity : ComponentActivity() {
     private var sessionDeadlineJob: Job? = null
     private var videoFrameWatchdog: Job? = null
     private var firstRemoteFrameRendered = false
+    private var rendererInitialized = false
     private var videoRecoveryAttempts = 0
     private var lastCommandResultSequence = 0L
 
@@ -116,8 +117,14 @@ class RemoteControlActivity : ComponentActivity() {
         }
         sessionId = requestedSessionId
 
+        /*
+         * Keep Activity creation deliberately lightweight. Some OEM/GPU
+         * combinations are sensitive to creating the EGL renderer during an
+         * Activity handoff. WebRTC itself starts only after SCREEN_READY, and
+         * the renderer is initialized lazily only when a remote video track
+         * actually arrives.
+         */
         val viewerReady = runCatching {
-            WebRtcRuntime.initialize(this)
             setContentView(buildUi())
         }.isSuccess
 
@@ -150,7 +157,12 @@ class RemoteControlActivity : ComponentActivity() {
         observer?.close()
         observer = null
 
-        remoteTrack?.removeSink(renderer)
+        if (
+            rendererInitialized &&
+            ::renderer.isInitialized
+        ) {
+            remoteTrack?.removeSink(renderer)
+        }
         remoteTrack = null
 
         disconnectTimeout?.cancel()
@@ -165,8 +177,12 @@ class RemoteControlActivity : ComponentActivity() {
         rtcSession?.close(notifyRemote = false)
         rtcSession = null
 
-        if (::renderer.isInitialized) {
+        if (
+            ::renderer.isInitialized &&
+            rendererInitialized
+        ) {
             renderer.release()
+            rendererInitialized = false
         }
 
         scope.cancel()
@@ -492,6 +508,13 @@ class RemoteControlActivity : ComponentActivity() {
 
                 override fun onRemoteVideoTrack(track: VideoTrack) {
                     runOnUiThread {
+                        if (!ensureRendererInitialized()) {
+                            finishController(
+                                "Could not initialize the remote screen. Try again."
+                            )
+                            return@runOnUiThread
+                        }
+
                         if (remoteTrack !== track) {
                             remoteTrack?.removeSink(renderer)
                             remoteTrack = track
@@ -699,17 +722,14 @@ class RemoteControlActivity : ComponentActivity() {
         finish()
     }
 
-    private fun buildUi(): FrameLayout {
-        fun dp(value: Int) = AarisUi.dp(this, value)
 
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(AarisUi.REMOTE_CANVAS)
-        }
+    private fun ensureRendererInitialized(): Boolean {
+        if (rendererInitialized) return true
+        if (!::renderer.isInitialized) return false
 
-        renderer = SurfaceViewRenderer(this).apply {
-            init(
-                WebRtcRuntime.eglBase(this@RemoteControlActivity)
-                    .eglBaseContext,
+        return runCatching {
+            renderer.init(
+                WebRtcRuntime.eglBase(this).eglBaseContext,
                 object : RendererCommon.RendererEvents {
                     override fun onFirstFrameRendered() {
                         runOnUiThread {
@@ -745,11 +765,24 @@ class RemoteControlActivity : ComponentActivity() {
                     }
                 }
             )
-            setScalingType(
+            renderer.setScalingType(
                 RendererCommon.ScalingType.SCALE_ASPECT_FIT
             )
-            setEnableHardwareScaler(true)
-            setMirror(false)
+            renderer.setEnableHardwareScaler(true)
+            renderer.setMirror(false)
+            rendererInitialized = true
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun buildUi(): FrameLayout {
+        fun dp(value: Int) = AarisUi.dp(this, value)
+
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(AarisUi.REMOTE_CANVAS)
+        }
+
+        renderer = SurfaceViewRenderer(this).apply {
             setOnTouchListener { view, event ->
                 val handled = handleRemoteTouch(event)
                 if (
