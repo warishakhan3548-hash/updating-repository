@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 
-const CODE_TTL=300000,APPROVAL_TTL=120000,CONNECT_TTL=120000;
+const CODE_TTL=300000,APPROVAL_TTL=180000,CONNECT_TTL=180000;
 const CLOSED_RETENTION=3600000,MAX_EVENTS=512;
 const j=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store","x-content-type-options":"nosniff"}});
 const fail=(status,error,message)=>j({ok:false,error,message},status);
@@ -34,12 +34,14 @@ export class PairingDirectory extends DurableObject{
     if(alarm==null||expiresAtMs<alarm)await this.ctx.storage.setAlarm(expiresAtMs+1000);
     return true;
   }
-  async consume(codeHash,now=Date.now()){
+  async lookup(codeHash,now=Date.now()){
     const key="c:"+codeHash;
     const value=await this.ctx.storage.get(key);
     if(!value)return null;
-    await this.ctx.storage.delete(key);
-    if(Number(value.expiresAtMs||0)<=now)return null;
+    if(Number(value.expiresAtMs||0)<=now){
+      await this.ctx.storage.delete(key);
+      return null;
+    }
     return value.sessionId||null;
   }
   async alarm(){
@@ -74,6 +76,9 @@ export class AarisSession extends DurableObject{
     await this.ctx.storage.transaction(async t=>{
       const s=(await t.get("session"))||null;
       if(!s){o={ok:false,status:404,code:"invalid_code"};return}
+      if(s.state==="PAIR_PENDING"&&s.controllerTokenHash===controllerTokenHash){
+        o={ok:true,snapshot:pub(s)};return;
+      }
       if(s.state!=="CODE_ACTIVE"){o={ok:false,status:409,code:"code_used"};return}
       if(s.expiresAtMs<=now){s.state="CLOSED";s.closedAtMs=now;await t.put("session",s);o={ok:false,status:410,code:"code_expired"};return}
       s.controllerTokenHash=controllerTokenHash;s.controllerId=controllerId;s.state="PAIR_PENDING";s.approvalExpiresAtMs=now+APPROVAL_TTL;
@@ -139,7 +144,7 @@ export class AarisSession extends DurableObject{
     const s=await this.session(),r=this.role(s,h);
     if(!r)return{ok:false,status:401,code:"unauthorized"};
     const all=await this.ctx.storage.list({prefix:"e:"}),events=[];
-    for(const v of all.values()){if(v.seq>after)events.push(v);if(events.length>=256)break}
+    for(const v of all.values()){if(v.seq>after)events.push(v);if(events.length>=MAX_EVENTS)break}
     events.sort((a,b)=>a.seq-b.seq);return{ok:true,role:r,events};
   }
   async fetch(request){
@@ -162,7 +167,7 @@ export class AarisSession extends DurableObject{
     const s=await this.session();if(!s)return;const now=Date.now();
     if(s.state==="CLOSED"){
       if(s.closedAtMs&&s.closedAtMs+CLOSED_RETENTION<=now){
-        const all=await this.ctx.storage.list({prefix:"e:"});await this.ctx.storage.delete(Array.from(all.keys()));
+        await this.ctx.storage.deleteAll();
       }
       return;
     }
@@ -196,12 +201,21 @@ export default{
       if(request.method==="POST"&&u.pathname==="/v1/sessions/redeem"){
         const x=await body(request),c=String(x.code||"").replace(/\D/g,"");
         if(!/^\d{12}$/.test(c))return fail(400,"invalid_code","Enter a valid 12-digit code.");
-        const id=await directory(env).consume(await sha(c),Date.now());
+        let controllerToken=String(x.controllerToken||"");
+        if(controllerToken===""){
+          // Backward compatibility for the first 1.8.0 Cloudflare build.
+          // 1.8.1+ supplies its own stable token so an ambiguous redeem can
+          // be retried idempotently.
+          controllerToken=token();
+        }else if(!/^[A-Za-z0-9_-]{43,128}$/.test(controllerToken)){
+          return fail(400,"invalid_controller_token","Controller token is invalid.");
+        }
+        const id=await directory(env).lookup(await sha(c),Date.now());
         if(!id)return fail(404,"invalid_code","Code expired or invalid.");
-        const controllerToken=token(),controllerId="c_"+token(12);
+        const controllerId="c_"+token(12);
         const r=await sessions(env,id).redeem(await sha(controllerToken),controllerId,Date.now());
         if(!r.ok)return fail(r.status||400,r.code||"redeem_failed","Code expired, invalid, or already used.");
-        return j({ok:true,sessionId:id,controllerToken,hostUid:r.snapshot.hostUid,controllerUid:controllerId});
+        return j({ok:true,sessionId:id,controllerToken,hostUid:r.snapshot.hostUid,controllerUid:r.snapshot.controllerUid});
       }
 
       const m=u.pathname.match(/^\/v1\/sessions\/([a-f0-9]{64})(?:\/([^/]+))?$/);
