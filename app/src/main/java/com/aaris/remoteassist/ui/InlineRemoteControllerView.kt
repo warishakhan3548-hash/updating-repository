@@ -50,6 +50,7 @@ class InlineRemoteControllerView(
     private val root = FrameLayout(activity)
     private val status = TextView(activity)
     private val dock = LinearLayout(activity)
+    private val controlHandle = Button(activity)
     private val rendererContainer = FrameLayout(activity)
     private val fallbackImageView = ImageView(activity)
     private val textureView = TextureView(activity)
@@ -74,6 +75,7 @@ class InlineRemoteControllerView(
     private var downX = 0f
     private var downY = 0f
     private var downAt = 0L
+    private var controlHandleOnRight = true
 
     private var attached = false
     @Volatile
@@ -319,6 +321,7 @@ class InlineRemoteControllerView(
 
     private fun buildUi() {
         root.setBackgroundColor(Color.BLACK)
+        root.keepScreenOn = true
 
         fallbackImageView.apply {
             setBackgroundColor(Color.BLACK)
@@ -442,6 +445,9 @@ class InlineRemoteControllerView(
         addButton("Apps") {
             session()?.sendRecents()
         }
+        addButton("Hide") {
+            setControlsVisible(false)
+        }
         addButton("End") {
             onEnd()
         }
@@ -458,6 +464,55 @@ class InlineRemoteControllerView(
                 bottomMargin = dp(14)
             }
         )
+
+        controlHandle.apply {
+            text = "⋮"
+            textSize = 22f
+            isAllCaps = false
+            visibility = View.GONE
+            contentDescription =
+                "Remote controls. Long press to move this button."
+            setOnClickListener {
+                setControlsVisible(true)
+            }
+            setOnLongClickListener {
+                controlHandleOnRight = !controlHandleOnRight
+                updateControlHandlePosition()
+                true
+            }
+        }
+        root.addView(
+            controlHandle,
+            FrameLayout.LayoutParams(
+                dp(48),
+                dp(48)
+            )
+        )
+        updateControlHandlePosition()
+    }
+
+    private fun setControlsVisible(visible: Boolean) {
+        dock.visibility =
+            if (visible) View.VISIBLE else View.GONE
+        controlHandle.visibility =
+            if (visible) View.GONE else View.VISIBLE
+    }
+
+    private fun updateControlHandlePosition() {
+        val params =
+            (controlHandle.layoutParams as? FrameLayout.LayoutParams)
+                ?: return
+
+        params.gravity =
+            Gravity.CENTER_VERTICAL or
+                if (controlHandleOnRight) {
+                    Gravity.END
+                } else {
+                    Gravity.START
+                }
+        params.marginStart = dp(8)
+        params.marginEnd = dp(8)
+        controlHandle.layoutParams = params
     }
 
     private fun ensureRenderer(): Boolean {
@@ -495,6 +550,14 @@ class InlineRemoteControllerView(
                                 fallbackBitmap?.recycle()
                                 fallbackBitmap = null
                                 status.visibility = View.GONE
+
+                                /*
+                                 * Once the live screen is visible, maximize
+                                 * usable remote pixels. The compact side handle
+                                 * keeps controls discoverable without covering
+                                 * the remote phone's bottom navigation/buttons.
+                                 */
+                                setControlsVisible(false)
                             }
                         }
                     }
