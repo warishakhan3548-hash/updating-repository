@@ -729,8 +729,15 @@ class WebRtcPeer(
             peerConnection.signalingState() ==
             PeerConnection.SignalingState.STABLE
         ) {
+            /*
+             * An explicit controller recovery request is stronger than a
+             * passive connectivity flap. It is used when remote video has
+             * stalled or after a route handoff, so prefer a freshly-minted
+             * relay path when TURN is available instead of repeatedly
+             * selecting the same direct candidate pair.
+             */
             requestIceRestart(
-                forceRelay = !connectivity.hasEverConnected()
+                forceRelay = true
             )
         }
     }
