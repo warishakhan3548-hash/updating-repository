@@ -42,9 +42,9 @@ class CaptureProfileTest {
                 tier = CaptureTier.LOW
             )
 
-        assertEquals(432, profile.captureWidthPx)
-        assertEquals(960, profile.captureHeightPx)
-        assertEquals(20, profile.fps)
-        assertEquals(1_800_000, profile.maxVideoBitrateBps)
+        assertEquals(324, profile.captureWidthPx)
+        assertEquals(720, profile.captureHeightPx)
+        assertEquals(15, profile.fps)
+        assertEquals(1_200_000, profile.maxVideoBitrateBps)
     }
 }
