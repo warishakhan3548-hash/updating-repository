@@ -734,8 +734,22 @@ class AssistAccessibilityService : AccessibilityService() {
         onResult: (Boolean) -> Unit
     ) {
         val pending = PendingCommand(command, onResult)
-        val inFlight = if (activeCommand == null) 0 else 1
 
+        /*
+         * Remote drag segments are freshness-sensitive, not archival events.
+         * If Android is still finishing the previous continued stroke, keeping
+         * every intermediate CONTINUE in FIFO order makes the pointer visibly
+         * trail the controller's finger. START and END remain authoritative;
+         * only queued (never active) CONTINUE segments from the same stream are
+         * superseded by the newest position.
+         *
+         * Superseded segments complete successfully because their destination
+         * is incorporated by the newer continuation/end path. Reporting them
+         * as failures would create false UI errors on a healthy session.
+         */
+        coalesceQueuedGestureSegments(command)
+
+        val inFlight = if (activeCommand == null) 0 else 1
         if (
             pendingCommands.size + inFlight >=
             MAX_PENDING_COMMANDS
@@ -746,6 +760,37 @@ class AssistAccessibilityService : AccessibilityService() {
 
         pendingCommands.addLast(pending)
         drainCommandQueue()
+    }
+
+    private fun coalesceQueuedGestureSegments(
+        command: RemoteCommand
+    ) {
+        val stream =
+            command as? GestureStreamCommand ?: return
+        if (
+            stream.phase == GestureStreamPhase.START ||
+            pendingCommands.isEmpty()
+        ) {
+            return
+        }
+
+        val iterator = pendingCommands.iterator()
+        while (iterator.hasNext()) {
+            val queued = iterator.next()
+            val queuedStream =
+                queued.command as? GestureStreamCommand
+                    ?: continue
+
+            if (
+                queuedStream.streamId != stream.streamId ||
+                queuedStream.phase != GestureStreamPhase.CONTINUE
+            ) {
+                continue
+            }
+
+            iterator.remove()
+            queued.complete(true)
+        }
     }
 
     private fun drainCommandQueue() {
