@@ -6,6 +6,34 @@ import org.junit.Test
 
 class BootstrapRecoveryPolicyTest {
     @Test
+    fun offerRedeliveryUsesBoundedBackoff() {
+        assertEquals(
+            5_000L,
+            BootstrapRecoveryPolicy.offerRedeliveryDelayMs(1)
+        )
+        assertEquals(
+            8_000L,
+            BootstrapRecoveryPolicy.offerRedeliveryDelayMs(2)
+        )
+        assertEquals(
+            12_000L,
+            BootstrapRecoveryPolicy.offerRedeliveryDelayMs(3)
+        )
+        assertEquals(
+            20_000L,
+            BootstrapRecoveryPolicy.offerRedeliveryDelayMs(4)
+        )
+        assertEquals(
+            30_000L,
+            BootstrapRecoveryPolicy.offerRedeliveryDelayMs(5)
+        )
+        assertEquals(
+            30_000L,
+            BootstrapRecoveryPolicy.offerRedeliveryDelayMs(99)
+        )
+    }
+
+    @Test
     fun noAppliedAnswerDoesNotBlockRecovery() {
         assertFalse(
             BootstrapRecoveryPolicy.shouldWaitAfterRemoteAnswer(
