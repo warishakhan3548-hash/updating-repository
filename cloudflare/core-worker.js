@@ -142,7 +142,7 @@ export class AarisSession extends DurableObject{
      * until SCREEN_READY/LIVE, so approval does not bypass screen consent.
      */
     const controllerPrewarm=r==="controller"&&s?.state==="HOST_APPROVED";
-    return{ok:Boolean(r&&(controllerPrewarm||["SCREEN_READY","LIVE"].includes(s.state))),role:r};
+    return{ok:Boolean(r&&(controllerPrewarm||["SCREEN_READY","LIVE"].includes(s.state))),role:r,state:s?.state||null};
   }
   async publishEvent(h,kind,payload,now){
     const s=await this.session(),r=this.role(s,h);
@@ -183,6 +183,7 @@ export class AarisSession extends DurableObject{
     console.log(JSON.stringify({
       event:"socket_open",
       role:r,
+      state:s.state,
       after:Math.max(0,Number(u.searchParams.get("after")||0)||0)
     }));
     server.send(JSON.stringify({kind:"session",session:pub(s)}));
@@ -295,7 +296,8 @@ export default{
         if(!upstream.ok)return fail(503,"turn_unavailable","TURN is temporarily unavailable.");
         console.log(JSON.stringify({
           event:"turn_issued",
-          role:a.role
+          role:a.role,
+          state:a.state
         }));
         return new Response(await upstream.text(),{status:200,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store","x-content-type-options":"nosniff"}});
       }
