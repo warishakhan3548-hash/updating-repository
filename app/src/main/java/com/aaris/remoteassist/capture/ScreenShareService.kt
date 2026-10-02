@@ -110,7 +110,6 @@ class ScreenShareService : Service() {
         }
 
         activeSessionId = sessionId
-        ConnectionFlightRecorder.reset(sessionId, "HOST")
         ConnectionFlightRecorder.pass(
             sessionId,
             "Screen-share permission result received"
