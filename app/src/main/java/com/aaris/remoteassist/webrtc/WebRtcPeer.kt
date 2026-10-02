@@ -795,9 +795,31 @@ class WebRtcPeer(
         return true
     }
 
-    fun sendControl(bytes: ByteArray): Boolean {
+    fun sendControl(
+        bytes: ByteArray,
+        freshnessSensitive: Boolean = false
+    ): Boolean {
         val channel = controlChannel ?: return false
         if (channel.state() != DataChannel.State.OPEN) return false
+
+        /*
+         * Reliable/ordered SCTP is still the authority for START, END, taps,
+         * text and navigation. Live drag CONTINUE packets are different:
+         * their value expires as soon as a newer finger position exists.
+         *
+         * When the local SCTP send queue is already backed up, refusing one
+         * freshness-sensitive sample prevents a network stall from turning
+         * into seconds of pointer trail. The controller keeps the last
+         * successful sample timestamp unchanged, so the next attempt folds
+         * the newest MotionEvent history into a fresh compact segment.
+         */
+        if (
+            freshnessSensitive &&
+            channel.bufferedAmount() >=
+                MAX_FRESH_CONTROL_BUFFERED_BYTES
+        ) {
+            return false
+        }
 
         return channel.send(
             DataChannel.Buffer(
@@ -1754,6 +1776,7 @@ class WebRtcPeer(
     companion object {
         private const val MAX_PENDING_REMOTE_CANDIDATES = 192
         private const val MAX_CONTROL_PACKET_BYTES = 4_096
+        private const val MAX_FRESH_CONTROL_BUFFERED_BYTES = 512L
         private const val MAX_FALLBACK_PACKET_BYTES = 12_500
         private const val MAX_FALLBACK_BUFFERED_BYTES = 900_000L
         private const val CONTROL_CHANNEL = "control-v1"
