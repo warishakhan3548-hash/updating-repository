@@ -550,6 +550,8 @@ class InlineRemoteControllerView(
                                 fallbackBitmap?.recycle()
                                 fallbackBitmap = null
                                 status.visibility = View.GONE
+                                session()
+                                    ?.confirmPrimaryVideoRendered()
 
                                 /*
                                  * Once the live screen is visible, maximize
