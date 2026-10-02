@@ -32,6 +32,8 @@ class CloudflareSignalingClient(
     private val sequenceTracker = SignalingSequenceTracker()
     private val restartRequestSequence = AtomicLong(0L)
     private val descriptionDeliverySequence = AtomicLong(0L)
+    private val firstLocalCandidatePublished = AtomicBoolean(false)
+    private val firstRemoteCandidateReceived = AtomicBoolean(false)
     private val candidateGate =
         CandidatePublishGate<SignalCandidate>(128)
     private val remoteNegotiationGuard = NegotiationOrderGuard()
@@ -57,6 +59,7 @@ class CloudflareSignalingClient(
         check(!closed.get()) { "Signaling client is closed" }
         check(this.listener == null) { "Signaling client already started" }
         this.listener = listener
+        dispatchDiagnostic("Cloudflare signaling start requested")
         openSocket()
         setPresence(true)
     }
@@ -165,6 +168,7 @@ class CloudflareSignalingClient(
                 ) {
                     reconnectAttempt.set(0)
                     reconnectScheduled.set(false)
+                    dispatchDiagnostic("Cloudflare WebSocket OPEN")
                 }
 
                 override fun onMessage(
@@ -190,6 +194,10 @@ class CloudflareSignalingClient(
                     response: Response?
                 ) {
                     if (closed.get()) return
+                    dispatchDiagnostic(
+                        "Cloudflare WebSocket FAILED" +
+                            (response?.code?.let { " (HTTP $it)" } ?: "")
+                    )
                     if (
                         response?.code == 401 ||
                         response?.code == 403
@@ -266,6 +274,9 @@ class CloudflareSignalingClient(
                 handleRemoteDescription(payload)
 
             "candidate" -> {
+                if (firstRemoteCandidateReceived.compareAndSet(false, true)) {
+                    dispatchDiagnostic("First remote ICE candidate received")
+                }
                 val candidate = SignalCandidate(
                     sdpMid =
                         if (payload.isNull("mid")) null
@@ -352,6 +363,10 @@ class CloudflareSignalingClient(
         ) return
 
         lastAcceptedRemoteDescription = description
+        dispatchDiagnostic(
+            "Remote SDP " + description.type.uppercase() +
+                " received from Cloudflare"
+        )
         dispatch {
             if (duplicate) {
                 listener?.onRemoteDescriptionRedelivery(
@@ -401,6 +416,11 @@ class CloudflareSignalingClient(
             runCatching {
                 postEvent("description", payload)
             }.onSuccess {
+                dispatchDiagnostic(
+                    "Local SDP " + record.description.type.uppercase() +
+                        " published to Cloudflare" +
+                        if (redelivery) " (retry)" else ""
+                )
                 candidateGate
                     .markDescriptionPublished(
                         record.negotiationEpoch
@@ -454,6 +474,10 @@ class CloudflareSignalingClient(
                 )
             runCatching {
                 postEvent("candidate", payload)
+            }.onSuccess {
+                if (firstLocalCandidatePublished.compareAndSet(false, true)) {
+                    dispatchDiagnostic("First local ICE candidate published")
+                }
             }.onFailure {
                 if (attempt >= 4) return@onFailure
                 val delayMs =
@@ -491,6 +515,10 @@ class CloudflareSignalingClient(
                 if (!closed.get()) block()
             }
         }
+    }
+
+    private fun dispatchDiagnostic(message: String) {
+        dispatch { listener?.onSignalingDiagnostic(message) }
     }
 
     private fun dispatchError(error: Throwable) {
