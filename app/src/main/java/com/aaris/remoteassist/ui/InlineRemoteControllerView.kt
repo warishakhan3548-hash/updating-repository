@@ -1,7 +1,10 @@
 package com.aaris.remoteassist.ui
 
 import android.app.Activity
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.graphics.Typeface
 import android.os.Handler
@@ -14,12 +17,15 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.aaris.remoteassist.webrtc.ControllerConnectionRuntime
 import com.aaris.remoteassist.webrtc.ControllerWebRtcSession
+import com.aaris.remoteassist.webrtc.FallbackVideoFrame
 import com.aaris.remoteassist.webrtc.RemoteGeometry
 import com.aaris.remoteassist.webrtc.WebRtcRuntime
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import org.webrtc.EglBase
 import org.webrtc.EglRenderer
@@ -45,8 +51,18 @@ class InlineRemoteControllerView(
     private val status = TextView(activity)
     private val dock = LinearLayout(activity)
     private val rendererContainer = FrameLayout(activity)
+    private val fallbackImageView = ImageView(activity)
     private val textureView = TextureView(activity)
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val fallbackDecoder =
+        Executors.newSingleThreadExecutor { runnable ->
+            Thread(
+                runnable,
+                "AarisFallbackDecoder"
+            ).apply {
+                priority = Thread.NORM_PRIORITY - 1
+            }
+        }
 
     private var eglRenderer: EglRenderer? = null
     private var remoteTrack: VideoTrack? = null
@@ -60,6 +76,11 @@ class InlineRemoteControllerView(
     private var downAt = 0L
 
     private var attached = false
+    @Volatile
+    private var fallbackActive = false
+    @Volatile
+    private var lastFallbackFrameId = -1L
+    private var fallbackBitmap: Bitmap? = null
     private var mediaRecoveryAttempts = 0
     private var rendererRecoveryAttempts = 0
     private val rawFrameSeen = AtomicBoolean(false)
@@ -88,6 +109,13 @@ class InlineRemoteControllerView(
                 if (!attached) return
 
                 if (!rawFrameSeen.get()) {
+                    if (fallbackActive) {
+                        status.visibility = View.VISIBLE
+                        status.text =
+                            "Compatibility video active • primary stream recovering…"
+                        return
+                    }
+
                     if (
                         mediaRecoveryAttempts <
                             MAX_MEDIA_RECOVERY_ATTEMPTS
@@ -186,6 +214,12 @@ class InlineRemoteControllerView(
                 }
             }
 
+            override fun onFallbackVideoFrame(
+                frame: FallbackVideoFrame
+            ) {
+                decodeFallbackFrame(frame)
+            }
+
             override fun onCommandResult(
                 sequence: Long,
                 applied: Boolean
@@ -258,6 +292,14 @@ class InlineRemoteControllerView(
         detachCurrentTrack()
         releaseRenderer()
 
+        fallbackActive = false
+        fallbackDecoder.shutdownNow()
+        activity.runOnUiThread {
+            fallbackImageView.setImageDrawable(null)
+            fallbackBitmap?.recycle()
+            fallbackBitmap = null
+        }
+
         remoteTrack = null
         (root.parent as? ViewGroup)?.removeView(root)
     }
@@ -266,6 +308,20 @@ class InlineRemoteControllerView(
 
     private fun buildUi() {
         root.setBackgroundColor(Color.BLACK)
+
+        fallbackImageView.apply {
+            setBackgroundColor(Color.BLACK)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            visibility = View.GONE
+            contentDescription = "Remote screen compatibility video"
+        }
+        rendererContainer.addView(
+            fallbackImageView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
 
         textureView.isOpaque = true
         textureView.surfaceTextureListener =
@@ -421,6 +477,12 @@ class InlineRemoteControllerView(
                     ) {
                         activity.runOnUiThread {
                             if (attached) {
+                                fallbackActive = false
+                                textureView.alpha = 1f
+                                fallbackImageView.visibility = View.GONE
+                                fallbackImageView.setImageDrawable(null)
+                                fallbackBitmap?.recycle()
+                                fallbackBitmap = null
                                 status.visibility = View.GONE
                             }
                         }
@@ -494,6 +556,88 @@ class InlineRemoteControllerView(
         renderer?.setLayoutAspectRatio(
             width.toFloat() / height.toFloat()
         )
+    }
+
+    private fun decodeFallbackFrame(
+        frame: FallbackVideoFrame
+    ) {
+        if (
+            !attached ||
+            frame.frameId <= lastFallbackFrameId
+        ) {
+            return
+        }
+
+        lastFallbackFrameId = frame.frameId
+        val jpeg = frame.jpeg.copyOf()
+
+        fallbackDecoder.execute {
+            if (!attached) return@execute
+
+            val decoded = BitmapFactory.decodeByteArray(
+                jpeg,
+                0,
+                jpeg.size
+            ) ?: return@execute
+
+            val oriented =
+                if (frame.rotation == 0) {
+                    decoded
+                } else {
+                    runCatching {
+                        val matrix = Matrix().apply {
+                            postRotate(
+                                frame.rotation.toFloat()
+                            )
+                        }
+                        Bitmap.createBitmap(
+                            decoded,
+                            0,
+                            0,
+                            decoded.width,
+                            decoded.height,
+                            matrix,
+                            true
+                        )
+                    }.getOrNull()?.also {
+                        if (it !== decoded) {
+                            decoded.recycle()
+                        }
+                    } ?: decoded
+                }
+
+            activity.runOnUiThread {
+                if (
+                    !attached ||
+                    renderedFrameSeen.get()
+                ) {
+                    oriented.recycle()
+                    return@runOnUiThread
+                }
+
+                fallbackActive = true
+                frameWidth = oriented.width
+                frameHeight = oriented.height
+
+                val previous = fallbackBitmap
+                fallbackBitmap = oriented
+                fallbackImageView.setImageBitmap(oriented)
+                fallbackImageView.visibility = View.VISIBLE
+                textureView.alpha = 0f
+
+                if (
+                    previous != null &&
+                    previous !== oriented &&
+                    !previous.isRecycled
+                ) {
+                    previous.recycle()
+                }
+
+                status.visibility = View.VISIBLE
+                status.text =
+                    "Compatibility video active • primary stream recovering…"
+            }
+        }
     }
 
     private fun addButton(
