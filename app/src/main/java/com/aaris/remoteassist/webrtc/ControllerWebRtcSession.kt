@@ -309,18 +309,23 @@ class ControllerWebRtcSession(
             )
         }
 
-        return peer.sendControl(
-            ControlProtocol.encode(
-                ControlPacket.GestureStream(
-                    leaseSecret = lease,
-                    generation = geometry.generation,
-                    sequence = sequence.incrementAndGet(),
-                    streamId = streamId,
-                    phase = phase,
-                    points = controlPoints,
-                    durationMs = durationMs
-                )
+        val payload = ControlProtocol.encode(
+            ControlPacket.GestureStream(
+                leaseSecret = lease,
+                generation = geometry.generation,
+                sequence = sequence.incrementAndGet(),
+                streamId = streamId,
+                phase = phase,
+                points = controlPoints,
+                durationMs = durationMs
             )
+        )
+
+        return peer.sendControl(
+            bytes = payload,
+            freshnessSensitive =
+                phase ==
+                    com.aaris.remoteassist.control.GestureStreamPhase.CONTINUE
         )
     }
 
