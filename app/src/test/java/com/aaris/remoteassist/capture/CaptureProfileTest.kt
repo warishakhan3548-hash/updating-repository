@@ -16,11 +16,11 @@ class CaptureProfileTest {
         assertEquals(720, profile.captureWidthPx)
         assertEquals(1600, profile.captureHeightPx)
         assertEquals(30, profile.fps)
-        assertEquals(6_000_000, profile.maxVideoBitrateBps)
+        assertEquals(6_800_000, profile.maxVideoBitrateBps)
     }
 
     @Test
-    fun standardDownscalesLargePhoneWithoutBlurringTo960p() {
+    fun standardPreservesMoreDetailOnModernTallPhone() {
         val profile =
             CaptureProfile.forDisplay(
                 displayWidthPx = 1080,
@@ -28,10 +28,10 @@ class CaptureProfileTest {
                 tier = CaptureTier.STANDARD
             )
 
-        assertEquals(864, profile.captureWidthPx)
-        assertEquals(1920, profile.captureHeightPx)
+        assertEquals(972, profile.captureWidthPx)
+        assertEquals(2160, profile.captureHeightPx)
         assertEquals(30, profile.fps)
-        assertEquals(6_000_000, profile.maxVideoBitrateBps)
+        assertEquals(6_800_000, profile.maxVideoBitrateBps)
     }
 
     @Test
