@@ -46,6 +46,7 @@ import com.aaris.remoteassist.pairing.ShareTicket
 import com.aaris.remoteassist.session.HostBackendStateSync
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionState
+import com.aaris.remoteassist.webrtc.ControllerConnectionService
 import java.io.Closeable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -757,40 +758,49 @@ class MainActivity : ComponentActivity() {
      * lifetime.
      */
     private fun launchControllerMonitor(sessionId: String) {
-        if (
-            pendingControllerSessionId != sessionId ||
-            controllerViewerLaunching
-        ) {
+        if (pendingControllerSessionId != sessionId) {
             return
         }
 
-        controllerViewerLaunching = true
-        controllerObserver?.close()
-        controllerObserver = null
-        controllerDeadlineJob?.cancel()
-        controllerDeadlineJob = null
-
-        runCatching {
-            remoteControlLauncher.launch(
+        /*
+         * The controller network owner is a foreground Service, not an
+         * Activity. This is the critical lifecycle boundary: Connect must
+         * never depend on successfully opening the remote-view screen.
+         */
+        val started = runCatching {
+            startForegroundService(
                 Intent(
                     this,
-                    RemoteControlActivity::class.java
-                ).putExtra(
-                    RemoteControlActivity.EXTRA_SESSION_ID,
-                    sessionId
-                )
+                    ControllerConnectionService::class.java
+                ).apply {
+                    action =
+                        ControllerConnectionService.ACTION_START
+                    putExtra(
+                        ControllerConnectionService.EXTRA_SESSION_ID,
+                        sessionId
+                    )
+                }
             )
-        }.onFailure {
-            controllerViewerLaunching = false
+        }.isSuccess
+
+        if (!started) {
             endPendingControllerSession(
                 sessionId = sessionId,
                 message =
-                    "Could not open the connection monitor. Try again.",
+                    "Could not start the secure connection service. Try again.",
                 closeBackend = true
             )
+            return
+        }
+
+        controllerViewerLaunching = false
+        status.text =
+            "Code verified • waiting for your friend to approve…"
+
+        if (controllerObserver == null) {
+            observeControllerSession(sessionId)
         }
     }
-
 
     private fun observeControllerSession(sessionId: String) {
         controllerObserver?.close()
@@ -818,8 +828,18 @@ class MainActivity : ComponentActivity() {
                                     "Waiting for your friend to tap START…"
                             }
 
-                            "HOST_APPROVED",
-                            "SCREEN_READY",
+                            "HOST_APPROVED" -> {
+                                controllerViewerReadyPending = false
+                                status.text =
+                                    "Approved • secure connection is preparing…"
+                            }
+
+                            "SCREEN_READY" -> {
+                                controllerViewerReadyPending = false
+                                status.text =
+                                    "Screen ready • negotiating phone-to-phone link…"
+                            }
+
                             "LIVE" -> {
                                 if (
                                     ControllerViewerLaunchPolicy
@@ -834,11 +854,7 @@ class MainActivity : ComponentActivity() {
                                     } else {
                                         controllerViewerReadyPending = true
                                         status.text =
-                                            if (backend.state == "HOST_APPROVED") {
-                                                "Approved • reopen Aaris Remote to continue."
-                                            } else {
-                                                "Screen is ready • reopen Aaris Remote to continue."
-                                            }
+                                            "Connected • reopen Aaris Remote to view the screen."
                                     }
                                 }
                             }
