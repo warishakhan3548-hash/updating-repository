@@ -402,7 +402,7 @@ class ControllerWebRtcSession(
 
     companion object {
         private const val HEARTBEAT_MS = 5_000L
-        private const val HELLO_TIMEOUT_MS = 60_000L
+        private const val HELLO_TIMEOUT_MS = 90_000L
         private const val MAX_REMOTE_TEXT_CHARS = 500
         private const val MAX_GESTURE_PATH_POINTS = 96
     }
