@@ -37,15 +37,15 @@ data class CaptureProfile(
     val tier: CaptureTier
 ) {
     companion object {
-        private const val LOW_CAPTURE_LONG_SIDE = 960
+        private const val LOW_CAPTURE_LONG_SIDE = 720
         private const val STANDARD_CAPTURE_LONG_SIDE = 1600
         private const val HIGH_CAPTURE_LONG_SIDE = 1920
 
-        private const val LOW_FPS = 20
+        private const val LOW_FPS = 15
         private const val STANDARD_FPS = 30
         private const val HIGH_FPS = 30
 
-        private const val LOW_BITRATE_BPS = 1_800_000
+        private const val LOW_BITRATE_BPS = 1_200_000
         private const val STANDARD_BITRATE_BPS = 4_000_000
         private const val HIGH_BITRATE_BPS = 5_500_000
 
