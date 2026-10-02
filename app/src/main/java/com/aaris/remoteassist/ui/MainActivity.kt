@@ -74,6 +74,8 @@ class MainActivity : ComponentActivity() {
     private var controllerViewerReadyPending = false
     private var mainActivityResumed = false
     private var controllerDeadlineJob: Job? = null
+    private var inlineControllerViewer:
+        InlineRemoteControllerView? = null
     private var shareDialog: AlertDialog? = null
     private var approvalDialog: AlertDialog? = null
     private var sessionDeadlineJob: Job? = null
@@ -291,12 +293,11 @@ class MainActivity : ComponentActivity() {
             pendingControllerSessionId = pendingController
             setButtonsEnabled(false)
 
-            if (
-                controllerViewerReadyPending &&
-                !controllerViewerLaunching
-            ) {
+            if (controllerViewerReadyPending) {
                 controllerViewerReadyPending = false
-                launchControllerViewer(pendingController)
+                showInlineControllerViewer(
+                    pendingController
+                )
                 return
             }
 
@@ -371,6 +372,8 @@ class MainActivity : ComponentActivity() {
         controllerObserver = null
         controllerDeadlineJob?.cancel()
         controllerDeadlineJob = null
+        inlineControllerViewer?.hide()
+        inlineControllerViewer = null
         sessionDeadlineJob?.cancel()
         sessionDeadlineJob = null
         shareDialog?.dismiss()
@@ -841,46 +844,18 @@ class MainActivity : ComponentActivity() {
                             }
 
                             "LIVE" -> {
-                                if (
-                                    ControllerViewerLaunchPolicy
-                                        .shouldLaunch(
-                                            backend.state,
-                                            controllerViewerLaunching
-                                        )
-                                ) {
-                                    if (mainActivityResumed) {
-                                        controllerViewerReadyPending = false
-                                        status.text =
-                                            "Connected • opening remote screen…"
+                                controllerViewerReadyPending = false
+                                status.text =
+                                    "Connected • opening remote screen…"
 
-                                        /*
-                                         * Let the service-owned PeerConnection,
-                                         * DataChannel and remote track settle
-                                         * before the heavy viewer window is
-                                         * created. The transport remains live
-                                         * during this short UI-only delay.
-                                         */
-                                        scope.launch {
-                                            delay(
-                                                VIEWER_LAUNCH_SETTLE_MS
-                                            )
-
-                                            if (
-                                                pendingControllerSessionId ==
-                                                    sessionId &&
-                                                mainActivityResumed &&
-                                                !controllerViewerLaunching
-                                            ) {
-                                                launchControllerViewer(
-                                                    sessionId
-                                                )
-                                            }
-                                        }
-                                    } else {
-                                        controllerViewerReadyPending = true
-                                        status.text =
-                                            "Connected • reopen Aaris Remote to view the screen."
-                                    }
+                                if (mainActivityResumed) {
+                                    showInlineControllerViewer(
+                                        sessionId
+                                    )
+                                } else {
+                                    controllerViewerReadyPending = true
+                                    status.text =
+                                        "Connected • reopen Aaris Remote to view the screen."
                                 }
                             }
 
@@ -921,6 +896,42 @@ class MainActivity : ComponentActivity() {
             )
             null
         }
+    }
+
+    private fun showInlineControllerViewer(
+        sessionId: String
+    ) {
+        if (
+            pendingControllerSessionId != sessionId ||
+            !mainActivityResumed
+        ) {
+            controllerViewerReadyPending = true
+            return
+        }
+
+        val current = inlineControllerViewer
+        if (current?.isShowing() == true) {
+            return
+        }
+
+        inlineControllerViewer?.hide()
+        inlineControllerViewer =
+            InlineRemoteControllerView(
+                activity = this,
+                sessionId = sessionId,
+                onEnd = {
+                    endPendingControllerSession(
+                        sessionId = sessionId,
+                        message = "Session ended.",
+                        closeBackend = true
+                    )
+                }
+            ).also { viewer ->
+                viewer.show()
+            }
+
+        status.text =
+            "Remote screen open • swipe and tap to control."
     }
 
     private fun launchControllerViewer(sessionId: String) {
@@ -1085,6 +1096,8 @@ class MainActivity : ComponentActivity() {
         controllerDeadlineJob = null
         controllerViewerLaunching = false
         controllerViewerReadyPending = false
+        inlineControllerViewer?.hide()
+        inlineControllerViewer = null
         pendingControllerSessionId = null
         prefs.edit()
             .remove(KEY_PENDING_CONTROLLER_SESSION)
@@ -2457,7 +2470,6 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
-        private const val VIEWER_LAUNCH_SETTLE_MS = 900L
         private const val CLIENT_DEADLINE_GRACE_MS = 2_000L
         private const val KEY_ACTIVE_HOST_SESSION =
             "active_host_session"
