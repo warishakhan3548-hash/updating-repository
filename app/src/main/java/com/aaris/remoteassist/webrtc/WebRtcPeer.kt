@@ -40,6 +40,7 @@ class WebRtcPeer(
         fun onControlChannelClosed()
         fun onControlMessage(bytes: ByteArray)
         fun onRemoteVideoTrack(track: VideoTrack)
+        fun onDiagnostic(message: String) = Unit
         fun onError(error: Throwable)
     }
 
@@ -366,6 +367,7 @@ class WebRtcPeer(
             "WebRTC peer already started"
         }
 
+        listener.onDiagnostic("WebRTC engine start requested")
         registerNetworkHandoffObserver()
 
         scope.launch {
@@ -376,6 +378,13 @@ class WebRtcPeer(
                 runCatching {
                     activeIceServers = loaded.servers
                     activeIceFromBackend = loaded.fromBackend
+                    listener.onDiagnostic(
+                        if (loaded.fromBackend) {
+                            "TURN credentials loaded from Cloudflare"
+                        } else {
+                            "TURN unavailable; using STUN fallback"
+                        }
+                    )
                     check(
                         peerConnection.setConfiguration(
                             createRtcConfiguration(
@@ -404,6 +413,7 @@ class WebRtcPeer(
             ensureControllerVideoReceiver()
         }
 
+        listener.onDiagnostic("Opening Cloudflare signaling channel")
         signaling.start(this)
 
         if (role == PeerRole.HOST) {
@@ -462,6 +472,7 @@ class WebRtcPeer(
                 emptyList()
             )
         )
+        listener.onDiagnostic("Controller RECV_ONLY video transceiver ready")
     }
 
     fun addLocalVideoTrack(track: VideoTrack) {
@@ -493,6 +504,7 @@ class WebRtcPeer(
             )
         )
         localScreenTransceiver = transceiver
+        listener.onDiagnostic("Host SEND_ONLY screen transceiver ready")
         applyInteractiveVideoPolicy(transceiver.sender)
     }
 
@@ -514,6 +526,7 @@ class WebRtcPeer(
         }
 
         publishedRemoteVideoTrack = track
+        listener.onDiagnostic("Remote video track discovered")
         listener.onRemoteVideoTrack(track)
     }
 
@@ -697,6 +710,10 @@ class WebRtcPeer(
     override fun onRemoteDescription(description: SignalDescription) {
         if (closed.get()) return
 
+        listener.onDiagnostic(
+            "WebRTC received remote SDP " + description.type.uppercase()
+        )
+
         val sessionDescription = runCatching {
             SessionDescription(
                 SessionDescription.Type.fromCanonicalForm(
@@ -783,6 +800,11 @@ class WebRtcPeer(
                                 monotonicNowMs()
                         }
                         remoteDescriptionInFlight.set(false)
+                        listener.onDiagnostic(
+                            "Remote SDP " +
+                                sessionDescription.type.canonicalForm().uppercase() +
+                                " applied"
+                        )
 
                         remoteCandidates
                             .markDescriptionReady()
@@ -900,7 +922,15 @@ class WebRtcPeer(
     // peer connection and ordered control channel.
     override fun onRemotePresence(online: Boolean) = Unit
 
+    override fun onSignalingDiagnostic(message: String) {
+        listener.onDiagnostic(message)
+    }
+
     override fun onError(error: Throwable) {
+        listener.onDiagnostic(
+            "Signaling/WebRTC error: " +
+                (error.message ?: error.javaClass.simpleName)
+        )
         listener.onError(error)
     }
 
@@ -911,6 +941,7 @@ class WebRtcPeer(
     override fun onIceConnectionChange(
         newState: PeerConnection.IceConnectionState
     ) {
+        listener.onDiagnostic("ICE state → " + newState.name)
         /*
          * Some Android/libwebrtc builds surface ICE progress a little before
          * PeerConnectionState catches up. Treat ICE CONNECTED/COMPLETED as a
@@ -937,6 +968,7 @@ class WebRtcPeer(
     override fun onConnectionChange(
         newState: PeerConnection.PeerConnectionState
     ) {
+        listener.onDiagnostic("PeerConnection state → " + newState.name)
         when (newState) {
             PeerConnection.PeerConnectionState.CONNECTED ->
                 handleTransportConnected()
@@ -1019,7 +1051,9 @@ class WebRtcPeer(
     override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
     override fun onIceGatheringChange(
         newState: PeerConnection.IceGatheringState
-    ) = Unit
+    ) {
+        listener.onDiagnostic("ICE gathering → " + newState.name)
+    }
 
     override fun onIceCandidate(candidate: IceCandidate) {
         signaling.sendCandidate(
@@ -1139,6 +1173,7 @@ class WebRtcPeer(
 
         val negotiationEpoch =
             signaling.beginLocalDescription()
+        listener.onDiagnostic("Creating local SDP OFFER")
         peerConnection.createOffer(
             object : SdpObserverAdapter() {
                 override fun onCreateSuccess(
@@ -1178,6 +1213,7 @@ class WebRtcPeer(
     ) {
         val negotiationEpoch =
             signaling.beginLocalDescription()
+        listener.onDiagnostic("Creating local SDP ANSWER")
         peerConnection.createAnswer(
             object : SdpObserverAdapter() {
                 override fun onCreateSuccess(
@@ -1224,6 +1260,11 @@ class WebRtcPeer(
             object : SdpObserverAdapter() {
                 override fun onSetSuccess() {
                     onLocalDescriptionSet?.invoke()
+                    listener.onDiagnostic(
+                        "Local SDP " +
+                            description.type.canonicalForm().uppercase() +
+                            " applied; publishing to Cloudflare"
+                    )
                     if (role == PeerRole.CONTROLLER) {
                         /*
                          * The receiver can become usable only after the local
@@ -1274,8 +1315,10 @@ class WebRtcPeer(
 
                 override fun onStateChange() {
                     when (channel.state()) {
-                        DataChannel.State.OPEN ->
+                        DataChannel.State.OPEN -> {
+                            listener.onDiagnostic("control-v1 DataChannel OPEN")
                             listener.onControlChannelOpen()
+                        }
 
                         DataChannel.State.CLOSED -> {
                             if (!closed.get()) {
@@ -1307,6 +1350,7 @@ class WebRtcPeer(
         )
 
         if (channel.state() == DataChannel.State.OPEN) {
+            listener.onDiagnostic("control-v1 DataChannel OPEN")
             listener.onControlChannelOpen()
         }
     }
