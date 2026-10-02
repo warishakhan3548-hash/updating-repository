@@ -146,6 +146,17 @@ class InlineRemoteControllerView(
                         status.visibility = View.VISIBLE
                         status.text =
                             "Video frames are here • rebuilding display…"
+
+                        if (rendererRecoveryAttempts == 1) {
+                            /*
+                             * Decoded WebRTC frames reached this phone, but
+                             * the GPU/EGL path is still black. Activate the
+                             * independent compatibility pixels as well without
+                             * disturbing ICE or the control channel.
+                             */
+                            session()?.requestMediaRecovery()
+                        }
+
                         rebuildRenderer()
                         mainHandler.postDelayed(
                             this,
