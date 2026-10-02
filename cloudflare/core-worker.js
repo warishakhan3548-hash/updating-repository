@@ -76,7 +76,10 @@ export class AarisSession extends DurableObject{
     await this.ctx.storage.transaction(async t=>{
       const s=(await t.get("session"))||null;
       if(!s){o={ok:false,status:404,code:"invalid_code"};return}
-      if(s.state==="PAIR_PENDING"&&s.controllerTokenHash===controllerTokenHash){
+      if(
+        s.controllerTokenHash===controllerTokenHash&&
+        ["PAIR_PENDING","HOST_APPROVED","SCREEN_READY","LIVE"].includes(s.state)
+      ){
         o={ok:true,snapshot:pub(s)};return;
       }
       if(s.state!=="CODE_ACTIVE"){o={ok:false,status:409,code:"code_used"};return}
