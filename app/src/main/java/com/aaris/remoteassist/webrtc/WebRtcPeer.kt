@@ -279,7 +279,8 @@ class WebRtcPeer(
                         check(
                             peerConnection.setConfiguration(
                                 createRtcConfiguration(
-                                    refreshed.servers
+                                    refreshed.servers,
+                                    relayOnly = true
                                 )
                             )
                         ) {
@@ -360,7 +361,10 @@ class WebRtcPeer(
                     activeIceFromBackend = loaded.fromBackend
                     check(
                         peerConnection.setConfiguration(
-                            createRtcConfiguration(activeIceServers)
+                            createRtcConfiguration(
+                                activeIceServers,
+                                relayOnly = loaded.fromBackend
+                            )
                         )
                     ) {
                         "Could not apply ICE server configuration"
