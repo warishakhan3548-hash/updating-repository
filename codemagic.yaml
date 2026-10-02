@@ -3,102 +3,55 @@ workflows:
     name: Aaris Remote - Release APK
     max_build_duration: 60
     instance_type: mac_mini_m2
-
     environment:
-      groups:
-        - "Firebase credentials"
       java: 17
       android_signing:
         - aarish_upload_keystore
       vars:
         PACKAGE_NAME: "com.aaris.remoteassist"
         GRADLE_VERSION: "9.6.0"
-
     scripts:
       - name: Validate native Android project
         script: |
           set -euo pipefail
           test -f "$CM_BUILD_DIR/settings.gradle.kts"
           test -f "$CM_BUILD_DIR/app/build.gradle.kts"
-          echo "Native Android project detected: $PACKAGE_NAME"
-
       - name: Set Android SDK location
         script: |
           set -euo pipefail
           echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/local.properties"
-
-      - name: Restore Firebase config when configured
-        script: |
-          set -euo pipefail
-          test -n "${GOOGLE_SERVICES_JSON_B64:-}" || {
-            echo "GOOGLE_SERVICES_JSON_B64 is required for the release build."
-            exit 1
-          }
-          python3 -c 'import base64, json, os, pathlib; p=pathlib.Path(os.environ["CM_BUILD_DIR"], "app", "google-services.json"); p.write_bytes(base64.b64decode(os.environ["GOOGLE_SERVICES_JSON_B64"])); d=json.loads(p.read_text()); assert d.get("project_info",{}).get("project_id")=="aaris-control", "Wrong Firebase project"; pkgs=[x.get("client_info",{}).get("android_client_info",{}).get("package_name") for x in d.get("client",[])]; assert "com.aaris.remoteassist" in pkgs, "Wrong Android package"'
-          echo "Firebase config verified: aaris-control / com.aaris.remoteassist."
-
       - name: Validate release signing
         script: |
           set -euo pipefail
-          test -n "${CM_KEYSTORE_PATH:-}" || { echo "Missing CM_KEYSTORE_PATH"; exit 1; }
-          test -f "$CM_KEYSTORE_PATH" || { echo "Keystore file not found"; exit 1; }
-          test -n "${CM_KEYSTORE_PASSWORD:-}" || { echo "Missing CM_KEYSTORE_PASSWORD"; exit 1; }
-          test -n "${CM_KEY_ALIAS:-}" || { echo "Missing CM_KEY_ALIAS"; exit 1; }
-          test -n "${CM_KEY_PASSWORD:-}" || { echo "Missing CM_KEY_PASSWORD"; exit 1; }
-          if [ "$CM_KEY_ALIAS" != "upload" ]; then
-            echo "Expected keystore alias 'upload', got '$CM_KEY_ALIAS'."
-            exit 1
-          fi
-          echo "Release signing identity is available."
-
+          test -n "${CM_KEYSTORE_PATH:-}"
+          test -f "$CM_KEYSTORE_PATH"
+          test -n "${CM_KEYSTORE_PASSWORD:-}"
+          test -n "${CM_KEY_ALIAS:-}"
+          test -n "${CM_KEY_PASSWORD:-}"
+          test "$CM_KEY_ALIAS" = "upload"
       - name: Build signed release APK
         script: |
           set -euo pipefail
           GRADLE_HOME="/tmp/gradle-$GRADLE_VERSION"
           if [ ! -x "$GRADLE_HOME/bin/gradle" ]; then
             curl -fsSL "https://services.gradle.org/distributions/gradle-$GRADLE_VERSION-bin.zip" -o /tmp/gradle.zip
-            rm -rf "$GRADLE_HOME"
             unzip -q /tmp/gradle.zip -d /tmp
           fi
-          "$GRADLE_HOME/bin/gradle" \
-            :app:testDebugUnitTest \
-            :app:lintRelease \
-            :app:assembleRelease \
-            --stacktrace
-
+          "$GRADLE_HOME/bin/gradle" :app:testDebugUnitTest :app:lintRelease :app:assembleRelease --stacktrace
       - name: Verify signed APK
         script: |
           set -euo pipefail
           APK="$(find "$CM_BUILD_DIR/app/build/outputs/apk/release" -type f -name '*.apk' ! -name '*unsigned*' | head -1)"
-          test -n "$APK" || { echo "Signed release APK was not produced."; exit 1; }
-
+          test -n "$APK"
           APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | head -1)"
           AAPT="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name aapt | head -1)"
-          test -x "$APKSIGNER" || { echo "apksigner not found"; exit 1; }
-          test -x "$AAPT" || { echo "aapt not found"; exit 1; }
-
           "$APKSIGNER" verify --verbose --print-certs "$APK"
-
-          BADGING="$("$AAPT" dump badging "$APK" | head -20)"
-          echo "$BADGING"
-          PACKAGE_LINE="$(printf '%s\n' "$BADGING" | head -1)"
-
+          PACKAGE_LINE="$("$AAPT" dump badging "$APK" | head -1)"
           echo "$PACKAGE_LINE" | grep -F "package: name='$PACKAGE_NAME'" >/dev/null
-
-          VERSION_CODE="$(printf '%s\n' "$PACKAGE_LINE" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
           VERSION_NAME="$(printf '%s\n' "$PACKAGE_LINE" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
-          test -n "$VERSION_CODE" || { echo "Could not read APK versionCode."; exit 1; }
-          test -n "$VERSION_NAME" || { echo "Could not read APK versionName."; exit 1; }
-
           FINAL_APK="$CM_BUILD_DIR/app/build/outputs/apk/release/AarisRemote-$VERSION_NAME-release.apk"
-          if [ "$APK" != "$FINAL_APK" ]; then
-            mv "$APK" "$FINAL_APK"
-          fi
-
-          echo "Verified APK metadata: versionName=$VERSION_NAME versionCode=$VERSION_CODE"
+          if [ "$APK" != "$FINAL_APK" ]; then mv "$APK" "$FINAL_APK"; fi
           shasum -a 256 "$FINAL_APK"
-          echo "Final release APK: $FINAL_APK"
-
     artifacts:
       - app/build/outputs/apk/release/*.apk
       - app/build/reports/lint-results-release.*

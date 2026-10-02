@@ -1,11 +1,8 @@
 package com.aaris.remoteassist.webrtc
 
-import com.google.firebase.auth.FirebaseAuth
-import java.io.ByteArrayOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
+import android.content.Context
+import com.aaris.remoteassist.backend.CloudflareBackend
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
@@ -18,74 +15,68 @@ object IceServerProvider {
     )
 
     suspend fun load(
+        context: Context,
         sessionId: String
     ): List<PeerConnection.IceServer> =
-        loadConfig(sessionId).servers
+        loadConfig(context, sessionId).servers
 
     suspend fun loadConfig(
+        context: Context,
         sessionId: String,
         timeoutMs: Long = LOAD_TIMEOUT_MS
     ): IceConfig {
         require(sessionId.isNotBlank())
         require(timeoutMs > 0L)
-
         val fallback = fallbackServers()
 
         val relayed = runCatching {
             withTimeout(timeoutMs) {
-                val user = FirebaseAuth.getInstance().currentUser
-                    ?: return@withTimeout emptyList()
-
-                val token = user.getIdToken(false).await().token
-                    ?.takeIf(String::isNotBlank)
-                    ?: return@withTimeout emptyList()
-
-                fetchTurnServers(
-                    sessionId = sessionId,
-                    idToken = token,
-                    connectTimeoutMs = timeoutMs.coerceAtMost(
-                        MAX_HTTP_TIMEOUT_MS
-                    ).toInt()
-                )
+                withContext(Dispatchers.IO) {
+                    CloudflareBackend.sessionRequest(
+                        context,
+                        sessionId,
+                        "POST",
+                        "ice",
+                        JSONObject()
+                    ).let {
+                        parseIceServers(it.toString())
+                    }
+                }
             }
         }.getOrDefault(emptyList())
 
         if (relayed.none(::isTurnServer)) {
-            return IceConfig(
-                servers = fallback,
-                fromBackend = false
-            )
+            return IceConfig(fallback, false)
         }
-
         return IceConfig(
-            servers = mergeDistinct(
-                preferred = relayed,
-                fallback = fallback
-            ),
-            fromBackend = true
+            mergeDistinct(relayed, fallback),
+            true
         )
     }
 
-    internal fun parseIceServers(raw: String): List<PeerConnection.IceServer> {
-        val root = JSONObject(raw)
-        val source = root.optJSONArray("iceServers")
+    internal fun parseIceServers(
+        raw: String
+    ): List<PeerConnection.IceServer> {
+        val source = JSONObject(raw)
+            .optJSONArray("iceServers")
             ?: return emptyList()
-        val result = ArrayList<PeerConnection.IceServer>()
+        val result =
+            ArrayList<PeerConnection.IceServer>()
 
         for (index in 0 until source.length()) {
-            val item = source.optJSONObject(index) ?: continue
+            val item =
+                source.optJSONObject(index) ?: continue
             val username = item.optString("username")
             val credential = item.optString("credential")
-
             val urls = when (val value = item.opt("urls")) {
                 is String -> listOf(value)
                 else -> {
-                    val array = item.optJSONArray("urls")
-                        ?: continue
+                    val array =
+                        item.optJSONArray("urls") ?: continue
                     buildList {
-                        for (urlIndex in 0 until array.length()) {
-                            val candidate = array.optString(urlIndex)
-                            if (candidate.isNotBlank()) add(candidate)
+                        for (i in 0 until array.length()) {
+                            val url = array.optString(i)
+                            if (url.isNotBlank()) add(url)
                         }
                     }
                 }
@@ -93,11 +84,11 @@ object IceServerProvider {
 
             urls.asSequence()
                 .map(String::trim)
-                .filter { url ->
+                .filter {
                     isUsableIceUrl(
-                        url = url,
-                        username = username,
-                        credential = credential
+                        it,
+                        username,
+                        credential
                     )
                 }
                 .take(MAX_URLS_PER_RESPONSE)
@@ -112,98 +103,28 @@ object IceServerProvider {
                     }
                     result += builder.createIceServer()
                 }
-
             if (result.size >= MAX_ICE_SERVERS) break
         }
-
         return result.take(MAX_ICE_SERVERS)
     }
 
-    fun fallbackServers(): List<PeerConnection.IceServer> = listOf(
-        PeerConnection.IceServer.builder(
-            "stun:stun.l.google.com:19302"
-        ).createIceServer(),
-        PeerConnection.IceServer.builder(
-            "stun:stun1.l.google.com:19302"
-        ).createIceServer(),
-        PeerConnection.IceServer.builder(
-            "stun:stun.cloudflare.com:3478"
-        ).createIceServer()
-    )
-
-    private suspend fun fetchTurnServers(
-        sessionId: String,
-        idToken: String,
-        connectTimeoutMs: Int
-    ): List<PeerConnection.IceServer> = withContext(Dispatchers.IO) {
-        val connection =
-            URL(ICE_CONFIG_ENDPOINT).openConnection() as HttpURLConnection
-
-        try {
-            connection.requestMethod = "POST"
-            connection.connectTimeout = connectTimeoutMs
-            connection.readTimeout = connectTimeoutMs
-            connection.instanceFollowRedirects = false
-            connection.useCaches = false
-            connection.doOutput = true
-            connection.setRequestProperty(
-                "Authorization",
-                "Bearer $idToken"
-            )
-            connection.setRequestProperty(
-                "Accept",
-                "application/json"
-            )
-            connection.setRequestProperty(
-                "Cache-Control",
-                "no-store"
-            )
-            connection.setRequestProperty(
-                "Content-Type",
-                "application/json; charset=utf-8"
-            )
-
-            val requestBody = JSONObject()
-                .put("sessionId", sessionId)
-                .toString()
-                .toByteArray(Charsets.UTF_8)
-
-            connection.setFixedLengthStreamingMode(requestBody.size)
-            connection.outputStream.use { output ->
-                output.write(requestBody)
-            }
-
-            if (connection.responseCode !in 200..299) {
-                return@withContext emptyList()
-            }
-
-            val body = connection.inputStream.use { input ->
-                val output = ByteArrayOutputStream()
-                val buffer = ByteArray(4_096)
-                var total = 0
-
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-
-                    total += read
-                    if (total > MAX_ICE_RESPONSE_BYTES) {
-                        return@withContext emptyList()
-                    }
-                    output.write(buffer, 0, read)
-                }
-
-                output.toString(Charsets.UTF_8.name())
-            }
-
-            parseIceServers(body)
-        } finally {
-            connection.disconnect()
-        }
-    }
+    fun fallbackServers(): List<PeerConnection.IceServer> =
+        listOf(
+            PeerConnection.IceServer.builder(
+                "stun:stun.cloudflare.com:3478"
+            ).createIceServer(),
+            PeerConnection.IceServer.builder(
+                "stun:stun.l.google.com:19302"
+            ).createIceServer(),
+            PeerConnection.IceServer.builder(
+                "stun:stun1.l.google.com:19302"
+            ).createIceServer()
+        )
 
     internal fun isAllowedIceUrl(url: String): Boolean {
-        if (url.length !in 5..MAX_ICE_URL_LENGTH) return false
+        if (url.length !in 5..MAX_ICE_URL_LENGTH) {
+            return false
+        }
         val lower = url.lowercase()
         return lower.startsWith("stun:") ||
             lower.startsWith("turn:") ||
@@ -238,28 +159,19 @@ object IceServerProvider {
         fallback: List<PeerConnection.IceServer>
     ): List<PeerConnection.IceServer> {
         val seen = HashSet<String>()
-        val merged = ArrayList<PeerConnection.IceServer>()
-
+        val merged =
+            ArrayList<PeerConnection.IceServer>()
         (preferred + fallback).forEach { server ->
-            val key = server.urls
-                .sorted()
-                .joinToString("|") +
-                "|" + server.username
-
-            if (seen.add(key)) {
-                merged += server
-            }
+            val key =
+                server.urls.sorted().joinToString("|") +
+                    "|" + server.username
+            if (seen.add(key)) merged += server
         }
-
         return merged
     }
 
-    private const val ICE_CONFIG_ENDPOINT =
-        "https://aaris-remote-ice.aaris-remote-wk3548.workers.dev/v1/ice"
     private const val LOAD_TIMEOUT_MS = 7_000L
-    private const val MAX_HTTP_TIMEOUT_MS = 6_000L
     private const val MAX_ICE_SERVERS = 16
     private const val MAX_URLS_PER_RESPONSE = 12
     private const val MAX_ICE_URL_LENGTH = 512
-    private const val MAX_ICE_RESPONSE_BYTES = 64 * 1024
 }
