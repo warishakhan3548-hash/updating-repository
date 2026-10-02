@@ -298,7 +298,7 @@ class WebRtcPeer(
                             peerConnection.setConfiguration(
                                 createRtcConfiguration(
                                     refreshed.servers,
-                                    relayOnly = true
+                                    relayOnly = false
                                 )
                             )
                         ) {
@@ -380,16 +380,24 @@ class WebRtcPeer(
                     activeIceFromBackend = loaded.fromBackend
                     listener.onDiagnostic(
                         if (loaded.fromBackend) {
-                            "TURN credentials loaded from Cloudflare"
+                            "TURN + STUN ready; trying direct and relay paths in parallel"
                         } else {
-                            "TURN unavailable; using STUN fallback"
+                            "TURN unavailable; using STUN/direct candidates"
                         }
                     )
+                    /*
+                     * Mature remote-control clients prefer the best direct
+                     * path when possible but keep relay candidates available
+                     * from the same negotiation. Do not force RELAY merely
+                     * because TURN credentials exist; RELAY-only is reserved
+                     * for explicit recovery after a failed/directly-unusable
+                     * route.
+                     */
                     check(
                         peerConnection.setConfiguration(
                             createRtcConfiguration(
                                 activeIceServers,
-                                relayOnly = loaded.fromBackend
+                                relayOnly = false
                             )
                         )
                     ) {
