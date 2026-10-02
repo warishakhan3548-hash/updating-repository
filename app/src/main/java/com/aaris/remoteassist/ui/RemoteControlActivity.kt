@@ -67,6 +67,8 @@ class RemoteControlActivity : ComponentActivity() {
     private var remoteTrack: VideoTrack? = null
     private var sessionId: String? = null
     private var remoteGeometry: RemoteGeometry? = null
+    private var firstVideoFrameRendered = false
+    private var videoFrameTimeout: Job? = null
     private var disconnecting = false
     private var rtcConnected = false
     private var disconnectTimeout: Job? = null
@@ -152,6 +154,9 @@ class RemoteControlActivity : ComponentActivity() {
 
         disconnectTimeout?.cancel()
         disconnectTimeout = null
+
+        videoFrameTimeout?.cancel()
+        videoFrameTimeout = null
 
         sessionDeadlineJob?.cancel()
         sessionDeadlineJob = null
@@ -437,7 +442,10 @@ class RemoteControlActivity : ComponentActivity() {
                         }
 
                         remoteGeometry = geometry
-                        if (remoteTrack != null) {
+                        if (
+                            remoteTrack != null &&
+                            firstVideoFrameRendered
+                        ) {
                             statusPanel.visibility = View.GONE
                         }
                     }
@@ -454,7 +462,8 @@ class RemoteControlActivity : ComponentActivity() {
                         if (connected) {
                             if (
                                 remoteTrack != null &&
-                                remoteGeometry != null
+                                remoteGeometry != null &&
+                                firstVideoFrameRendered
                             ) {
                                 statusPanel.visibility = View.GONE
                             }
@@ -474,17 +483,41 @@ class RemoteControlActivity : ComponentActivity() {
 
                 override fun onRemoteVideoTrack(track: VideoTrack) {
                     runOnUiThread {
-                        remoteTrack?.removeSink(renderer)
-                        remoteTrack = track
-                        track.addSink(renderer)
-
-                        if (remoteGeometry != null) {
-                            statusPanel.visibility = View.GONE
-                        } else {
-                            showStatus(
-                                "Video connected • syncing controls…"
-                            )
+                        if (remoteTrack !== track) {
+                            remoteTrack?.removeSink(renderer)
+                            remoteTrack = track
+                            firstVideoFrameRendered = false
+                            track.setEnabled(true)
+                            track.addSink(renderer)
                         }
+
+                        videoFrameTimeout?.cancel()
+                        videoFrameTimeout = scope.launch {
+                            delay(FIRST_VIDEO_FRAME_TIMEOUT_MS)
+                            if (
+                                !firstVideoFrameRendered &&
+                                !disconnecting
+                            ) {
+                                showStatus(
+                                    "Screen video is recovering…"
+                                )
+                                rtcSession?.requestVideoRecovery()
+                                delay(VIDEO_RECOVERY_GRACE_MS)
+
+                                if (
+                                    !firstVideoFrameRendered &&
+                                    !disconnecting
+                                ) {
+                                    finishController(
+                                        "Screen video did not start. Try connecting again."
+                                    )
+                                }
+                            }
+                        }
+
+                        showStatus(
+                            "Video link ready • waiting for first frame…"
+                        )
                     }
                 }
 
@@ -626,7 +659,21 @@ class RemoteControlActivity : ComponentActivity() {
                 WebRtcRuntime.eglBase(this@RemoteControlActivity)
                     .eglBaseContext,
                 object : RendererCommon.RendererEvents {
-                    override fun onFirstFrameRendered() = Unit
+                    override fun onFirstFrameRendered() {
+                        runOnUiThread {
+                            firstVideoFrameRendered = true
+                            videoFrameTimeout?.cancel()
+                            videoFrameTimeout = null
+
+                            if (remoteGeometry != null) {
+                                statusPanel.visibility = View.GONE
+                            } else {
+                                showStatus(
+                                    "Video connected • syncing controls…"
+                                )
+                            }
+                        }
+                    }
 
                     override fun onFrameResolutionChanged(
                         videoWidth: Int,
@@ -1404,6 +1451,8 @@ class RemoteControlActivity : ComponentActivity() {
             "Action wasn’t applied on the remote phone."
         const val EXTRA_RESULT_MESSAGE = "result_message"
         private const val CLIENT_DEADLINE_GRACE_MS = 2_000L
+        private const val FIRST_VIDEO_FRAME_TIMEOUT_MS = 10_000L
+        private const val VIDEO_RECOVERY_GRACE_MS = 8_000L
         private const val DISCONNECT_GRACE_MS = 25_000L
         private const val MAX_GESTURE_PATH_POINTS = 96
         private const val MIN_GESTURE_SAMPLE_DELTA = 0.0015f

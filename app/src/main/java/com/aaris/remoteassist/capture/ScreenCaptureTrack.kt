@@ -4,6 +4,8 @@ import android.content.Context
 import android.media.projection.MediaProjection
 import org.webrtc.ScreenCapturerAndroid
 import org.webrtc.SurfaceTextureHelper
+import org.webrtc.VideoFrame
+import org.webrtc.VideoSink
 import org.webrtc.VideoSource
 import org.webrtc.VideoTrack
 import com.aaris.remoteassist.webrtc.WebRtcRuntime
@@ -13,12 +15,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 class ScreenCaptureTrack(
     context: Context,
     grant: ProjectionGrant,
-    private val onProjectionStopped: () -> Unit
+    private val onProjectionStopped: () -> Unit,
+    private val onFirstFrame: () -> Unit = {}
 ) : Closeable {
     private val appContext = context.applicationContext
     private val factory = WebRtcRuntime.factory(appContext)
     private val eglBase = WebRtcRuntime.eglBase(appContext)
     private val closed = AtomicBoolean(false)
+    private val firstFrameDelivered = AtomicBoolean(false)
 
     private val capturer = ScreenCapturerAndroid(
         grant.data,
@@ -46,6 +50,15 @@ class ScreenCaptureTrack(
             videoSource
         )
 
+    private val firstFrameSink = object : VideoSink {
+        override fun onFrame(frame: VideoFrame) {
+            if (firstFrameDelivered.compareAndSet(false, true)) {
+                runCatching { videoTrack.removeSink(this) }
+                onFirstFrame()
+            }
+        }
+    }
+
     @Volatile
     private var started = false
 
@@ -56,6 +69,7 @@ class ScreenCaptureTrack(
             videoSource.capturerObserver
         )
         videoTrack.setEnabled(true)
+        videoTrack.addSink(firstFrameSink)
     }
 
     fun start(profile: CaptureProfile) {
@@ -88,6 +102,7 @@ class ScreenCaptureTrack(
             started = false
         }
 
+        runCatching { videoTrack.removeSink(firstFrameSink) }
         runCatching { videoTrack.setEnabled(false) }
         runCatching { videoTrack.dispose() }
 

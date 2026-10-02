@@ -53,6 +53,9 @@ class HostWebRtcSession(
     @Volatile
     private var transportReady = false
 
+    @Volatile
+    private var captureReady = false
+
     private var startupControlRecoveryAttempts = 0
 
     @Volatile
@@ -74,10 +77,29 @@ class HostWebRtcSession(
         listener = this
     )
 
+    private val captureWatchdog = Runnable {
+        if (!closed.get() && !captureReady) {
+            listener.onError(
+                IllegalStateException(
+                    "Screen capture produced no frames"
+                )
+            )
+        }
+    }
+
     private val capture = ScreenCaptureTrack(
         context = appContext,
         grant = projectionGrant,
-        onProjectionStopped = listener::onProjectionStopped
+        onProjectionStopped = listener::onProjectionStopped,
+        onFirstFrame = {
+            displayHandler.post {
+                if (!closed.get() && !captureReady) {
+                    captureReady = true
+                    displayHandler.removeCallbacks(captureWatchdog)
+                    ensureLiveHandshake()
+                }
+            }
+        }
     )
 
     private val connectionWatchdog = Runnable {
@@ -194,6 +216,11 @@ class HostWebRtcSession(
 
         peer.addLocalVideoTrack(capture.videoTrack)
         capture.start(profile)
+        displayHandler.removeCallbacks(captureWatchdog)
+        displayHandler.postDelayed(
+            captureWatchdog,
+            FIRST_CAPTURE_FRAME_TIMEOUT_MS
+        )
         displayHandler.removeCallbacks(connectionWatchdog)
         displayHandler.postDelayed(
             connectionWatchdog,
@@ -342,6 +369,7 @@ class HostWebRtcSession(
         if (!closed.compareAndSet(false, true)) return
 
         displayHandler.removeCallbacks(connectionWatchdog)
+        displayHandler.removeCallbacks(captureWatchdog)
         displayHandler.removeCallbacks(iceRestart)
         displayHandler.removeCallbacks(startupControlRecovery)
         displayHandler.removeCallbacks(
@@ -357,6 +385,7 @@ class HostWebRtcSession(
         everConnected = false
         controlOpen = false
         transportReady = false
+        captureReady = false
         lease = null
     }
 
@@ -365,6 +394,7 @@ class HostWebRtcSession(
         if (
             !peerConnected ||
             !controlOpen ||
+            !captureReady ||
             closed.get() ||
             transportReady
         ) {
@@ -421,6 +451,7 @@ class HostWebRtcSession(
         )
     }
     companion object {
+        private const val FIRST_CAPTURE_FRAME_TIMEOUT_MS = 12_000L
         private const val CONNECT_TIMEOUT_MS = 60_000L
         private const val CONTROL_CHANNEL_GRACE_MS = 5_000L
         private const val ICE_RESTART_DELAY_MS = 1_500L
