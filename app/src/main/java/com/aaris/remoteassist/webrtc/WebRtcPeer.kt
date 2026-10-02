@@ -297,6 +297,9 @@ class WebRtcPeer(
     private var videoMaxFramerate = DEFAULT_VIDEO_FRAMERATE
 
     @Volatile
+    private var preserveVideoResolution = true
+
+    @Volatile
     private var activeIceServers = IceServerProvider.fallbackServers()
 
     @Volatile
@@ -549,7 +552,8 @@ class WebRtcPeer(
     fun addLocalVideoTrack(
         track: VideoTrack,
         maxBitrateBps: Int = DEFAULT_VIDEO_BITRATE_BPS,
-        maxFramerate: Int = DEFAULT_VIDEO_FRAMERATE
+        maxFramerate: Int = DEFAULT_VIDEO_FRAMERATE,
+        preserveResolution: Boolean = true
     ) {
         check(!closed.get())
         check(role == PeerRole.HOST) {
@@ -569,6 +573,7 @@ class WebRtcPeer(
                 MIN_VIDEO_FRAMERATE,
                 MAX_VIDEO_FRAMERATE
             )
+        preserveVideoResolution = preserveResolution
 
         /*
          * Screen video is intentionally modeled as one authoritative
@@ -1658,7 +1663,8 @@ class WebRtcPeer(
 
     fun updateInteractiveVideoPolicy(
         maxBitrateBps: Int,
-        maxFramerate: Int
+        maxFramerate: Int,
+        preserveResolution: Boolean
     ) {
         if (closed.get() || role != PeerRole.HOST) return
 
@@ -1672,6 +1678,7 @@ class WebRtcPeer(
                 MIN_VIDEO_FRAMERATE,
                 MAX_VIDEO_FRAMERATE
             )
+        preserveVideoResolution = preserveResolution
 
         localScreenTransceiver
             ?.sender
@@ -1684,13 +1691,19 @@ class WebRtcPeer(
         runCatching {
             val parameters = sender.parameters
             /*
-             * Remote-control video needs both readable text and responsive
-             * motion. BALANCED lets libwebrtc trade a little resolution or
-             * frame rate under real congestion instead of permanently
-             * sacrificing sharpness just to hold a fixed FPS.
+             * At healthy STANDARD/HIGH tiers, preserve source resolution so
+             * small text and controls remain crisp. When the capture governor
+             * has already stepped down to BALANCED/LOW, let libwebrtc trade
+             * frame rate and resolution more freely to keep interaction fluid.
+             * This avoids gratuitous blur on good links while still degrading
+             * gracefully on genuinely constrained mobile paths.
              */
             parameters.degradationPreference =
-                RtpParameters.DegradationPreference.BALANCED
+                if (preserveVideoResolution) {
+                    RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
+                } else {
+                    RtpParameters.DegradationPreference.BALANCED
+                }
 
             parameters.encodings.forEach { encoding ->
                 encoding.maxBitrateBps = videoMaxBitrateBps
