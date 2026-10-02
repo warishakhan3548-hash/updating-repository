@@ -48,3 +48,21 @@ jobs:
           name: AarisRemote-release-unsigned-apk
           path: app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
+
+      - name: Collect Android signing tools
+        run: |
+          APKSIGNER="$(find "${ANDROID_HOME:-${ANDROID_SDK_ROOT}}/build-tools" -type f -name apksigner | sort -V | tail -1)"
+          if [ -z "$APKSIGNER" ]; then
+            echo "apksigner not found" >&2
+            exit 1
+          fi
+          mkdir -p signing-tool/lib
+          cp "$APKSIGNER" signing-tool/apksigner
+          cp "$(dirname "$APKSIGNER")/lib/apksigner.jar" signing-tool/lib/apksigner.jar
+          ZIPALIGN="$(dirname "$APKSIGNER")/zipalign"
+          if [ -f "$ZIPALIGN" ]; then cp "$ZIPALIGN" signing-tool/zipalign; fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Android-signing-tools
+          path: signing-tool
+          if-no-files-found: error
