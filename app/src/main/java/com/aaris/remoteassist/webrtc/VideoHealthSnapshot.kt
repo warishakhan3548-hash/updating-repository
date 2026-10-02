@@ -11,7 +11,8 @@ data class VideoHealthSnapshot(
     val packets: Long,
     val packetsLost: Long,
     val frameWidth: Int,
-    val frameHeight: Int
+    val frameHeight: Int,
+    val qualityLimitationReason: String?
 ) {
     fun compact(): String {
         val primary =
@@ -42,6 +43,15 @@ data class VideoHealthSnapshot(
                 append(" codec=")
                 append(it)
             }
+            qualityLimitationReason
+                ?.takeIf {
+                    it.isNotBlank() &&
+                        !it.equals("none", ignoreCase = true)
+                }
+                ?.let {
+                    append(" limited=")
+                    append(it)
+                }
         }
     }
 
@@ -96,7 +106,10 @@ data class VideoHealthSnapshot(
                     frameWidth =
                         number(members["frameWidth"]).toInt(),
                     frameHeight =
-                        number(members["frameHeight"]).toInt()
+                        number(members["frameHeight"]).toInt(),
+                    qualityLimitationReason =
+                        members["qualityLimitationReason"]
+                            ?.toString()
                 )
             } else {
                 VideoHealthSnapshot(
@@ -112,7 +125,8 @@ data class VideoHealthSnapshot(
                     frameWidth =
                         number(members["frameWidth"]).toInt(),
                     frameHeight =
-                        number(members["frameHeight"]).toInt()
+                        number(members["frameHeight"]).toInt(),
+                    qualityLimitationReason = null
                 )
             }
         }
@@ -126,7 +140,9 @@ data class VideoHealthSnapshot(
                 is Float -> value.toLong()
                 is Double -> value.toLong()
                 is Number -> value.toLong()
-                else -> value?.toString()?.toDoubleOrNull()?.toLong() ?: 0L
+                else ->
+                    value?.toString()?.toDoubleOrNull()?.toLong()
+                        ?: 0L
             }
     }
 }
