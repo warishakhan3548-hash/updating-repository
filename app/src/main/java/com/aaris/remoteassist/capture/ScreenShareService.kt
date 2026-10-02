@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import com.aaris.remoteassist.diagnostics.ConnectionFlightRecorder
 import com.aaris.remoteassist.pairing.BackendSessionCloser
 import com.aaris.remoteassist.pairing.CloudflarePairingGateway
 import com.aaris.remoteassist.session.SessionCoordinator
@@ -109,12 +110,21 @@ class ScreenShareService : Service() {
         }
 
         activeSessionId = sessionId
+        ConnectionFlightRecorder.reset(sessionId, "HOST")
+        ConnectionFlightRecorder.pass(
+            sessionId,
+            "Screen-share permission result received"
+        )
         ScreenShareRuntime.activate(sessionId)
 
         val foregroundStarted = runCatching {
             startVisibleForeground()
         }.isSuccess
         if (!foregroundStarted) {
+            ConnectionFlightRecorder.fail(
+                sessionId,
+                "Foreground MediaProjection service could not start"
+            )
             ScreenShareRuntime.clear(sessionId)
             activeSessionId = null
             BackendSessionCloser.close(this, sessionId)
@@ -141,10 +151,18 @@ class ScreenShareService : Service() {
         }.isSuccess
 
         if (!stateOk) {
+            ConnectionFlightRecorder.fail(
+                sessionId,
+                "Local session state could not enter CONNECTING"
+            )
             stopActiveSession("invalid_local_session_state")
             return
         }
 
+        ConnectionFlightRecorder.pass(
+            sessionId,
+            "Local session entered CONNECTING"
+        )
         publishScreenReadyAndStartTransport(
             sessionId = sessionId,
             grant = grant
@@ -170,6 +188,10 @@ class ScreenShareService : Service() {
                 }.isSuccess
 
                 if (published) {
+                    ConnectionFlightRecorder.pass(
+                        sessionId,
+                        "Cloudflare SCREEN_READY published"
+                    )
                     mainHandler.post {
                         if (activeSessionId == sessionId) {
                             startTransport(sessionId, grant)
@@ -196,6 +218,10 @@ class ScreenShareService : Service() {
                 delay(backoffMs)
             }
 
+            ConnectionFlightRecorder.fail(
+                sessionId,
+                "Cloudflare SCREEN_READY publish failed after retries"
+            )
             mainHandler.post {
                 if (activeSessionId == sessionId) {
                     stopActiveSession(
@@ -217,6 +243,10 @@ class ScreenShareService : Service() {
             return
         }
 
+        ConnectionFlightRecorder.pass(
+            sessionId,
+            "Starting host WebRTC session"
+        )
         var createdSession: HostWebRtcSession? = null
         hostSession = runCatching {
             HostWebRtcSession(
@@ -225,6 +255,10 @@ class ScreenShareService : Service() {
                 projectionGrant = grant,
                 listener = object : HostWebRtcSession.Listener {
                     override fun onLive() {
+                        ConnectionFlightRecorder.pass(
+                            sessionId,
+                            "Host LIVE handshake complete"
+                        )
                         mainHandler.post {
                             if (activeSessionId == sessionId) {
                                 updateForegroundNotification(isLive = true)
@@ -254,6 +288,10 @@ class ScreenShareService : Service() {
                     }
 
                     override fun onLocalControlUnavailable() {
+                        ConnectionFlightRecorder.fail(
+                            sessionId,
+                            "Accessibility control service unavailable"
+                        )
                         mainHandler.post {
                             stopActiveSession(
                                 "accessibility_control_unavailable"
@@ -261,9 +299,21 @@ class ScreenShareService : Service() {
                         }
                     }
 
+                    override fun onDiagnostic(message: String) {
+                        ConnectionFlightRecorder.pass(
+                            sessionId,
+                            message
+                        )
+                    }
+
                     override fun onRecoverableError(
                         error: Throwable
                     ) {
+                        ConnectionFlightRecorder.fail(
+                            sessionId,
+                            "Recovering WebRTC: " +
+                                (error.message ?: error.javaClass.simpleName)
+                        )
                         /*
                          * WebRTC owns bounded SDP/ICE/TURN recovery.
                          * Keep MediaProjection and the foreground service
@@ -274,6 +324,11 @@ class ScreenShareService : Service() {
                     override fun onTerminalError(
                         error: Throwable
                     ) {
+                        ConnectionFlightRecorder.fail(
+                            sessionId,
+                            "Terminal WebRTC failure: " +
+                                (error.message ?: error.javaClass.simpleName)
+                        )
                         mainHandler.post {
                             stopActiveSession(
                                 "webrtc_transport_failed"
@@ -286,6 +341,11 @@ class ScreenShareService : Service() {
                 it.start()
             }
         }.getOrElse {
+            ConnectionFlightRecorder.fail(
+                sessionId,
+                "Host WebRTC session could not start: " +
+                    (it.message ?: it.javaClass.simpleName)
+            )
             runCatching { createdSession?.close() }
             stopActiveSession("webrtc_start_failed")
             null
@@ -307,6 +367,10 @@ class ScreenShareService : Service() {
                 }.isSuccess
 
                 if (published) {
+                    ConnectionFlightRecorder.pass(
+                        sessionId,
+                        "Cloudflare LIVE published"
+                    )
                     return@launch
                 }
 
