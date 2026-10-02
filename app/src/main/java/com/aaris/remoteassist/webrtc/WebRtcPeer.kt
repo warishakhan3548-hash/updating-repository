@@ -9,6 +9,7 @@ import org.webrtc.DataChannel
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
+import org.webrtc.MediaStreamTrack
 import org.webrtc.PeerConnection
 import org.webrtc.RtpParameters
 import org.webrtc.RtpReceiver
@@ -232,6 +233,22 @@ class WebRtcPeer(
     @Volatile
     private var controlChannel: DataChannel? = null
 
+    /*
+     * Keep the one-way screen media contract explicit on both peers.
+     *
+     * Host owns exactly one SEND_ONLY screen transceiver. Controller owns
+     * exactly one RECV_ONLY video transceiver before signaling opens, so an
+     * immediately replayed Cloudflare offer cannot race receiver creation.
+     */
+    @Volatile
+    private var localScreenTransceiver: RtpTransceiver? = null
+
+    @Volatile
+    private var controllerVideoTransceiver: RtpTransceiver? = null
+
+    @Volatile
+    private var publishedRemoteVideoTrack: VideoTrack? = null
+
     @Volatile
     private var activeIceServers = IceServerProvider.fallbackServers()
 
@@ -377,6 +394,16 @@ class WebRtcPeer(
 
     private fun startSignaling() {
         if (closed.get()) return
+
+        /*
+         * The WebSocket can replay the host offer immediately on open.
+         * Establish the controller's receive-side m=video contract first so
+         * the offer is always answered with an explicit video receiver.
+         */
+        if (role == PeerRole.CONTROLLER) {
+            ensureControllerVideoReceiver()
+        }
+
         signaling.start(this)
 
         if (role == PeerRole.HOST) {
@@ -419,10 +446,31 @@ class WebRtcPeer(
         }
     }
 
+    private fun ensureControllerVideoReceiver() {
+        if (
+            closed.get() ||
+            role != PeerRole.CONTROLLER ||
+            controllerVideoTransceiver != null
+        ) {
+            return
+        }
+
+        controllerVideoTransceiver = peerConnection.addTransceiver(
+            MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO,
+            RtpTransceiver.RtpTransceiverInit(
+                RtpTransceiver.RtpTransceiverDirection.RECV_ONLY,
+                emptyList()
+            )
+        )
+    }
+
     fun addLocalVideoTrack(track: VideoTrack) {
         check(!closed.get())
         check(role == PeerRole.HOST) {
             "Only the host may publish the screen track"
+        }
+        check(localScreenTransceiver == null) {
+            "Screen video transceiver already exists"
         }
 
         /*
@@ -434,9 +482,8 @@ class WebRtcPeer(
          * only video direction. Making that direction explicit guarantees
          * that the very first host offer contains a send-capable m=video
          * section and that every later ICE-restart offer reuses the same media
-         * section. The control DataChannel stays on this same PeerConnection,
-         * so a connected control path can no longer mask an accidentally
-         * non-sendable video negotiation.
+         * section. The controller mirrors this contract with one RECV_ONLY
+         * transceiver created before signaling opens.
          */
         val transceiver = peerConnection.addTransceiver(
             track,
@@ -445,7 +492,62 @@ class WebRtcPeer(
                 listOf(SCREEN_STREAM_ID)
             )
         )
+        localScreenTransceiver = transceiver
         applyInteractiveVideoPolicy(transceiver.sender)
+    }
+
+    private fun publishRemoteVideoTrack(
+        track: VideoTrack?
+    ) {
+        if (
+            closed.get() ||
+            role != PeerRole.CONTROLLER ||
+            track == null
+        ) {
+            return
+        }
+
+        track.setEnabled(true)
+
+        if (publishedRemoteVideoTrack === track) {
+            return
+        }
+
+        publishedRemoteVideoTrack = track
+        listener.onRemoteVideoTrack(track)
+    }
+
+    /*
+     * Some Android/libwebrtc builds can establish SCTP/DataChannel and create
+     * the video receiver without reliably delivering onTrack/onAddTrack at the
+     * moment the app expects it. The receiver is authoritative, so reconcile
+     * it after SDP and transport transitions instead of waiting forever for a
+     * callback that may already have been missed.
+     */
+    private fun reconcileRemoteVideoTrack() {
+        if (
+            closed.get() ||
+            role != PeerRole.CONTROLLER
+        ) {
+            return
+        }
+
+        val preferred =
+            controllerVideoTransceiver
+                ?.receiver
+                ?.track() as? VideoTrack
+        if (preferred != null) {
+            publishRemoteVideoTrack(preferred)
+            return
+        }
+
+        peerConnection.transceivers
+            .asSequence()
+            .mapNotNull { transceiver ->
+                transceiver.receiver.track() as? VideoTrack
+            }
+            .firstOrNull()
+            ?.let(::publishRemoteVideoTrack)
     }
 
     fun requestRemoteRecovery(): Boolean {
@@ -685,6 +787,12 @@ class WebRtcPeer(
                             sessionDescription.type ==
                                 SessionDescription.Type.OFFER
                         ) {
+                            /*
+                             * setRemoteDescription can create/associate the
+                             * receiver before libwebrtc posts onTrack. Publish
+                             * it immediately when present, then answer.
+                             */
+                            reconcileRemoteVideoTrack()
                             createAnswer(
                                 description.negotiationId
                             )
@@ -848,6 +956,7 @@ class WebRtcPeer(
         handler.removeCallbacks(initialIceRestart)
         handler.removeCallbacks(bootstrapRecovery)
         handler.removeCallbacks(controllerRelayRefresh)
+        reconcileRemoteVideoTrack()
         publishPeerConnected()
     }
 
@@ -940,12 +1049,15 @@ class WebRtcPeer(
         receiver: RtpReceiver,
         mediaStreams: Array<MediaStream>
     ) {
-        (receiver.track() as? VideoTrack)?.let(listener::onRemoteVideoTrack)
+        publishRemoteVideoTrack(
+            receiver.track() as? VideoTrack
+        )
     }
 
     override fun onTrack(transceiver: RtpTransceiver) {
-        (transceiver.receiver.track() as? VideoTrack)
-            ?.let(listener::onRemoteVideoTrack)
+        publishRemoteVideoTrack(
+            transceiver.receiver.track() as? VideoTrack
+        )
     }
 
     fun close() {
@@ -962,6 +1074,9 @@ class WebRtcPeer(
             runCatching { it.dispose() }
         }
         controlChannel = null
+        publishedRemoteVideoTrack = null
+        controllerVideoTransceiver = null
+        localScreenTransceiver = null
 
         scope.cancel()
         handler.removeCallbacksAndMessages(null)
@@ -1103,6 +1218,14 @@ class WebRtcPeer(
             object : SdpObserverAdapter() {
                 override fun onSetSuccess() {
                     onLocalDescriptionSet?.invoke()
+                    if (role == PeerRole.CONTROLLER) {
+                        /*
+                         * The receiver can become usable only after the local
+                         * answer commits. Reconcile again so callback ordering
+                         * cannot strand a valid video track.
+                         */
+                        reconcileRemoteVideoTrack()
+                    }
                     signaling.sendDescription(
                         description = SignalDescription(
                             type = description.type.canonicalForm(),
