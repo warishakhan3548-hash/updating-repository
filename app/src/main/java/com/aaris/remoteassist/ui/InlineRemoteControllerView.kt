@@ -82,49 +82,55 @@ class InlineRemoteControllerView(
         eglRenderer?.onFrame(frame)
     }
 
-    private val mediaWatchdog = Runnable {
-        if (!attached) return@Runnable
+    private val mediaWatchdog: Runnable =
+        object : Runnable {
+            override fun run() {
+                if (!attached) return
 
-        if (!rawFrameSeen.get()) {
-            if (mediaRecoveryAttempts < MAX_MEDIA_RECOVERY_ATTEMPTS) {
-                mediaRecoveryAttempts += 1
-                status.visibility = View.VISIBLE
-                status.text =
-                    "Connected • video stream recovering…"
-                session()?.requestMediaRecovery()
-                mainHandler.postDelayed(
-                    mediaWatchdog,
-                    MEDIA_RECOVERY_RETRY_MS
-                )
-            } else {
-                status.visibility = View.VISIBLE
-                status.text =
-                    "Connected • controls work • waiting for video frames…"
-            }
-            return@Runnable
-        }
+                if (!rawFrameSeen.get()) {
+                    if (
+                        mediaRecoveryAttempts <
+                            MAX_MEDIA_RECOVERY_ATTEMPTS
+                    ) {
+                        mediaRecoveryAttempts += 1
+                        status.visibility = View.VISIBLE
+                        status.text =
+                            "Connected • video stream recovering…"
+                        session()?.requestMediaRecovery()
+                        mainHandler.postDelayed(
+                            this,
+                            MEDIA_RECOVERY_RETRY_MS
+                        )
+                    } else {
+                        status.visibility = View.VISIBLE
+                        status.text =
+                            "Connected • controls work • waiting for video frames…"
+                    }
+                    return
+                }
 
-        if (!renderedFrameSeen.get()) {
-            if (
-                rendererRecoveryAttempts <
-                    MAX_RENDERER_RECOVERY_ATTEMPTS
-            ) {
-                rendererRecoveryAttempts += 1
-                status.visibility = View.VISIBLE
-                status.text =
-                    "Video frames are here • rebuilding display…"
-                rebuildRenderer()
-                mainHandler.postDelayed(
-                    mediaWatchdog,
-                    RENDER_RECOVERY_RETRY_MS
-                )
-            } else {
-                status.visibility = View.VISIBLE
-                status.text =
-                    "Video received • display retrying…"
+                if (!renderedFrameSeen.get()) {
+                    if (
+                        rendererRecoveryAttempts <
+                            MAX_RENDERER_RECOVERY_ATTEMPTS
+                    ) {
+                        rendererRecoveryAttempts += 1
+                        status.visibility = View.VISIBLE
+                        status.text =
+                            "Video frames are here • rebuilding display…"
+                        rebuildRenderer()
+                        mainHandler.postDelayed(
+                            this,
+                            RENDER_RECOVERY_RETRY_MS
+                        )
+                    } else {
+                        status.visibility = View.VISIBLE
+                        status.text =
+                            "Video received • display retrying…"
+                    }
+                }
             }
         }
-    }
 
     private val listener =
         object : ControllerWebRtcSession.Listener {
