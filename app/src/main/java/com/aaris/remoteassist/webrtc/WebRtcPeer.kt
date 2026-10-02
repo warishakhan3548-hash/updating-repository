@@ -223,9 +223,22 @@ class WebRtcPeer(
                 !connectivity.hasEverConnected() &&
                 recoveryRemaining
             ) {
+                val nextDelayMs =
+                    if (
+                        peerConnection.signalingState() ==
+                            PeerConnection.SignalingState.HAVE_LOCAL_OFFER
+                    ) {
+                        BootstrapRecoveryPolicy
+                            .offerRedeliveryDelayMs(
+                                offerRedeliveryAttempts
+                            )
+                    } else {
+                        BOOTSTRAP_RECOVERY_INTERVAL_MS
+                    }
+
                 handler.postDelayed(
                     this,
-                    BOOTSTRAP_RECOVERY_INTERVAL_MS
+                    nextDelayMs
                 )
             }
         }
@@ -1435,12 +1448,11 @@ class WebRtcPeer(
         private const val MAX_CONTROLLER_RELAY_REFRESH_ATTEMPTS = 4L
         private const val MAX_BOOTSTRAP_RECOVERY_ATTEMPTS = 5
         /*
-         * Backend CONNECT_TTL is 180 s. Keep re-delivering the exact same
-         * pending offer for ~2.5 minutes (initial 4 s + 29 * 5 s), so the host
-         * does not give up long before the authoritative session expires.
-         * The same negotiationId is reused; this is waiting/replay, not a
-         * second negotiation.
+         * Backend CONNECT_TTL is 180 s. Re-deliver the same pending offer with
+         * bounded backoff for almost the full connection window. This avoids
+         * noisy 5-second retry spam while still recovering a controller that
+         * attaches late. The negotiationId never changes here.
          */
-        private const val MAX_OFFER_REDELIVERY_ATTEMPTS = 30
+        private const val MAX_OFFER_REDELIVERY_ATTEMPTS = 9
     }
 }
