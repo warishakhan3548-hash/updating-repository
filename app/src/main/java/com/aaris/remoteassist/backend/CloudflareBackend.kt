@@ -17,7 +17,7 @@ internal class CloudflareBackendException(
 
 internal object CloudflareBackend {
     const val BASE_URL =
-        "https://aaris-remote-core.aaris-remote-wk3548.workers.dev"
+        "https://aaris-remote-ice.aaris-remote-wk3548.workers.dev"
 
     val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
