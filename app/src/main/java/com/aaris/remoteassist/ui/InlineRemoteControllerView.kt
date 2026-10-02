@@ -21,6 +21,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.aaris.remoteassist.control.GestureStreamPhase
 import com.aaris.remoteassist.webrtc.ControllerConnectionRuntime
 import com.aaris.remoteassist.webrtc.ControllerWebRtcSession
 import com.aaris.remoteassist.webrtc.FallbackVideoFrame
@@ -28,6 +29,8 @@ import com.aaris.remoteassist.webrtc.RemoteGeometry
 import com.aaris.remoteassist.webrtc.WebRtcRuntime
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 import org.webrtc.EglBase
@@ -102,6 +105,10 @@ class InlineRemoteControllerView(
     private var downAt = 0L
     private var gestureGeneration = -1
 
+    private var liveGestureStreamId = 0L
+    private var liveGestureStreamActive = false
+    private var liveGestureLastEventTime = 0L
+
     private var multiTouchActive = false
     private var suppressSingleGestureUntilUp = false
     private var firstPointerId = -1
@@ -128,8 +135,10 @@ class InlineRemoteControllerView(
     private var attached = false
     @Volatile
     private var fallbackActive = false
-    @Volatile
-    private var lastFallbackFrameId = -1L
+    private val lastFallbackFrameId = AtomicLong(-1L)
+    private val pendingFallbackFrame =
+        AtomicReference<FallbackVideoFrame?>(null)
+    private val fallbackDecodeScheduled = AtomicBoolean(false)
     private var fallbackBitmap: Bitmap? = null
     private var mediaRecoveryAttempts = 0
     private var rendererRecoveryAttempts = 0
@@ -421,6 +430,7 @@ class InlineRemoteControllerView(
         releaseRenderer()
 
         fallbackActive = false
+        pendingFallbackFrame.set(null)
         fallbackDecoder.shutdownNow()
         activity.runOnUiThread {
             fallbackImageView.setImageDrawable(null)
@@ -1063,98 +1073,178 @@ class InlineRemoteControllerView(
     ) {
         if (
             !attached ||
-            frame.frameId <= lastFallbackFrameId
+            renderedFrameSeen.get()
         ) {
             return
         }
 
-        lastFallbackFrameId = frame.frameId
-        val jpeg = frame.jpeg.copyOf()
-
-        fallbackDecoder.execute {
-            if (!attached) return@execute
-
-            val decoded = BitmapFactory.decodeByteArray(
-                jpeg,
-                0,
-                jpeg.size
-            ) ?: return@execute
-
-            val oriented =
-                if (frame.rotation == 0) {
-                    decoded
-                } else {
-                    runCatching {
-                        val matrix = Matrix().apply {
-                            postRotate(
-                                frame.rotation.toFloat()
-                            )
-                        }
-                        Bitmap.createBitmap(
-                            decoded,
-                            0,
-                            0,
-                            decoded.width,
-                            decoded.height,
-                            matrix,
-                            true
-                        )
-                    }.getOrNull()?.also {
-                        if (it !== decoded) {
-                            decoded.recycle()
-                        }
-                    } ?: decoded
-                }
-
-            activity.runOnUiThread {
-                if (
-                    !attached ||
-                    renderedFrameSeen.get()
-                ) {
-                    oriented.recycle()
-                    return@runOnUiThread
-                }
-
-                latestObservedFrameWidth = oriented.width
-                latestObservedFrameHeight = oriented.height
-
-                val currentGeometry = geometry
-                if (
-                    currentGeometry != null &&
-                    !RemoteViewportMapper.frameMatchesRemote(
-                        remoteWidth = currentGeometry.widthPx,
-                        remoteHeight = currentGeometry.heightPx,
-                        frameWidth = oriented.width,
-                        frameHeight = oriented.height
-                    )
-                ) {
-                    oriented.recycle()
-                    return@runOnUiThread
-                }
-
-                fallbackActive = true
-                frameWidth = oriented.width
-                frameHeight = oriented.height
-                updateVideoViewport()
-
-                val previous = fallbackBitmap
-                fallbackBitmap = oriented
-                fallbackImageView.setImageBitmap(oriented)
-                fallbackImageView.visibility = View.VISIBLE
-                textureView.alpha = 0f
-
-                if (
-                    previous != null &&
-                    previous !== oriented &&
-                    !previous.isRecycled
-                ) {
-                    previous.recycle()
-                }
-
-                status.visibility = View.VISIBLE
-                status.text =
-                    "Compatibility video active • primary stream recovering…"
+        while (true) {
+            val previous = lastFallbackFrameId.get()
+            if (frame.frameId <= previous) {
+                return
             }
+            if (
+                lastFallbackFrameId.compareAndSet(
+                    previous,
+                    frame.frameId
+                )
+            ) {
+                break
+            }
+        }
+
+        /*
+         * Compatibility video is best-effort. Never let JPEG decode build an
+         * old-frame backlog: retain only the newest not-yet-decoded frame.
+         */
+        pendingFallbackFrame.set(
+            frame.copy(
+                jpeg = frame.jpeg.copyOf()
+            )
+        )
+        scheduleFallbackDecode()
+    }
+
+    private fun scheduleFallbackDecode() {
+        if (
+            !attached ||
+            renderedFrameSeen.get() ||
+            !fallbackDecodeScheduled.compareAndSet(
+                false,
+                true
+            )
+        ) {
+            return
+        }
+
+        runCatching {
+            fallbackDecoder.execute {
+                drainFallbackFrames()
+            }
+        }.onFailure {
+            fallbackDecodeScheduled.set(false)
+        }
+    }
+
+    private fun drainFallbackFrames() {
+        try {
+            while (
+                attached &&
+                !renderedFrameSeen.get()
+            ) {
+                val frame =
+                    pendingFallbackFrame.getAndSet(null)
+                        ?: break
+                decodeFallbackFrameNow(frame)
+            }
+        } finally {
+            fallbackDecodeScheduled.set(false)
+            if (
+                attached &&
+                !renderedFrameSeen.get() &&
+                pendingFallbackFrame.get() != null
+            ) {
+                scheduleFallbackDecode()
+            }
+        }
+    }
+
+    private fun decodeFallbackFrameNow(
+        frame: FallbackVideoFrame
+    ) {
+        val decoded = BitmapFactory.decodeByteArray(
+            frame.jpeg,
+            0,
+            frame.jpeg.size
+        ) ?: return
+
+        val oriented =
+            if (frame.rotation == 0) {
+                decoded
+            } else {
+                runCatching {
+                    val matrix = Matrix().apply {
+                        postRotate(
+                            frame.rotation.toFloat()
+                        )
+                    }
+                    Bitmap.createBitmap(
+                        decoded,
+                        0,
+                        0,
+                        decoded.width,
+                        decoded.height,
+                        matrix,
+                        true
+                    )
+                }.getOrNull()?.also {
+                    if (it !== decoded) {
+                        decoded.recycle()
+                    }
+                } ?: decoded
+            }
+
+        /*
+         * If a newer fallback frame arrived while this JPEG was decoding,
+         * skip presenting the stale bitmap. The next loop iteration decodes
+         * the newest frame directly.
+         */
+        if (
+            frame.frameId < lastFallbackFrameId.get() &&
+            pendingFallbackFrame.get() != null
+        ) {
+            oriented.recycle()
+            return
+        }
+
+        activity.runOnUiThread {
+            if (
+                !attached ||
+                renderedFrameSeen.get()
+            ) {
+                oriented.recycle()
+                return@runOnUiThread
+            }
+
+            latestObservedFrameWidth = oriented.width
+            latestObservedFrameHeight = oriented.height
+
+            val currentGeometry = geometry
+            if (
+                currentGeometry != null &&
+                !RemoteViewportMapper.frameMatchesRemote(
+                    remoteWidth = currentGeometry.widthPx,
+                    remoteHeight = currentGeometry.heightPx,
+                    frameWidth = oriented.width,
+                    frameHeight = oriented.height
+                )
+            ) {
+                oriented.recycle()
+                return@runOnUiThread
+            }
+
+            fallbackActive = true
+            frameWidth = oriented.width
+            frameHeight = oriented.height
+            updateVideoViewport()
+
+            val previous = fallbackBitmap
+            fallbackBitmap = oriented
+            fallbackImageView.setImageBitmap(oriented)
+            fallbackImageView.visibility = View.VISIBLE
+            textureView.alpha = 0f
+
+            if (
+                previous != null &&
+                previous !== oriented &&
+                !previous.isRecycled
+            ) {
+                previous.recycle()
+            }
+
+            status.visibility = View.VISIBLE
+            status.text =
+                "Compatibility video active • primary stream recovering…"
         }
     }
 
@@ -1196,11 +1286,12 @@ class InlineRemoteControllerView(
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 beginRemoteMotion()
+                resetLiveGestureStream()
                 suppressSingleGestureUntilUp = false
                 multiTouchActive = false
                 downX = event.x
                 downY = event.y
-                downAt = SystemClock.elapsedRealtime()
+                downAt = event.eventTime
                 gestureGeneration = g.generation
                 gesturePoints.clear()
                 appendGesturePoint(
@@ -1216,6 +1307,21 @@ class InlineRemoteControllerView(
                     event.pointerCount >= 2 &&
                     !multiTouchActive
                 ) {
+                    if (
+                        liveGestureStreamActive &&
+                        g.generation == gestureGeneration
+                    ) {
+                        endLiveGestureStream(
+                            session = s,
+                            geometry = g,
+                            x = event.getX(0),
+                            y = event.getY(0),
+                            eventTime = event.eventTime
+                        )
+                    } else {
+                        resetLiveGestureStream()
+                    }
+
                     val firstIndex = 0
                     val secondIndex = event.actionIndex
                     firstPointerId =
@@ -1230,8 +1336,7 @@ class InlineRemoteControllerView(
                     firstEndY = firstStartY
                     secondEndX = secondStartX
                     secondEndY = secondStartY
-                    multiDownAt =
-                        SystemClock.elapsedRealtime()
+                    multiDownAt = event.eventTime
                     gestureGeneration = g.generation
                     multiTouchActive = true
                     suppressSingleGestureUntilUp = true
@@ -1255,6 +1360,11 @@ class InlineRemoteControllerView(
                         event.x,
                         event.y,
                         event.eventTime
+                    )
+                    streamSingleGestureIfNeeded(
+                        session = s,
+                        geometry = g,
+                        event = event
                     )
                 }
                 return true
@@ -1280,6 +1390,7 @@ class InlineRemoteControllerView(
                         sendMultiTouchGesture(s, g)
                     }
                     resetMultiTouch()
+                    resetLiveGestureStream()
                     gesturePoints.clear()
                     suppressSingleGestureUntilUp = false
                     scheduleRemoteMotionIdle()
@@ -1288,12 +1399,14 @@ class InlineRemoteControllerView(
 
                 if (suppressSingleGestureUntilUp) {
                     suppressSingleGestureUntilUp = false
+                    resetLiveGestureStream()
                     gesturePoints.clear()
                     scheduleRemoteMotionIdle()
                     return true
                 }
 
                 if (g.generation != gestureGeneration) {
+                    resetLiveGestureStream()
                     gesturePoints.clear()
                     scheduleRemoteMotionIdle()
                     return true
@@ -1304,18 +1417,44 @@ class InlineRemoteControllerView(
                     event.y,
                     event.eventTime
                 )
-                finishSingleGesture(
-                    session = s,
-                    geometry = g,
-                    upX = event.x,
-                    upY = event.y
-                )
+
+                if (liveGestureStreamActive) {
+                    endLiveGestureStream(
+                        session = s,
+                        geometry = g,
+                        x = event.x,
+                        y = event.y,
+                        eventTime = event.eventTime
+                    )
+                } else {
+                    finishSingleGesture(
+                        session = s,
+                        geometry = g,
+                        upX = event.x,
+                        upY = event.y
+                    )
+                }
+
                 gesturePoints.clear()
                 scheduleRemoteMotionIdle()
                 return true
             }
 
             MotionEvent.ACTION_CANCEL -> {
+                if (
+                    liveGestureStreamActive &&
+                    g.generation == gestureGeneration
+                ) {
+                    endLiveGestureStream(
+                        session = s,
+                        geometry = g,
+                        x = event.x,
+                        y = event.y,
+                        eventTime = event.eventTime
+                    )
+                } else {
+                    resetLiveGestureStream()
+                }
                 mainHandler.removeCallbacks(interactionIdle)
                 s.setInteractionActive(false)
                 gesturePoints.clear()
@@ -1327,6 +1466,151 @@ class InlineRemoteControllerView(
 
         return true
     }
+
+    private fun streamSingleGestureIfNeeded(
+        session: ControllerWebRtcSession,
+        geometry: RemoteGeometry,
+        event: MotionEvent
+    ) {
+        if (geometry.generation != gestureGeneration) {
+            return
+        }
+
+        if (!liveGestureStreamActive) {
+            val distance =
+                hypot(
+                    event.x - downX,
+                    event.y - downY
+                )
+            if (distance < touchSlop) {
+                return
+            }
+
+            val start =
+                normalize(
+                    x = downX,
+                    y = downY,
+                    geometry = geometry,
+                    clampToContent = false
+                ) ?: return
+            val current =
+                normalize(
+                    x = event.x,
+                    y = event.y,
+                    geometry = geometry,
+                    clampToContent = true
+                ) ?: return
+            val streamId = session.newGestureStreamId()
+            val sent =
+                session.sendGestureStreamSegment(
+                    streamId = streamId,
+                    phase = GestureStreamPhase.START,
+                    points = listOf(
+                        start.x to start.y,
+                        current.x to current.y
+                    ),
+                    durationMs =
+                        streamSegmentDuration(
+                            event.eventTime - downAt
+                        ),
+                    expectedGeneration =
+                        geometry.generation
+                )
+
+            if (sent) {
+                liveGestureStreamId = streamId
+                liveGestureStreamActive = true
+                liveGestureLastEventTime =
+                    event.eventTime
+            }
+            return
+        }
+
+        val elapsed =
+            event.eventTime -
+                liveGestureLastEventTime
+        if (elapsed < STREAM_SEGMENT_INTERVAL_MS) {
+            return
+        }
+
+        val current =
+            normalize(
+                x = event.x,
+                y = event.y,
+                geometry = geometry,
+                clampToContent = true
+            ) ?: return
+
+        val sent =
+            session.sendGestureStreamSegment(
+                streamId = liveGestureStreamId,
+                phase = GestureStreamPhase.CONTINUE,
+                points = listOf(
+                    current.x to current.y
+                ),
+                durationMs =
+                    streamSegmentDuration(elapsed),
+                expectedGeneration =
+                    geometry.generation
+            )
+        if (sent) {
+            liveGestureLastEventTime =
+                event.eventTime
+        }
+    }
+
+    private fun endLiveGestureStream(
+        session: ControllerWebRtcSession,
+        geometry: RemoteGeometry,
+        x: Float,
+        y: Float,
+        eventTime: Long
+    ) {
+        if (!liveGestureStreamActive) {
+            resetLiveGestureStream()
+            return
+        }
+
+        val point =
+            normalize(
+                x = x,
+                y = y,
+                geometry = geometry,
+                clampToContent = true
+            )
+        if (point != null) {
+            session.sendGestureStreamSegment(
+                streamId = liveGestureStreamId,
+                phase = GestureStreamPhase.END,
+                points = listOf(
+                    point.x to point.y
+                ),
+                durationMs =
+                    streamSegmentDuration(
+                        eventTime -
+                            liveGestureLastEventTime
+                    ),
+                expectedGeneration =
+                    geometry.generation
+            )
+        }
+
+        resetLiveGestureStream()
+    }
+
+    private fun resetLiveGestureStream() {
+        liveGestureStreamId = 0L
+        liveGestureStreamActive = false
+        liveGestureLastEventTime = 0L
+    }
+
+    private fun streamSegmentDuration(
+        elapsedMs: Long
+    ): Int =
+        elapsedMs.toInt().coerceIn(
+            MIN_STREAM_SEGMENT_MS,
+            MAX_STREAM_SEGMENT_MS
+        )
 
     private fun beginRemoteMotion() {
         mainHandler.removeCallbacks(interactionIdle)
@@ -1661,6 +1945,10 @@ class InlineRemoteControllerView(
         private const val HANDLE_PEEK_DP = 10
         private const val HANDLE_PEEK_ALPHA = 0.46f
         private const val REMOTE_MOTION_TAIL_MS = 1_400L
+
+        private const val STREAM_SEGMENT_INTERVAL_MS = 48L
+        private const val MIN_STREAM_SEGMENT_MS = 24
+        private const val MAX_STREAM_SEGMENT_MS = 72
 
         private const val TOUCH_SAMPLE_INTERVAL_MS = 24L
         private const val MAX_LOCAL_GESTURE_POINTS = 192
