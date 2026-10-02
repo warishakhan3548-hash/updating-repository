@@ -13,6 +13,7 @@ interface SignalingClient : Closeable {
         fun onRemoteCandidate(candidate: SignalCandidate)
         fun onRemoteIceRestartRequested()
         fun onRemotePresence(online: Boolean)
+        fun onSignalingDiagnostic(message: String) = Unit
         fun onError(error: Throwable)
     }
 
