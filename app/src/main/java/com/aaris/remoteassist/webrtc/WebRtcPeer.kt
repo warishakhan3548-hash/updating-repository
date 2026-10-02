@@ -558,6 +558,12 @@ class WebRtcPeer(
             return false
         }
 
+        /*
+         * A missed receiver callback is local state, not an ICE failure.
+         * Reconcile the already-negotiated receiver first; then request the
+         * host restart so a genuinely stalled RTP path still gets recovery.
+         */
+        reconcileRemoteVideoTrack()
         signaling.requestRemoteIceRestart()
         return true
     }
