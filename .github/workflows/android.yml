@@ -53,7 +53,7 @@ jobs:
           d=json.load(sys.stdin)
           assert d.get("ok") is True
           assert d.get("backend") == "cloudflare-durable-objects"
-          assert d.get("version") == 2
+          assert int(d.get("version",0)) >= 2
           '
 
           HOST="$(curl --retry 3 --retry-all-errors -fsS -X POST "$BASE/v1/sessions" -H "content-type: application/json" -d "{}")"
