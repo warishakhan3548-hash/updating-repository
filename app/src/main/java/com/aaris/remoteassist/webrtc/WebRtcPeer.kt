@@ -42,6 +42,7 @@ class WebRtcPeer(
         fun onRemoteVideoTrack(track: VideoTrack)
         fun onFallbackVideoFrame(frame: FallbackVideoFrame) = Unit
         fun onRemoteMediaRecoveryRequested() = Unit
+        fun onVideoHealth(snapshot: VideoHealthSnapshot) = Unit
         fun onDiagnostic(message: String) = Unit
         fun onError(error: Throwable)
     }
@@ -130,6 +131,24 @@ class WebRtcPeer(
             initialIceRestartAttempted.compareAndSet(false, true)
         ) {
             requestIceRestart()
+        }
+    }
+
+    private val videoStatsProbe = object : Runnable {
+        override fun run() {
+            if (closed.get()) return
+
+            peerConnection.getStats { report ->
+                if (closed.get()) return@getStats
+                VideoHealthSnapshot
+                    .from(report, role)
+                    ?.let(listener::onVideoHealth)
+            }
+
+            handler.postDelayed(
+                this,
+                VIDEO_STATS_INTERVAL_MS
+            )
         }
     }
 
@@ -1084,6 +1103,11 @@ class WebRtcPeer(
         handler.removeCallbacks(bootstrapRecovery)
         handler.removeCallbacks(controllerRelayRefresh)
         reconcileRemoteVideoTrack()
+        handler.removeCallbacks(videoStatsProbe)
+        handler.postDelayed(
+            videoStatsProbe,
+            VIDEO_STATS_INITIAL_DELAY_MS
+        )
         publishPeerConnected()
     }
 
@@ -1662,6 +1686,8 @@ class WebRtcPeer(
         private const val SCREEN_STREAM_ID = "remote-screen"
         private const val MAX_VIDEO_BITRATE_BPS = 1_500_000
         private const val MAX_VIDEO_FRAMERATE = 20
+        private const val VIDEO_STATS_INITIAL_DELAY_MS = 1_500L
+        private const val VIDEO_STATS_INTERVAL_MS = 3_000L
         private const val RESTART_ICE_REFRESH_TIMEOUT_MS = 1_500L
         private const val PRELIVE_ICE_REFRESH_TIMEOUT_MS = 5_000L
         private const val ICE_RESTART_MIN_INTERVAL_MS = 2_500L
