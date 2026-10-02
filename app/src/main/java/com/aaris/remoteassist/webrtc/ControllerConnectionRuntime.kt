@@ -116,15 +116,16 @@ object ControllerConnectionRuntime {
         listener: ControllerWebRtcSession.Listener
     ): ControllerWebRtcSession? {
         if (activeSessionId != sessionId) return null
+
+        /*
+         * Registration and replay are intentionally separate. Inline viewers
+         * register before their first layout pass, then call replayUiState()
+         * from View.post once TextureView/EGL can safely bind. Synchronous
+         * replay here used to duplicate geometry/video callbacks and could ask
+         * fragile OEM EGL stacks to attach a track before a real surface was
+         * available.
+         */
         uiListener = listener
-
-        if (connected) {
-            listener.onConnectivityChanged(true)
-        }
-        geometry?.let(listener::onLive)
-        remoteTrack?.let(listener::onRemoteVideoTrack)
-        fallbackFrame?.let(listener::onFallbackVideoFrame)
-
         return session
     }
 
