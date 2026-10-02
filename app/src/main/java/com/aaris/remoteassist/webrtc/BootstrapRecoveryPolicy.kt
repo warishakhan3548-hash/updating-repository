@@ -7,6 +7,16 @@ package com.aaris.remoteassist.webrtc
  * Connectivity can still need a few seconds on cellular, carrier-NAT or TURN.
  */
 internal object BootstrapRecoveryPolicy {
+    fun offerRedeliveryDelayMs(
+        completedAttempts: Int
+    ): Long = when {
+        completedAttempts <= 1 -> 5_000L
+        completedAttempts == 2 -> 8_000L
+        completedAttempts == 3 -> 12_000L
+        completedAttempts == 4 -> 20_000L
+        else -> 30_000L
+    }
+
     fun shouldWaitAfterRemoteAnswer(
         lastRemoteAnswerAppliedAtMs: Long,
         nowMs: Long,
