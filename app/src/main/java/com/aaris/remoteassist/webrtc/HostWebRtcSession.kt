@@ -560,14 +560,14 @@ class HostWebRtcSession(
         listener.onDiagnostic(snapshot.compact())
 
         if (snapshot.direction != "outbound") return
-        val reason = snapshot.qualityLimitationReason ?: return
 
         displayHandler.post {
             if (closed.get()) return@post
 
             captureQualityGovernor
                 .observeQualityLimitation(
-                    reason = reason,
+                    reason =
+                        snapshot.qualityLimitationReason,
                     roundTripTimeMs =
                         snapshot.roundTripTimeMs,
                     packetLossRatio =
