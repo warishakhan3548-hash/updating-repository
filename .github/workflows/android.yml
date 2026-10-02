@@ -96,7 +96,123 @@ jobs:
           STATUS="$(curl -sS -o /tmp/redeem-other.json -w '%{http_code}' -X POST "$BASE/v1/sessions/redeem" -H "content-type: application/json" -d "{\"code\":\"$CODE\",\"controllerToken\":\"$OTHER_TOKEN\"}")"
           test "$STATUS" = "409"
 
-          curl -fsS -X POST "$BASE/v1/sessions/$SID/state"             -H "authorization: Bearer $HOST_TOKEN"             -H "content-type: application/json"             -d '{"target":"SCREEN_READY"}' >/dev/null
+          # Production invariant: once the host explicitly approves the
+          # controller, the controller may prewarm ephemeral TURN and its
+          # signaling WebSocket before MediaProjection consent completes.
+          PREWARM_ICE="$(curl --retry 3 --retry-all-errors -fsS -X POST "$BASE/v1/sessions/$SID/ice"             -H "authorization: Bearer $CONTROLLER_TOKEN"             -H "content-type: application/json" -d "{}")"
+          printf '%s' "$PREWARM_ICE" | python3 -c '
+          import json,sys
+          d=json.load(sys.stdin)
+          servers=d.get("iceServers",[])
+          urls=[]
+          for server in servers:
+              value=server.get("urls",[])
+              urls.extend(value if isinstance(value,list) else [value])
+          assert any(isinstance(u,str) and (u.startswith("turn:") or u.startswith("turns:")) for u in urls)
+          '
+
+          python3 -m pip install --quiet "websockets==15.0.1"
+
+          # Reproduce the real Android ordering: controller socket first,
+          # SCREEN_READY second, host offer third. The already-open controller
+          # socket must receive the state transition and first offer.
+          python3 - <<'PY'
+          import asyncio, json, os, subprocess
+          import websockets
+
+          base = os.environ["BASE"]
+          sid = os.environ["SID"]
+          host_token = os.environ["HOST_TOKEN"]
+          controller_token = os.environ["CONTROLLER_TOKEN"]
+          ws_base = base.replace("https://", "wss://")
+
+          def curl_json(method, url, token, payload):
+              completed = subprocess.run(
+                  [
+                      "curl", "--retry", "3", "--retry-all-errors", "-fsS",
+                      "-X", method, url,
+                      "-H", f"authorization: Bearer {token}",
+                      "-H", "content-type: application/json",
+                      "-d", json.dumps(payload),
+                  ],
+                  check=False,
+                  capture_output=True,
+                  text=True,
+                  timeout=12,
+              )
+              if completed.returncode != 0:
+                  raise AssertionError(completed.stderr[-300:])
+              return json.loads(completed.stdout) if completed.stdout else {}
+
+          async def recv_match(ws, predicate):
+              for _ in range(20):
+                  raw = await asyncio.wait_for(ws.recv(), timeout=5)
+                  if isinstance(raw, bytes):
+                      raw = raw.decode()
+                  data = json.loads(raw)
+                  if predicate(data):
+                      return data
+              raise AssertionError("Expected prewarm WebSocket event was not delivered")
+
+          async def main():
+              headers = {"Authorization": f"Bearer {controller_token}"}
+              async with websockets.connect(
+                  f"{ws_base}/v1/sessions/{sid}/socket?after=0",
+                  additional_headers=headers,
+                  open_timeout=8,
+                  close_timeout=3,
+              ) as controller_ws:
+                  initial = await recv_match(
+                      controller_ws,
+                      lambda x: x.get("kind") == "session",
+                  )
+                  assert initial["session"]["state"] == "HOST_APPROVED"
+
+                  await asyncio.to_thread(
+                      curl_json,
+                      "POST",
+                      f"{base}/v1/sessions/{sid}/state",
+                      host_token,
+                      {"target": "SCREEN_READY"},
+                  )
+                  ready = await recv_match(
+                      controller_ws,
+                      lambda x: (
+                          x.get("kind") == "session"
+                          and x.get("session", {}).get("state") == "SCREEN_READY"
+                      ),
+                  )
+                  assert ready["session"]["state"] == "SCREEN_READY"
+
+                  await asyncio.to_thread(
+                      curl_json,
+                      "POST",
+                      f"{base}/v1/sessions/{sid}/events",
+                      host_token,
+                      {
+                          "kind": "description",
+                          "payload": {
+                              "type": "offer",
+                              "sdp": "v=0",
+                              "negotiationId": "ci-prewarm:1",
+                          },
+                      },
+                  )
+                  offer = await recv_match(
+                      controller_ws,
+                      lambda x: (
+                          x.get("kind") == "signal_event"
+                          and x.get("event", {}).get("kind") == "description"
+                          and x.get("event", {}).get("senderRole") == "host"
+                          and x.get("event", {}).get("payload", {}).get("negotiationId")
+                              == "ci-prewarm:1"
+                      ),
+                  )
+                  assert offer["event"]["payload"]["type"] == "offer"
+
+          asyncio.run(main())
+          PY
+
           test "$(state "$CONTROLLER_TOKEN")" = "SCREEN_READY"
 
           curl -fsS -X POST "$BASE/v1/sessions/$SID/events"             -H "authorization: Bearer $HOST_TOKEN"             -H "content-type: application/json"             -d '{"kind":"description","payload":{"type":"offer","sdp":"v=0","negotiationId":"smoke:1"}}' >/dev/null
@@ -108,8 +224,6 @@ jobs:
           events=d.get("events",[])
           assert any(e.get("kind")=="description" and e.get("senderRole")=="host" for e in events)
           '
-
-          python3 -m pip install --quiet "websockets==15.0.1"
           python3 - <<'PY'
           import asyncio, json, os, subprocess
           import websockets
