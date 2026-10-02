@@ -403,6 +403,7 @@ class InlineRemoteControllerView(
 
     fun hide() {
         if (!attached) return
+        session()?.setInteractionActive(false)
         attached = false
 
         mainHandler.removeCallbacks(mediaWatchdog)
@@ -563,13 +564,13 @@ class InlineRemoteControllerView(
             )
         }
 
-        addButton("Back") {
+        addButton("Back", autoHide = true) {
             session()?.sendBack()
         }
-        addButton("Home") {
+        addButton("Home", autoHide = true) {
             session()?.sendHome()
         }
-        addButton("Apps") {
+        addButton("Apps", autoHide = true) {
             session()?.sendRecents()
         }
         addButton("Hide") {
@@ -1152,13 +1153,19 @@ class InlineRemoteControllerView(
 
     private fun addButton(
         label: String,
+        autoHide: Boolean = false,
         action: () -> Unit
     ) {
         dock.addView(
             Button(activity).apply {
                 text = label
                 isAllCaps = false
-                setOnClickListener { action() }
+                setOnClickListener {
+                    action()
+                    if (autoHide) {
+                        setControlsVisible(false)
+                    }
+                }
             },
             LinearLayout.LayoutParams(
                 0,
@@ -1177,6 +1184,7 @@ class InlineRemoteControllerView(
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                s.setInteractionActive(true)
                 suppressSingleGestureUntilUp = false
                 multiTouchActive = false
                 downX = event.x
@@ -1254,6 +1262,7 @@ class InlineRemoteControllerView(
             }
 
             MotionEvent.ACTION_UP -> {
+                s.setInteractionActive(false)
                 if (multiTouchActive) {
                     updateMultiTouch(event)
                     if (g.generation == gestureGeneration) {
@@ -1292,6 +1301,7 @@ class InlineRemoteControllerView(
             }
 
             MotionEvent.ACTION_CANCEL -> {
+                s.setInteractionActive(false)
                 gesturePoints.clear()
                 resetMultiTouch()
                 suppressSingleGestureUntilUp = false
@@ -1615,10 +1625,10 @@ class InlineRemoteControllerView(
         private const val CONTROLS_AUTO_HIDE_MS = 5_000L
         private const val HANDLE_EDGE_MARGIN_DP = 8
         private const val HANDLE_SNAP_MS = 140L
-        private const val HANDLE_PEEK_DELAY_MS = 1_500L
+        private const val HANDLE_PEEK_DELAY_MS = 650L
         private const val HANDLE_PEEK_ANIMATION_MS = 120L
-        private const val HANDLE_PEEK_DP = 14
-        private const val HANDLE_PEEK_ALPHA = 0.58f
+        private const val HANDLE_PEEK_DP = 10
+        private const val HANDLE_PEEK_ALPHA = 0.46f
 
         private const val TOUCH_SAMPLE_INTERVAL_MS = 24L
         private const val MAX_LOCAL_GESTURE_POINTS = 192
