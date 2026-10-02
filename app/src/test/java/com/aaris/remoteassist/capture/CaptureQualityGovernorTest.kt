@@ -6,7 +6,63 @@ import org.junit.Test
 
 class CaptureQualityGovernorTest {
     @Test
-    fun persistentBandwidthPressureDowngradesOnlyAfterHysteresis() {
+    fun healthyBandwidthReasonDoesNotSacrificeResolution() {
+        val governor =
+            CaptureQualityGovernor(
+                initialTier = CaptureTier.STANDARD,
+                maxTier = CaptureTier.STANDARD
+            )
+
+        repeat(
+            CaptureQualityGovernor.BANDWIDTH_ONLY_DOWNGRADE_SAMPLE_COUNT + 2
+        ) {
+            assertNull(
+                governor.observeQualityLimitation(
+                    reason = "bandwidth",
+                    roundTripTimeMs = 150,
+                    packetLossRatio = 0.005
+                )
+            )
+        }
+
+        assertEquals(
+            CaptureTier.STANDARD,
+            governor.currentTier()
+        )
+    }
+
+    @Test
+    fun bandwidthWithoutTelemetryUsesLongerFallbackHysteresis() {
+        val governor =
+            CaptureQualityGovernor(
+                initialTier = CaptureTier.STANDARD,
+                maxTier = CaptureTier.STANDARD
+            )
+
+        repeat(
+            CaptureQualityGovernor.BANDWIDTH_ONLY_DOWNGRADE_SAMPLE_COUNT - 1
+        ) {
+            assertNull(
+                governor.observeQualityLimitation(
+                    reason = "bandwidth"
+                )
+            )
+        }
+
+        assertEquals(
+            CaptureTier.BALANCED,
+            governor.observeQualityLimitation(
+                reason = "bandwidth"
+            )
+        )
+        assertEquals(
+            CaptureTier.BALANCED,
+            governor.currentTier()
+        )
+    }
+
+    @Test
+    fun bandwidthWithRealNetworkPressureUsesNormalHysteresis() {
         val governor =
             CaptureQualityGovernor(
                 initialTier = CaptureTier.STANDARD,
@@ -14,15 +70,19 @@ class CaptureQualityGovernorTest {
             )
 
         assertNull(
-            governor.observeQualityLimitation("bandwidth")
+            governor.observeQualityLimitation(
+                reason = "bandwidth",
+                roundTripTimeMs = 700,
+                packetLossRatio = 0.01
+            )
         )
         assertEquals(
             CaptureTier.BALANCED,
-            governor.observeQualityLimitation("bandwidth")
-        )
-        assertEquals(
-            CaptureTier.BALANCED,
-            governor.currentTier()
+            governor.observeQualityLimitation(
+                reason = "bandwidth",
+                roundTripTimeMs = 710,
+                packetLossRatio = 0.01
+            )
         )
     }
 
@@ -205,6 +265,64 @@ class CaptureQualityGovernorTest {
     }
 
     @Test
+    fun nullReasonWithHealthyTelemetryRestoresVendorQuality() {
+        val governor =
+            CaptureQualityGovernor(
+                initialTier = CaptureTier.LOW,
+                maxTier = CaptureTier.STANDARD
+            )
+
+        repeat(CaptureQualityGovernor.UPGRADE_SAMPLE_COUNT - 1) {
+            assertNull(
+                governor.observeQualityLimitation(
+                    reason = null,
+                    roundTripTimeMs = 125,
+                    packetLossRatio = 0.004
+                )
+            )
+        }
+
+        assertEquals(
+            CaptureTier.BALANCED,
+            governor.observeQualityLimitation(
+                reason = null,
+                roundTripTimeMs = 125,
+                packetLossRatio = 0.004
+            )
+        )
+    }
+
+    @Test
+    fun healthyBandwidthProbesHigherTierSlowly() {
+        val governor =
+            CaptureQualityGovernor(
+                initialTier = CaptureTier.BALANCED,
+                maxTier = CaptureTier.STANDARD
+            )
+
+        repeat(
+            CaptureQualityGovernor.BANDWIDTH_PROBE_UPGRADE_SAMPLE_COUNT - 1
+        ) {
+            assertNull(
+                governor.observeQualityLimitation(
+                    reason = "bandwidth",
+                    roundTripTimeMs = 130,
+                    packetLossRatio = 0.004
+                )
+            )
+        }
+
+        assertEquals(
+            CaptureTier.STANDARD,
+            governor.observeQualityLimitation(
+                reason = "bandwidth",
+                roundTripTimeMs = 130,
+                packetLossRatio = 0.004
+            )
+        )
+    }
+
+    @Test
     fun healthyReasonWithBadTelemetryDoesNotRecover() {
         val governor =
             CaptureQualityGovernor(
@@ -251,7 +369,7 @@ class CaptureQualityGovernorTest {
     }
 
     @Test
-    fun unknownReasonResetsBandwidthPressureStreak() {
+    fun unknownReasonResetsBandwidthOnlyPressureStreak() {
         val governor =
             CaptureQualityGovernor(
                 initialTier = CaptureTier.STANDARD,
@@ -264,9 +382,15 @@ class CaptureQualityGovernorTest {
         assertNull(
             governor.observeQualityLimitation("other")
         )
-        assertNull(
-            governor.observeQualityLimitation("bandwidth")
-        )
+
+        repeat(
+            CaptureQualityGovernor.BANDWIDTH_ONLY_DOWNGRADE_SAMPLE_COUNT - 1
+        ) {
+            assertNull(
+                governor.observeQualityLimitation("bandwidth")
+            )
+        }
+
         assertEquals(
             CaptureTier.BALANCED,
             governor.observeQualityLimitation("bandwidth")
