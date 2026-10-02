@@ -25,6 +25,8 @@ import com.aaris.remoteassist.pairing.BackendSessionCloser
 import com.aaris.remoteassist.pairing.CloudflarePairingGateway
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionState
+import com.aaris.remoteassist.webrtc.ControllerConnectionRuntime
+import com.aaris.remoteassist.webrtc.ControllerConnectionService
 import com.aaris.remoteassist.webrtc.ControllerWebRtcSession
 import com.aaris.remoteassist.webrtc.RemoteGeometry
 import com.aaris.remoteassist.webrtc.WebRtcRuntime
@@ -193,7 +195,7 @@ class RemoteControlActivity : ComponentActivity() {
         videoFrameWatchdog?.cancel()
         videoFrameWatchdog = null
 
-        rtcSession?.close(notifyRemote = false)
+        ControllerConnectionRuntime.detachUi()
         rtcSession = null
 
         if (
@@ -502,7 +504,7 @@ class RemoteControlActivity : ComponentActivity() {
 
         var createdSession: ControllerWebRtcSession? = null
         rtcSession = runCatching {
-            ControllerWebRtcSession(
+            ControllerConnectionRuntime.attachOrStart(
             context = this,
             sessionId = id,
             listener = object : ControllerWebRtcSession.Listener {
@@ -859,10 +861,27 @@ class RemoteControlActivity : ComponentActivity() {
         videoFrameWatchdog?.cancel()
         videoFrameWatchdog = null
 
-        rtcSession?.close()
+        val id = sessionId
+        if (id != null) {
+            ControllerConnectionRuntime.close(
+                id,
+                notifyRemote = true
+            )
+            runCatching {
+                startService(
+                    Intent(
+                        this,
+                        ControllerConnectionService::class.java
+                    ).apply {
+                        action =
+                            ControllerConnectionService.ACTION_STOP
+                    }
+                )
+            }
+        }
         rtcSession = null
 
-        val id = sessionId
+        
         if (id != null) {
             if (closeBackend) {
                 BackendSessionCloser.close(this, id)
