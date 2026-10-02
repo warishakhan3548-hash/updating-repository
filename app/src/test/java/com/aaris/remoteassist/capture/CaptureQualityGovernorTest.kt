@@ -27,6 +27,67 @@ class CaptureQualityGovernorTest {
     }
 
     @Test
+    fun severePacketLossDowngradesImmediately() {
+        val governor =
+            CaptureQualityGovernor(
+                initialTier = CaptureTier.STANDARD,
+                maxTier = CaptureTier.STANDARD
+            )
+
+        assertEquals(
+            CaptureTier.BALANCED,
+            governor.observeQualityLimitation(
+                reason = "none",
+                roundTripTimeMs = 180,
+                packetLossRatio = 0.14
+            )
+        )
+    }
+
+    @Test
+    fun severeRttDowngradesImmediately() {
+        val governor =
+            CaptureQualityGovernor(
+                initialTier = CaptureTier.STANDARD,
+                maxTier = CaptureTier.STANDARD
+            )
+
+        assertEquals(
+            CaptureTier.BALANCED,
+            governor.observeQualityLimitation(
+                reason = "none",
+                roundTripTimeMs = 950,
+                packetLossRatio = 0.0
+            )
+        )
+    }
+
+    @Test
+    fun moderateNetworkPressureStillUsesHysteresis() {
+        val governor =
+            CaptureQualityGovernor(
+                initialTier = CaptureTier.STANDARD,
+                maxTier = CaptureTier.STANDARD
+            )
+
+        assertNull(
+            governor.observeQualityLimitation(
+                reason = "none",
+                roundTripTimeMs = 700,
+                packetLossRatio = 0.01
+            )
+        )
+        assertEquals(
+            CaptureTier.BALANCED,
+            governor.observeQualityLimitation(
+                reason = "none",
+                roundTripTimeMs = 700,
+                packetLossRatio = 0.01
+            )
+        )
+    }
+
+    @Test
     fun healthySamplesRestoreQualitySlowly() {
         val governor =
             CaptureQualityGovernor(
@@ -38,13 +99,21 @@ class CaptureQualityGovernorTest {
             CaptureQualityGovernor.UPGRADE_SAMPLE_COUNT - 1
         ) {
             assertNull(
-                governor.observeQualityLimitation("none")
+                governor.observeQualityLimitation(
+                    reason = "none",
+                    roundTripTimeMs = 120,
+                    packetLossRatio = 0.005
+                )
             )
         }
 
         assertEquals(
             CaptureTier.BALANCED,
-            governor.observeQualityLimitation("none")
+            governor.observeQualityLimitation(
+                reason = "none",
+                roundTripTimeMs = 120,
+                packetLossRatio = 0.005
+            )
         )
         assertEquals(
             CaptureTier.BALANCED,
@@ -55,16 +124,46 @@ class CaptureQualityGovernorTest {
             CaptureQualityGovernor.UPGRADE_SAMPLE_COUNT - 1
         ) {
             assertNull(
-                governor.observeQualityLimitation("none")
+                governor.observeQualityLimitation(
+                    reason = "none",
+                    roundTripTimeMs = 120,
+                    packetLossRatio = 0.005
+                )
             )
         }
 
         assertEquals(
             CaptureTier.STANDARD,
-            governor.observeQualityLimitation("none")
+            governor.observeQualityLimitation(
+                reason = "none",
+                roundTripTimeMs = 120,
+                packetLossRatio = 0.005
+            )
         )
         assertEquals(
             CaptureTier.STANDARD,
+            governor.currentTier()
+        )
+    }
+
+    @Test
+    fun healthyReasonWithBadTelemetryDoesNotRecover() {
+        val governor =
+            CaptureQualityGovernor(
+                initialTier = CaptureTier.BALANCED,
+                maxTier = CaptureTier.STANDARD
+            )
+
+        repeat(CaptureQualityGovernor.UPGRADE_SAMPLE_COUNT) {
+            governor.observeQualityLimitation(
+                reason = "none",
+                roundTripTimeMs = 500,
+                packetLossRatio = 0.03
+            )
+        }
+
+        assertEquals(
+            CaptureTier.BALANCED,
             governor.currentTier()
         )
     }
@@ -79,7 +178,11 @@ class CaptureQualityGovernorTest {
 
         repeat(CaptureQualityGovernor.UPGRADE_SAMPLE_COUNT) {
             assertNull(
-                governor.observeQualityLimitation("none")
+                governor.observeQualityLimitation(
+                    reason = "none",
+                    roundTripTimeMs = 100,
+                    packetLossRatio = 0.0
+                )
             )
         }
 
