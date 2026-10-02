@@ -30,7 +30,7 @@ class HostWebRtcSession(
         fun onProjectionStopped()
         fun onRemoteDisconnect()
         fun onLocalControlUnavailable()
-        fun onDiagnostic(message: String)
+        fun onDiagnostic(message: String) = Unit
         fun onRecoverableError(error: Throwable)
         fun onTerminalError(error: Throwable)
     }
