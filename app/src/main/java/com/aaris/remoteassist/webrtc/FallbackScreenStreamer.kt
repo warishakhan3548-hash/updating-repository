@@ -107,7 +107,7 @@ class FallbackScreenStreamer(
             return
         }
 
-        val i420 = frame.buffer.toI420()
+        val i420 = frame.buffer.toI420() ?: return
         try {
             val width = i420.width
             val height = i420.height
