@@ -618,7 +618,7 @@ class InlineRemoteControllerView(
             isAllCaps = false
             visibility = View.GONE
             contentDescription =
-                "Remote controls. Drag to move. When parked, tap controls the screen underneath; hold to open controls."
+                "Remote controls. Drag to move when visible. When parked, tap or swipe controls the screen underneath; hold to open controls."
             setOnClickListener {
                 setControlsVisible(true)
             }
@@ -648,60 +648,100 @@ class InlineRemoteControllerView(
                     MotionEvent.ACTION_MOVE -> {
                         val dx = event.rawX - handleDownRawX
                         val dy = event.rawY - handleDownRawY
-                        if (
-                            !handleDragging &&
-                            dx * dx + dy * dy >=
-                            touchSlop * touchSlop
-                        ) {
-                            handleDragging = true
-                            controlHandleParked = false
-                            view.alpha = 1f
-                        }
 
-                        if (handleDragging) {
-                            val margin = dp(HANDLE_EDGE_MARGIN_DP).toFloat()
-                            val maxX =
-                                (root.width - view.width).toFloat() - margin
-                            val maxY =
-                                (root.height - view.height).toFloat() - margin
+                        /*
+                         * Once parked, the tiny edge strip becomes part of the
+                         * remote surface. Do not steal an edge swipe just to
+                         * reposition controls. The full 48dp handle can still
+                         * be dragged whenever it is visible/unparked.
+                         */
+                        if (!handleWasParkedOnDown) {
+                            if (
+                                !handleDragging &&
+                                dx * dx + dy * dy >=
+                                touchSlop * touchSlop
+                            ) {
+                                handleDragging = true
+                                controlHandleParked = false
+                                view.alpha = 1f
+                            }
 
-                            view.x =
-                                (handleStartX + dx).coerceIn(
-                                    margin,
-                                    maxX.coerceAtLeast(margin)
-                                )
-                            view.y =
-                                (handleStartY + dy).coerceIn(
-                                    margin,
-                                    maxY.coerceAtLeast(margin)
-                                )
+                            if (handleDragging) {
+                                val margin =
+                                    dp(HANDLE_EDGE_MARGIN_DP).toFloat()
+                                val maxX =
+                                    (root.width - view.width).toFloat() -
+                                        margin
+                                val maxY =
+                                    (root.height - view.height).toFloat() -
+                                        margin
+
+                                view.x =
+                                    (handleStartX + dx).coerceIn(
+                                        margin,
+                                        maxX.coerceAtLeast(margin)
+                                    )
+                                view.y =
+                                    (handleStartY + dy).coerceIn(
+                                        margin,
+                                        maxY.coerceAtLeast(margin)
+                                    )
+                            }
                         }
                         true
                     }
 
                     MotionEvent.ACTION_UP -> {
-                        if (handleDragging) {
-                            controlHandleUserMoved = true
-                            snapControlHandleToNearestEdge()
-                        } else if (handleWasParkedOnDown) {
+                        if (handleWasParkedOnDown) {
                             val heldFor =
                                 event.eventTime -
                                     handleDownAt
-                            if (
-                                heldFor >=
-                                ViewConfiguration.getLongPressTimeout()
-                            ) {
-                                controlHandleParked = false
-                                setControlsVisible(true)
-                            } else {
-                                forwardParkedHandleTap(
-                                    event.rawX,
-                                    event.rawY
-                                )
-                                controlHandleParked = true
-                                applyParkedHandlePosition()
-                                scheduleControlHandlePeek()
+                            val dx =
+                                event.rawX -
+                                    handleDownRawX
+                            val dy =
+                                event.rawY -
+                                    handleDownRawY
+                            val moved =
+                                dx * dx + dy * dy >=
+                                    touchSlop * touchSlop
+
+                            when {
+                                !moved &&
+                                    heldFor >=
+                                        ViewConfiguration
+                                            .getLongPressTimeout() -> {
+                                    controlHandleParked = false
+                                    setControlsVisible(true)
+                                }
+
+                                moved -> {
+                                    forwardParkedHandleSwipe(
+                                        fromRawX = handleDownRawX,
+                                        fromRawY = handleDownRawY,
+                                        toRawX = event.rawX,
+                                        toRawY = event.rawY,
+                                        durationMs =
+                                            heldFor.toInt()
+                                    )
+                                    controlHandleParked = true
+                                    applyParkedHandlePosition()
+                                    scheduleControlHandlePeek()
+                                }
+
+                                else -> {
+                                    forwardParkedHandleTap(
+                                        event.rawX,
+                                        event.rawY
+                                    )
+                                    controlHandleParked = true
+                                    applyParkedHandlePosition()
+                                    scheduleControlHandlePeek()
+                                }
                             }
+                        } else if (handleDragging) {
+                            controlHandleUserMoved = true
+                            snapControlHandleToNearestEdge()
                         } else {
                             view.performClick()
                         }
@@ -761,6 +801,59 @@ class InlineRemoteControllerView(
             point.x,
             point.y,
             currentGeometry.generation
+        )
+        scheduleRemoteMotionIdle()
+    }
+
+    private fun forwardParkedHandleSwipe(
+        fromRawX: Float,
+        fromRawY: Float,
+        toRawX: Float,
+        toRawY: Float,
+        durationMs: Int
+    ) {
+        val currentGeometry = geometry ?: return
+        val currentSession = session() ?: return
+        if (
+            !fromRawX.isFinite() ||
+            !fromRawY.isFinite() ||
+            !toRawX.isFinite() ||
+            !toRawY.isFinite()
+        ) {
+            return
+        }
+
+        val location = IntArray(2)
+        rendererContainer.getLocationOnScreen(location)
+        val start =
+            normalize(
+                x = fromRawX - location[0],
+                y = fromRawY - location[1],
+                geometry = currentGeometry,
+                clampToContent = false
+            ) ?: return
+        val end =
+            normalize(
+                x = toRawX - location[0],
+                y = toRawY - location[1],
+                geometry = currentGeometry,
+                clampToContent = true
+            ) ?: return
+
+        beginRemoteMotion()
+        currentSession.sendSwipe(
+            fromNx = start.x,
+            fromNy = start.y,
+            toNx = end.x,
+            toNy = end.y,
+            durationMs =
+                latencyOptimizedGestureDuration(
+                    durationMs.coerceAtLeast(
+                        MIN_REMOTE_GESTURE_MS
+                    )
+                ),
+            expectedGeneration =
+                currentGeometry.generation
         )
         scheduleRemoteMotionIdle()
     }
@@ -2069,10 +2162,10 @@ class InlineRemoteControllerView(
         private const val CONTROLS_AUTO_HIDE_MS = 5_000L
         private const val HANDLE_EDGE_MARGIN_DP = 8
         private const val HANDLE_SNAP_MS = 140L
-        private const val HANDLE_PEEK_DELAY_MS = 650L
+        private const val HANDLE_PEEK_DELAY_MS = 450L
         private const val HANDLE_PEEK_ANIMATION_MS = 120L
-        private const val HANDLE_PEEK_DP = 10
-        private const val HANDLE_PEEK_ALPHA = 0.46f
+        private const val HANDLE_PEEK_DP = 8
+        private const val HANDLE_PEEK_ALPHA = 0.38f
         private const val REMOTE_MOTION_TAIL_MS = 1_400L
 
         /*
