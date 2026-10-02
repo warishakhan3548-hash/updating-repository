@@ -26,7 +26,7 @@ object FallbackVideoProtocol {
     private const val HEADER_BYTES = 24
     private const val MAX_CHUNK_PAYLOAD = 12_000
     private const val MAX_CHUNKS = 64
-    private const val MAX_FRAME_BYTES = 700_000
+    private const val MAX_FRAME_BYTES = 720_000
 
     fun encodeFrame(
         frameId: Long,
