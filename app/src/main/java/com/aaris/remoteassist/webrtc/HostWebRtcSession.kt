@@ -30,7 +30,8 @@ class HostWebRtcSession(
         fun onProjectionStopped()
         fun onRemoteDisconnect()
         fun onLocalControlUnavailable()
-        fun onError(error: Throwable)
+        fun onRecoverableError(error: Throwable)
+        fun onTerminalError(error: Throwable)
     }
 
     private val appContext = context.applicationContext
@@ -110,7 +111,7 @@ class HostWebRtcSession(
                 return
             }
 
-            listener.onError(
+            listener.onTerminalError(
                 IllegalStateException(
                     "Screen capture produced no video frames"
                 )
@@ -384,7 +385,7 @@ class HostWebRtcSession(
     override fun onRemoteVideoTrack(track: VideoTrack) = Unit
 
     override fun onError(error: Throwable) {
-        listener.onError(error)
+        listener.onRecoverableError(error)
     }
 
     override fun close() {
@@ -430,17 +431,17 @@ class HostWebRtcSession(
             return
         }
 
-        displayHandler.removeCallbacks(connectionWatchdog)
         displayHandler.removeCallbacks(startupControlRecovery)
 
         val firstLive = lease == null
         val currentLease = runCatching {
             SessionCoordinator.activateLive(sessionId)
         }.getOrElse {
-            listener.onError(it)
+            listener.onTerminalError(it)
             return
         }
 
+        displayHandler.removeCallbacks(connectionWatchdog)
         transportReady = true
         lease = currentLease
 

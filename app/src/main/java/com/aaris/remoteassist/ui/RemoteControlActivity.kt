@@ -546,7 +546,17 @@ class RemoteControlActivity : ComponentActivity() {
                     }
                 }
 
-                override fun onError(error: Throwable) {
+                override fun onRecoverableError(error: Throwable) {
+                    runOnUiThread {
+                        if (!disconnecting) {
+                            showStatus(
+                                "Connection issue • recovering…"
+                            )
+                        }
+                    }
+                }
+
+                override fun onTerminalError(error: Throwable) {
                     runOnUiThread {
                         if (!disconnecting) {
                             finishController(

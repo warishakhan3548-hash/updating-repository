@@ -115,7 +115,14 @@ export class AarisSession extends DurableObject{
       }else{o={ok:false,status:400,code:"unsupported_transition"};return}
       await t.put("session",s);o={ok:true,snapshot:pub(s)};
     });
-    if(o.ok)this.broadcastSession(await this.session());
+    if(o.ok){
+      console.log(JSON.stringify({
+        event:"session_transition",
+        target,
+        state:o.snapshot.state
+      }));
+      this.broadcastSession(await this.session());
+    }
     return o;
   }
   async closeSession(h,now){
@@ -141,6 +148,12 @@ export class AarisSession extends DurableObject{
       await t.put("seq",seq);await t.put("e:"+String(seq).padStart(12,"0"),e);
       if(seq>MAX_EVENTS)await t.delete("e:"+String(seq-MAX_EVENTS).padStart(12,"0"));
     });
+    console.log(JSON.stringify({
+      event:"signal_event",
+      kind,
+      senderRole:r,
+      seq:e.seq
+    }));
     this.broadcastEvent(e);return{ok:true,event:e};
   }
   async eventsAfter(h,after){
@@ -158,13 +171,26 @@ export class AarisSession extends DurableObject{
     const h=await sha(raw),s=await this.session(),r=this.role(s,h);if(!r)return new Response("Unauthorized",{status:401});
     const pair=new WebSocketPair(),[client,server]=Object.values(pair);
     this.ctx.acceptWebSocket(server,[r]);server.serializeAttachment({role:r});
+    console.log(JSON.stringify({
+      event:"socket_open",
+      role:r,
+      after:Math.max(0,Number(u.searchParams.get("after")||0)||0)
+    }));
     server.send(JSON.stringify({kind:"session",session:pub(s)}));
     const backlog=await this.eventsAfter(h,Math.max(0,Number(u.searchParams.get("after")||0)||0));
     if(backlog.ok)for(const e of backlog.events)server.send(JSON.stringify({kind:"signal_event",event:e}));
     return new Response(null,{status:101,webSocket:client});
   }
   async webSocketMessage(ws,m){if(m==="ping")ws.send("pong")}
-  async webSocketClose(ws,c,r){try{ws.close(c,r)}catch(_){}}
+  async webSocketClose(ws,c,r){
+    const a=ws.deserializeAttachment?.();
+    console.log(JSON.stringify({
+      event:"socket_close",
+      role:a?.role||"unknown",
+      code:c
+    }));
+    try{ws.close(c,r)}catch(_){}
+  }
   async webSocketError(ws){try{ws.close(1011,"socket error")}catch(_){}}
   async alarm(){
     const s=await this.session();if(!s)return;const now=Date.now();
@@ -187,7 +213,7 @@ export default{
     try{
       const u=new URL(request.url);
       if(request.method==="GET"&&u.pathname==="/healthz"){
-        return j({ok:true,service:"aaris-remote-ice",backend:"cloudflare-durable-objects",version:2});
+        return j({ok:true,service:"aaris-remote-ice",backend:"cloudflare-durable-objects",version:3});
       }
 
       if(request.method==="POST"&&u.pathname==="/v1/sessions"){
@@ -258,6 +284,10 @@ export default{
           body:JSON.stringify({ttl:1800})
         });
         if(!upstream.ok)return fail(503,"turn_unavailable","TURN is temporarily unavailable.");
+        console.log(JSON.stringify({
+          event:"turn_issued",
+          role:a.role
+        }));
         return new Response(await upstream.text(),{status:200,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store","x-content-type-options":"nosniff"}});
       }
       return fail(404,"not_found","Not found.");
