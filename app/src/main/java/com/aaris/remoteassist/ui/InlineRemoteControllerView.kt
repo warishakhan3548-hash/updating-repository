@@ -152,6 +152,12 @@ class InlineRemoteControllerView(
         }
     }
 
+    private val interactionIdle = Runnable {
+        if (attached) {
+            session()?.setInteractionActive(false)
+        }
+    }
+
     private val renderSink = VideoSink { frame ->
         val rotatedWidth = frame.rotatedWidth
         val rotatedHeight = frame.rotatedHeight
@@ -403,6 +409,8 @@ class InlineRemoteControllerView(
 
     fun hide() {
         if (!attached) return
+        mainHandler.removeCallbacks(interactionIdle)
+        session()?.setInteractionActive(false)
         attached = false
 
         mainHandler.removeCallbacks(mediaWatchdog)
@@ -563,13 +571,13 @@ class InlineRemoteControllerView(
             )
         }
 
-        addButton("Back") {
+        addButton("Back", autoHide = true) {
             session()?.sendBack()
         }
-        addButton("Home") {
+        addButton("Home", autoHide = true) {
             session()?.sendHome()
         }
-        addButton("Apps") {
+        addButton("Apps", autoHide = true) {
             session()?.sendRecents()
         }
         addButton("Hide") {
@@ -1152,13 +1160,23 @@ class InlineRemoteControllerView(
 
     private fun addButton(
         label: String,
+        autoHide: Boolean = false,
         action: () -> Unit
     ) {
         dock.addView(
             Button(activity).apply {
                 text = label
                 isAllCaps = false
-                setOnClickListener { action() }
+                setOnClickListener {
+                    if (autoHide) {
+                        beginRemoteMotion()
+                    }
+                    action()
+                    if (autoHide) {
+                        scheduleRemoteMotionIdle()
+                        setControlsVisible(false)
+                    }
+                }
             },
             LinearLayout.LayoutParams(
                 0,
@@ -1177,6 +1195,7 @@ class InlineRemoteControllerView(
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                beginRemoteMotion()
                 suppressSingleGestureUntilUp = false
                 multiTouchActive = false
                 downX = event.x
@@ -1249,6 +1268,7 @@ class InlineRemoteControllerView(
                     }
                     resetMultiTouch()
                     suppressSingleGestureUntilUp = true
+                    scheduleRemoteMotionIdle()
                 }
                 return true
             }
@@ -1262,17 +1282,20 @@ class InlineRemoteControllerView(
                     resetMultiTouch()
                     gesturePoints.clear()
                     suppressSingleGestureUntilUp = false
+                    scheduleRemoteMotionIdle()
                     return true
                 }
 
                 if (suppressSingleGestureUntilUp) {
                     suppressSingleGestureUntilUp = false
                     gesturePoints.clear()
+                    scheduleRemoteMotionIdle()
                     return true
                 }
 
                 if (g.generation != gestureGeneration) {
                     gesturePoints.clear()
+                    scheduleRemoteMotionIdle()
                     return true
                 }
 
@@ -1288,10 +1311,13 @@ class InlineRemoteControllerView(
                     upY = event.y
                 )
                 gesturePoints.clear()
+                scheduleRemoteMotionIdle()
                 return true
             }
 
             MotionEvent.ACTION_CANCEL -> {
+                mainHandler.removeCallbacks(interactionIdle)
+                s.setInteractionActive(false)
                 gesturePoints.clear()
                 resetMultiTouch()
                 suppressSingleGestureUntilUp = false
@@ -1300,6 +1326,21 @@ class InlineRemoteControllerView(
         }
 
         return true
+    }
+
+    private fun beginRemoteMotion() {
+        mainHandler.removeCallbacks(interactionIdle)
+        session()?.setInteractionActive(true)
+    }
+
+    private fun scheduleRemoteMotionIdle() {
+        mainHandler.removeCallbacks(interactionIdle)
+        if (attached) {
+            mainHandler.postDelayed(
+                interactionIdle,
+                REMOTE_MOTION_TAIL_MS
+            )
+        }
     }
 
     private fun finishSingleGesture(
@@ -1615,10 +1656,11 @@ class InlineRemoteControllerView(
         private const val CONTROLS_AUTO_HIDE_MS = 5_000L
         private const val HANDLE_EDGE_MARGIN_DP = 8
         private const val HANDLE_SNAP_MS = 140L
-        private const val HANDLE_PEEK_DELAY_MS = 1_500L
+        private const val HANDLE_PEEK_DELAY_MS = 650L
         private const val HANDLE_PEEK_ANIMATION_MS = 120L
-        private const val HANDLE_PEEK_DP = 14
-        private const val HANDLE_PEEK_ALPHA = 0.58f
+        private const val HANDLE_PEEK_DP = 10
+        private const val HANDLE_PEEK_ALPHA = 0.46f
+        private const val REMOTE_MOTION_TAIL_MS = 1_400L
 
         private const val TOUCH_SAMPLE_INTERVAL_MS = 24L
         private const val MAX_LOCAL_GESTURE_POINTS = 192

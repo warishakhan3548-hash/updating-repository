@@ -41,9 +41,9 @@ data class CaptureProfile(
 ) {
     companion object {
         private const val LOW_CAPTURE_LONG_SIDE = 720
-        private const val BALANCED_CAPTURE_LONG_SIDE = 1080
-        private const val STANDARD_CAPTURE_LONG_SIDE = 1600
-        private const val HIGH_CAPTURE_LONG_SIDE = 1920
+        private const val BALANCED_CAPTURE_LONG_SIDE = 1200
+        private const val STANDARD_CAPTURE_LONG_SIDE = 1920
+        private const val HIGH_CAPTURE_LONG_SIDE = 2400
 
         private const val LOW_FPS = 15
         private const val BALANCED_FPS = 24
@@ -51,9 +51,9 @@ data class CaptureProfile(
         private const val HIGH_FPS = 30
 
         private const val LOW_BITRATE_BPS = 1_200_000
-        private const val BALANCED_BITRATE_BPS = 2_400_000
-        private const val STANDARD_BITRATE_BPS = 4_000_000
-        private const val HIGH_BITRATE_BPS = 5_500_000
+        private const val BALANCED_BITRATE_BPS = 2_800_000
+        private const val STANDARD_BITRATE_BPS = 5_200_000
+        private const val HIGH_BITRATE_BPS = 7_500_000
 
         private const val LOW_MEMORY_BYTES = 3L * 1024L * 1024L * 1024L
         private const val HIGH_MEMORY_BYTES = 6L * 1024L * 1024L * 1024L

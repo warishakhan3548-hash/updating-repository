@@ -16,7 +16,7 @@ class CaptureProfileTest {
         assertEquals(720, profile.captureWidthPx)
         assertEquals(1600, profile.captureHeightPx)
         assertEquals(30, profile.fps)
-        assertEquals(4_000_000, profile.maxVideoBitrateBps)
+        assertEquals(5_200_000, profile.maxVideoBitrateBps)
     }
 
     @Test
@@ -28,9 +28,10 @@ class CaptureProfileTest {
                 tier = CaptureTier.STANDARD
             )
 
-        assertEquals(720, profile.captureWidthPx)
-        assertEquals(1600, profile.captureHeightPx)
+        assertEquals(864, profile.captureWidthPx)
+        assertEquals(1920, profile.captureHeightPx)
         assertEquals(30, profile.fps)
+        assertEquals(5_200_000, profile.maxVideoBitrateBps)
     }
 
     @Test
@@ -42,10 +43,10 @@ class CaptureProfileTest {
                 tier = CaptureTier.BALANCED
             )
 
-        assertEquals(486, profile.captureWidthPx)
-        assertEquals(1080, profile.captureHeightPx)
+        assertEquals(540, profile.captureWidthPx)
+        assertEquals(1200, profile.captureHeightPx)
         assertEquals(24, profile.fps)
-        assertEquals(2_400_000, profile.maxVideoBitrateBps)
+        assertEquals(2_800_000, profile.maxVideoBitrateBps)
     }
 
     @Test

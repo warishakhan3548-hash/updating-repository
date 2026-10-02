@@ -47,6 +47,9 @@ class ControllerWebRtcSession(
     @Volatile
     private var geometry: RemoteGeometry? = null
 
+    @Volatile
+    private var interactionActive = false
+
     private val signaling = CloudflareSignalingClient(
         context = appContext,
         sessionId = sessionId,
@@ -128,6 +131,24 @@ class ControllerWebRtcSession(
                 )
             )
         )
+    }
+
+    fun setInteractionActive(active: Boolean): Boolean {
+        if (closed.get()) return false
+
+        val lease = leaseSecret ?: return false
+        val sent = peer.sendControl(
+            ControlProtocol.encode(
+                ControlPacket.InteractionState(
+                    leaseSecret = lease,
+                    active = active
+                )
+            )
+        )
+        if (sent) {
+            interactionActive = active
+        }
+        return sent
     }
 
     fun requestMediaRecovery(): Boolean {
@@ -386,6 +407,7 @@ class ControllerWebRtcSession(
     }
 
     override fun onControlChannelClosed() {
+        interactionActive = false
         transport.onControlChannelClosed()
             ?.let(listener::onConnectivityChanged)
     }
@@ -402,6 +424,7 @@ class ControllerWebRtcSession(
                 }
 
                 leaseSecret = packet.leaseSecret
+                interactionActive = false
                 handler.removeCallbacks(helloWatchdog)
                 val geometry = RemoteGeometry(
                     generation = packet.generation,
@@ -473,6 +496,7 @@ class ControllerWebRtcSession(
 
         leaseSecret = null
         geometry = null
+        interactionActive = false
     }
 
     companion object {

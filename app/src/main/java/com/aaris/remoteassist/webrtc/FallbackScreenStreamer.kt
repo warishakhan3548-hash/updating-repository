@@ -264,8 +264,8 @@ class FallbackScreenStreamer(
     }
 
     companion object {
-        private const val FRAME_INTERVAL_MS = 650L
-        private const val JPEG_QUALITY = 46
+        private const val FRAME_INTERVAL_MS = 500L
+        private const val JPEG_QUALITY = 58
         private const val MAX_DIMENSION = 2048
         private const val MAX_JPEG_BYTES = 700_000
         private const val MAX_JPEG_ESTIMATE_BYTES = 256_000

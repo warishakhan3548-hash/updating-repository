@@ -300,6 +300,9 @@ class WebRtcPeer(
     private var preserveVideoResolution = true
 
     @Volatile
+    private var motionPriority = false
+
+    @Volatile
     private var activeIceServers = IceServerProvider.fallbackServers()
 
     @Volatile
@@ -1664,7 +1667,8 @@ class WebRtcPeer(
     fun updateInteractiveVideoPolicy(
         maxBitrateBps: Int,
         maxFramerate: Int,
-        preserveResolution: Boolean
+        preserveResolution: Boolean,
+        motionPriority: Boolean = false
     ) {
         if (closed.get() || role != PeerRole.HOST) return
 
@@ -1679,6 +1683,7 @@ class WebRtcPeer(
                 MAX_VIDEO_FRAMERATE
             )
         preserveVideoResolution = preserveResolution
+        this.motionPriority = motionPriority
 
         localScreenTransceiver
             ?.sender
@@ -1699,10 +1704,13 @@ class WebRtcPeer(
              * gracefully on genuinely constrained mobile paths.
              */
             parameters.degradationPreference =
-                if (preserveVideoResolution) {
-                    RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
-                } else {
-                    RtpParameters.DegradationPreference.BALANCED
+                when {
+                    motionPriority ->
+                        RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
+                    preserveVideoResolution ->
+                        RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
+                    else ->
+                        RtpParameters.DegradationPreference.BALANCED
                 }
 
             parameters.encodings.forEach { encoding ->
@@ -1753,7 +1761,7 @@ class WebRtcPeer(
         private const val SCREEN_STREAM_ID = "remote-screen"
         private const val MIN_VIDEO_BITRATE_BPS = 600_000
         private const val DEFAULT_VIDEO_BITRATE_BPS = 1_800_000
-        private const val MAX_VIDEO_BITRATE_BPS = 6_000_000
+        private const val MAX_VIDEO_BITRATE_BPS = 8_000_000
         private const val MIN_VIDEO_FRAMERATE = 10
         private const val DEFAULT_VIDEO_FRAMERATE = 20
         private const val MAX_VIDEO_FRAMERATE = 30
