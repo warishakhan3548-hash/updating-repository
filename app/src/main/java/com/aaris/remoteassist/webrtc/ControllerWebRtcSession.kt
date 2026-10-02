@@ -135,7 +135,6 @@ class ControllerWebRtcSession(
 
     fun setInteractionActive(active: Boolean): Boolean {
         if (closed.get()) return false
-        if (interactionActive == active) return true
 
         val lease = leaseSecret ?: return false
         val sent = peer.sendControl(
