@@ -1,8 +1,8 @@
 package com.aaris.remoteassist.webrtc
 
 import android.content.Context
-import org.webrtc.DefaultVideoDecoderFactory
-import org.webrtc.DefaultVideoEncoderFactory
+import org.webrtc.SoftwareVideoDecoderFactory
+import org.webrtc.SoftwareVideoEncoderFactory
 import org.webrtc.EglBase
 import org.webrtc.PeerConnectionFactory
 
@@ -33,14 +33,19 @@ object WebRtcRuntime {
             )
 
             val eglBase = EglBase.create()
-            val encoderFactory = DefaultVideoEncoderFactory(
-                eglBase.eglBaseContext,
-                true,
-                true
-            )
-            val decoderFactory = DefaultVideoDecoderFactory(
-                eglBase.eglBaseContext
-            )
+            /*
+             * Screen sharing reliability beats peak hardware throughput here.
+             * Some Android vendor MediaCodec implementations accept an RTC
+             * encoder session but then emit no usable frames. Meta has publicly
+             * described the same class of mobile RTC problem and uses software
+             * codecs when hardware behavior is unsuitable.
+             *
+             * Aaris therefore starts with libwebrtc software codecs (VP8 first)
+             * for deterministic cross-device behavior. The capture profile is
+             * intentionally capped so this remains practical on low-end phones.
+             */
+            val encoderFactory = SoftwareVideoEncoderFactory()
+            val decoderFactory = SoftwareVideoDecoderFactory()
 
             val peerFactory = PeerConnectionFactory.builder()
                 .setVideoEncoderFactory(encoderFactory)
