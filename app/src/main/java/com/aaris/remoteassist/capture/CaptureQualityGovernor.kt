@@ -34,29 +34,31 @@ class CaptureQualityGovernor(
                 ?.takeIf { it.isFinite() && it >= 0.0 }
                 ?.coerceIn(0.0, 1.0)
 
-        val severeNetworkPressure =
+        val severeLoss =
             normalizedLoss
                 ?.let { it >= SEVERE_PACKET_LOSS_RATIO }
-                ?: false ||
-                (
-                    normalizedRtt
-                        ?.let { it >= SEVERE_RTT_MS }
-                        ?: false
-                    )
+                ?: false
+        val severeRtt =
+            normalizedRtt
+                ?.let { it >= SEVERE_RTT_MS }
+                ?: false
+        val severeNetworkPressure =
+            severeLoss || severeRtt
 
         val senderPressure =
             normalizedReason == "bandwidth" ||
                 normalizedReason == "cpu"
 
-        val networkPressure =
+        val pressuredLoss =
             normalizedLoss
                 ?.let { it >= PRESSURE_PACKET_LOSS_RATIO }
-                ?: false ||
-                (
-                    normalizedRtt
-                        ?.let { it >= PRESSURE_RTT_MS }
-                        ?: false
-                    )
+                ?: false
+        val pressuredRtt =
+            normalizedRtt
+                ?.let { it >= PRESSURE_RTT_MS }
+                ?: false
+        val networkPressure =
+            pressuredLoss || pressuredRtt
 
         val healthy =
             normalizedReason == "none" &&
