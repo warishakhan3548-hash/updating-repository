@@ -1268,6 +1268,7 @@ class InlineRemoteControllerView(
                     }
                     resetMultiTouch()
                     suppressSingleGestureUntilUp = true
+                    scheduleRemoteMotionIdle()
                 }
                 return true
             }
@@ -1288,11 +1289,13 @@ class InlineRemoteControllerView(
                 if (suppressSingleGestureUntilUp) {
                     suppressSingleGestureUntilUp = false
                     gesturePoints.clear()
+                    scheduleRemoteMotionIdle()
                     return true
                 }
 
                 if (g.generation != gestureGeneration) {
                     gesturePoints.clear()
+                    scheduleRemoteMotionIdle()
                     return true
                 }
 
