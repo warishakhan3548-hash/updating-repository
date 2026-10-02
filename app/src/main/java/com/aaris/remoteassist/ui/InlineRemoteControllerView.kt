@@ -1598,21 +1598,27 @@ class InlineRemoteControllerView(
             return
         }
 
-        val current =
-            normalize(
-                x = event.x,
-                y = event.y,
+        /*
+         * Preserve the shape of fast curved drags without increasing network
+         * cadence. MotionEvent history already contains sub-frame samples, so
+         * batch the newest few points into one compact stream segment. The host
+         * freshness queue can then skip stale segments while the active Android
+         * stroke still follows the actual finger path.
+         */
+        val points =
+            liveGesturePointsSince(
                 geometry = geometry,
-                clampToContent = true
-            ) ?: return
+                afterMs = liveGestureLastEventTime,
+                fallbackX = event.x,
+                fallbackY = event.y
+            )
+        if (points.isEmpty()) return
 
         val sent =
             session.sendGestureStreamSegment(
                 streamId = liveGestureStreamId,
                 phase = GestureStreamPhase.CONTINUE,
-                points = listOf(
-                    current.x to current.y
-                ),
+                points = points,
                 durationMs =
                     streamSegmentDuration(elapsed),
                 expectedGeneration =
@@ -1622,6 +1628,64 @@ class InlineRemoteControllerView(
             liveGestureLastEventTime =
                 event.eventTime
         }
+    }
+
+    private fun liveGesturePointsSince(
+        geometry: RemoteGeometry,
+        afterMs: Long,
+        fallbackX: Float,
+        fallbackY: Float
+    ): List<Pair<Float, Float>> {
+        var firstRecent = gesturePoints.size
+        for (index in gesturePoints.indices) {
+            if (gesturePoints[index].atMs > afterMs) {
+                firstRecent = index
+                break
+            }
+        }
+
+        val startIndex =
+            maxOf(
+                firstRecent,
+                gesturePoints.size -
+                    MAX_LIVE_STREAM_POINTS
+            )
+        val result =
+            ArrayList<Pair<Float, Float>>(
+                minOf(
+                    MAX_LIVE_STREAM_POINTS,
+                    (gesturePoints.size - startIndex)
+                        .coerceAtLeast(0)
+                ).coerceAtLeast(1)
+            )
+
+        for (index in startIndex until gesturePoints.size) {
+            val local = gesturePoints[index]
+            val normalized =
+                normalize(
+                    x = local.x,
+                    y = local.y,
+                    geometry = geometry,
+                    clampToContent = true
+                ) ?: continue
+            val point = normalized.x to normalized.y
+            if (result.lastOrNull() != point) {
+                result += point
+            }
+        }
+
+        if (result.isEmpty()) {
+            normalize(
+                x = fallbackX,
+                y = fallbackY,
+                geometry = geometry,
+                clampToContent = true
+            )?.let { normalized ->
+                result += normalized.x to normalized.y
+            }
+        }
+
+        return result
     }
 
     private fun endLiveGestureStream(
@@ -2011,9 +2075,15 @@ class InlineRemoteControllerView(
         private const val HANDLE_PEEK_ALPHA = 0.46f
         private const val REMOTE_MOTION_TAIL_MS = 1_400L
 
-        private const val STREAM_SEGMENT_INTERVAL_MS = 48L
-        private const val MIN_STREAM_SEGMENT_MS = 24
-        private const val MAX_STREAM_SEGMENT_MS = 72
+        /*
+         * ~30 Hz control updates align with the 30 fps visual path while keeping
+         * DataChannel traffic bounded. Each segment can carry several historical
+         * touch samples, so curved motion stays faithful without packet spam.
+         */
+        private const val STREAM_SEGMENT_INTERVAL_MS = 32L
+        private const val MIN_STREAM_SEGMENT_MS = 16
+        private const val MAX_STREAM_SEGMENT_MS = 56
+        private const val MAX_LIVE_STREAM_POINTS = 8
 
         private const val TOUCH_SAMPLE_INTERVAL_MS = 24L
         private const val MAX_LOCAL_GESTURE_POINTS = 192
