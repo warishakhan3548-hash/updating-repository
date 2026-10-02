@@ -109,6 +109,11 @@ sealed interface ControlPacket {
         val leaseSecret: Long
     ) : ControlPacket
 
+    data class InteractionState(
+        val leaseSecret: Long,
+        val active: Boolean
+    ) : ControlPacket
+
     data object Disconnect : ControlPacket
 }
 
@@ -130,6 +135,7 @@ object ControlProtocol {
     private const val COMMAND_RESULT: Byte = 13
     private const val VIDEO_RECOVERY_REQUEST: Byte = 14
     private const val PRIMARY_VIDEO_READY: Byte = 15
+    private const val INTERACTION_STATE: Byte = 16
 
     private const val MAX_TEXT_BYTES = 2048
     private const val MAX_GESTURE_PATH_POINTS = 96
@@ -172,6 +178,7 @@ object ControlProtocol {
             is ControlPacket.CommandResult -> 2 + 8 + 1
             is ControlPacket.VideoRecoveryRequest,
             is ControlPacket.PrimaryVideoReady -> 2 + 8
+            is ControlPacket.InteractionState -> 2 + 8 + 1
             ControlPacket.Disconnect -> 2
         }
 
@@ -315,6 +322,11 @@ object ControlProtocol {
 
             is ControlPacket.PrimaryVideoReady -> {
                 buffer.putLong(packet.leaseSecret)
+            }
+
+            is ControlPacket.InteractionState -> {
+                buffer.putLong(packet.leaseSecret)
+                buffer.put((if (packet.active) 1 else 0).toByte())
             }
 
             ControlPacket.Disconnect -> Unit
@@ -499,6 +511,20 @@ object ControlProtocol {
                     )
                 }
 
+                INTERACTION_STATE -> {
+                    require(buffer.remaining() == 9)
+                    val leaseSecret = buffer.long
+                    val active = when (buffer.get().toInt()) {
+                        0 -> false
+                        1 -> true
+                        else -> error("Invalid interaction state")
+                    }
+                    ControlPacket.InteractionState(
+                        leaseSecret = leaseSecret,
+                        active = active
+                    )
+                }
+
                 DISCONNECT -> {
                     require(buffer.remaining() == 0)
                     ControlPacket.Disconnect
@@ -622,6 +648,7 @@ object ControlProtocol {
             is ControlPacket.CommandResult,
             is ControlPacket.VideoRecoveryRequest,
             is ControlPacket.PrimaryVideoReady,
+            is ControlPacket.InteractionState,
             ControlPacket.Disconnect -> null
         }
     }
@@ -677,6 +704,8 @@ object ControlProtocol {
             VIDEO_RECOVERY_REQUEST
         is ControlPacket.PrimaryVideoReady ->
             PRIMARY_VIDEO_READY
+        is ControlPacket.InteractionState ->
+            INTERACTION_STATE
         ControlPacket.Disconnect -> DISCONNECT
     }
 }
