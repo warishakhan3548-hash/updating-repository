@@ -47,8 +47,8 @@ class AiAdaptiveGestureTimingTest {
             2000
         ) as SwipeCommand
 
-        assertTrue(short.durationMs in 140L..440L)
-        assertTrue(long.durationMs in 140L..440L)
+        assertTrue(short.durationMs in 110L..335L)
+        assertTrue(long.durationMs in 110L..335L)
         assertTrue(long.durationMs > short.durationMs)
     }
 
@@ -72,6 +72,38 @@ class AiAdaptiveGestureTimingTest {
     }
 
     @Test
+    fun precisionDragIsMoreDeliberateThanEquivalentSwipe() {
+        val swipe = AiActionTranslator.translate(
+            JSONObject()
+                .put("action", "swipe")
+                .put("x", 0.10)
+                .put("y", 0.50)
+                .put("toX", 0.90)
+                .put("toY", 0.50),
+            lease,
+            4L,
+            1000,
+            2000
+        ) as SwipeCommand
+        val drag = AiActionTranslator.translate(
+            JSONObject()
+                .put("action", "drag")
+                .put(
+                    "points",
+                    JSONArray()
+                        .put(JSONObject().put("x", 0.10).put("y", 0.50))
+                        .put(JSONObject().put("x", 0.90).put("y", 0.50))
+                ),
+            lease,
+            5L,
+            1000,
+            2000
+        ) as GesturePathCommand
+
+        assertTrue(drag.durationMs > swipe.durationMs)
+    }
+
+    @Test
     fun curvedDragUsesWholePolylineRatherThanOnlyEndpoints() {
         val almostRoundTrip = AiActionTranslator.translate(
             JSONObject()
@@ -84,12 +116,12 @@ class AiAdaptiveGestureTimingTest {
                         .put(JSONObject().put("x", 0.12).put("y", 0.50))
                 ),
             lease,
-            4L,
+            6L,
             1000,
             2000
         ) as GesturePathCommand
 
-        assertTrue(almostRoundTrip.durationMs >= 400L)
+        assertTrue(almostRoundTrip.durationMs >= 450L)
     }
 
     @Test
@@ -106,7 +138,7 @@ class AiAdaptiveGestureTimingTest {
                 .put("secondToX", 0.20)
                 .put("secondToY", 0.50),
             lease,
-            5L,
+            7L,
             1000,
             2000
         ) as TwoFingerCommand
