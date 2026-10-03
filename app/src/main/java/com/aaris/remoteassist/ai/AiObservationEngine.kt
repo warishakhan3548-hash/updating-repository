@@ -175,6 +175,7 @@ class AiObservationEngine internal constructor(
                 AiActionScope((field.left + field.right) / 2.0 / width, (field.top + field.bottom) / 2.0 / height)
             }
             "drag" -> AiActionScope.fromPath(dragPoints(args))
+            "two_finger" -> AiActionScope.fromPaths(twoFingerPaths(args))
             else -> {
                 val x = args.getDouble("x")
                 val y = args.getDouble("y")
@@ -200,6 +201,19 @@ class AiObservationEngine internal constructor(
         }
     }
 
+    private fun twoFingerPaths(args: JSONObject): List<List<Pair<Double, Double>>> {
+        fun point(xKey: String, yKey: String): Pair<Double, Double> {
+            val x = args.getDouble(xKey)
+            val y = args.getDouble(yKey)
+            require(x.isFinite() && y.isFinite() && x in 0.0..1.0 && y in 0.0..1.0)
+            return x to y
+        }
+        return listOf(
+            listOf(point("x", "y"), point("toX", "toY")),
+            listOf(point("secondX", "secondY"), point("secondToX", "secondToY"))
+        )
+    }
+
     private fun sameTarget(args: JSONObject, a: AiUiSnapshot, b: AiUiSnapshot): Boolean {
         if (!sameWindow(a, b) || a.sensitiveFocus != b.sensitiveFocus || a.masks != b.masks) return false
         if (args.getString("action") == "type") {
@@ -207,7 +221,7 @@ class AiObservationEngine internal constructor(
             return field.enabled && field == b.nodes.singleOrNull { it.focused && it.editable }
         }
         val scope = actionScope(args, a) ?: return false
-        if (args.getString("action") in setOf("swipe", "drag")) {
+        if (args.getString("action") in setOf("swipe", "drag", "two_finger")) {
             fun relevant(ui: AiUiSnapshot) = ui.nodes.filter {
                 it.area < width.toLong() * height / 3 &&
                     scope.contains((it.left + it.right) / 2.0 / width, (it.top + it.bottom) / 2.0 / height)
