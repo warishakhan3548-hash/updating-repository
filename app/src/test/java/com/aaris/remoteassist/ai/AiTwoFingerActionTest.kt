@@ -19,6 +19,24 @@ class AiTwoFingerActionTest {
     )
 
     @Test
+    fun advertisedExecutorCapabilitiesIncludeEveryCurrentRemoteCommandAction() {
+        assertEquals(
+            listOf(
+                "tap",
+                "long_press",
+                "swipe",
+                "drag",
+                "two_finger",
+                "type",
+                "back",
+                "home",
+                "recents"
+            ),
+            AiActionTranslator.supportedActions
+        )
+    }
+
+    @Test
     fun translatorMapsTwoFingerOntoExistingAtomicGesture() {
         val args = JSONObject()
             .put("action", "two_finger")
