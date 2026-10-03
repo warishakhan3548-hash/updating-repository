@@ -46,31 +46,30 @@ class CrossLayerLatencyBudgetTest {
     )
 
     @Test
-    fun moderateSerialQueuesCombineBeforeEitherIndividualAlarm() {
+    fun moderateSerialQueuesGetFastFullCadenceRelief() {
         val governor = VideoCadenceGovernor(60)
         val sender = outbound(sendQueueMs = 35.0)
         val controller = receiver(jitterMs = 45.0)
 
         // 35 ms is below the sender's 55 ms alarm and 45 ms is below the
         // receiver's 85 ms alarm, but 80 ms of serial residence is visibly
-        // stale for 60 fps remote control.
-        assertFalse(governor.observe(sender, controller, 60, 1_000))
-        assertTrue(governor.observe(sender, controller, 60, 4_000))
+        // stale for 60 fps remote control. At full cadence we now take one
+        // immediate soft step instead of waiting another stats window.
+        assertTrue(governor.observe(sender, controller, 60, 1_000))
         assertEquals(45, governor.cap)
     }
 
     @Test
-    fun sixtyFpsUsesTighterFrameRelativeResidenceBudget() {
+    fun sixtyFpsUsesFastFrameRelativeResidenceRelief() {
         val governor = VideoCadenceGovernor(60)
         val sender = outbound(sendQueueMs = 25.0)
         val controller = receiver(jitterMs = 35.0)
 
         // Neither endpoint is individually unhealthy. Together they retain
         // about 3.6 60-Hz frame periods, which is enough to make a fresh swipe
-        // visibly trail the controlled phone. Persistent pressure should take
-        // the soft 60 -> 45 step instead of waiting for ~75 ms of residence.
-        assertFalse(governor.observe(sender, controller, 60, 1_000))
-        assertTrue(governor.observe(sender, controller, 60, 4_000))
+        // visibly trail the controlled phone. One soft 60 -> 45 step drains
+        // the queue while lower rungs keep conservative hysteresis.
+        assertTrue(governor.observe(sender, controller, 60, 1_000))
         assertEquals(45, governor.cap)
     }
 
