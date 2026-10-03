@@ -482,10 +482,6 @@ class HostWebRtcSession(
             is ControlPacket.Home,
             is ControlPacket.Recents,
             is ControlPacket.Text -> {
-                if (packet is ControlPacket.GestureStream) {
-                    refreshInteractionPriorityTimeout()
-                }
-
                 val currentProfile = profile
                 val command = ControlProtocol.toRemoteCommand(
                     sessionId = sessionId,
@@ -493,6 +489,16 @@ class HostWebRtcSession(
                     widthPx = currentProfile.displayWidthPx,
                     heightPx = currentProfile.displayHeightPx
                 ) ?: return
+
+                /*
+                 * The real command stream is the authoritative motion clock.
+                 * control-live-v1 CONTINUE packets are intentionally unordered
+                 * and may arrive before the reliable InteractionState(true)
+                 * hint. Promoting video priority here removes that cross-lane
+                 * race and keeps capture/encoder cadence aligned to the pixels
+                 * the controller is actively changing.
+                 */
+                noteRemoteInteraction()
 
                 AssistAccessibilityService.dispatch(command) { applied ->
                     /*
@@ -560,7 +566,20 @@ class HostWebRtcSession(
                 ) {
                     return
                 }
-                updateInteractionPriority(packet.active)
+
+                if (packet.active) {
+                    noteRemoteInteraction()
+                } else {
+                    /*
+                     * The controller's false state is an early power/UX hint,
+                     * not proof that visible motion is over. A fling, launcher
+                     * animation or page transition can continue after finger-up.
+                     * Keep the host's existing short freshness tail, which is
+                     * anchored by the last actual command packet. Disconnects
+                     * and transport closure still clear priority immediately.
+                     */
+                    Unit
+                }
             }
 
             is ControlPacket.FallbackDeltaReady -> {
@@ -654,6 +673,16 @@ class HostWebRtcSession(
                         snapshot.packetLossRatio
                 )
                 ?.let(::applyCaptureTier)
+        }
+    }
+
+    private fun noteRemoteInteraction() {
+        if (closed.get()) return
+
+        if (interactionActive) {
+            refreshInteractionPriorityTimeout()
+        } else {
+            updateInteractionPriority(true)
         }
     }
 
