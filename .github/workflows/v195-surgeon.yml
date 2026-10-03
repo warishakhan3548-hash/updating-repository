@@ -17,7 +17,23 @@ jobs:
           fetch-depth: 0
 
       - name: Apply exact source upgrade
-        run: python3 tools/v195_patch.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/v195_patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/src/main/java/com/aaris/remoteassist/ai/AiAppMatcher.kt")
+          text = path.read_text()
+          bad = r'Regex("\s+")'
+          good = r'Regex("\\s+")'
+          if text.count(bad) != 1:
+              raise SystemExit(f"expected exactly one generated Kotlin regex escape, found {text.count(bad)}")
+          path.write_text(text.replace(bad, good, 1))
+          if good not in path.read_text():
+              raise SystemExit("Kotlin regex escape guard failed")
+          PY
 
       - uses: actions/setup-node@v6
         with:
