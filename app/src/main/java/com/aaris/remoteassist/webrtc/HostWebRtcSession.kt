@@ -119,7 +119,8 @@ class HostWebRtcSession(
         FallbackScreenStreamer(
             track = capture.videoTrack,
             sendPacket = peer::sendFallbackVideo,
-            onDiagnostic = listener::onDiagnostic
+            onDiagnostic = listener::onDiagnostic,
+            canStartFrame = peer::canStartFallbackFrame
         )
 
     private val captureProbe = VideoSink {

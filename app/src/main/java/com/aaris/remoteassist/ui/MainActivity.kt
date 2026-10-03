@@ -26,6 +26,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -33,6 +34,11 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import com.aaris.remoteassist.accessibility.AssistAccessibilityService
 import com.aaris.remoteassist.accessibility.PermissionGate
+import com.aaris.remoteassist.ai.AiConnectorBackend
+import com.aaris.remoteassist.ai.AiConnectorRuntime
+import com.aaris.remoteassist.ai.AiConnectorService
+import com.aaris.remoteassist.ai.AiConnectorState
+import com.aaris.remoteassist.ai.AiConnectorStore
 import com.aaris.remoteassist.capture.ScreenShareService
 import com.aaris.remoteassist.diagnostics.ConnectionFlightRecorder
 import com.aaris.remoteassist.diagnostics.CrashRecorder
@@ -66,6 +72,31 @@ class MainActivity : ComponentActivity() {
     private lateinit var statusProgress: ProgressBar
     private lateinit var connectButton: Button
     private lateinit var shareButton: Button
+    private lateinit var aiButton: Button
+    private lateinit var aiLink: TextView
+    private var aiSetupPending = false
+    private var aiProjectionPending = false
+    private var aiSetupJob: Job? = null
+    private var aiLinkRegistered = false
+    private val aiStateListener: (AiConnectorState) -> Unit = { state ->
+        runOnUiThread {
+            if (::aiButton.isInitialized) {
+                aiButton.text = if (state.active) "Stop AI Control" else "Connect Phone with AI"
+                if (state.active || state.message != "AI control is off") status.text = state.message
+                refreshIdleUi()
+            }
+        }
+    }
+    private val aiScreenLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        aiProjectionPending = false; aiSetupPending = false
+        if (result.resultCode == RESULT_OK && result.data != null) {
+            runCatching {
+                startForegroundService(Intent(this, AiConnectorService::class.java).setAction(AiConnectorService.ACTION_START)
+                    .putExtra(AiConnectorService.EXTRA_RESULT, result.resultCode).putExtra(AiConnectorService.EXTRA_DATA, result.data))
+            }.onFailure { status.text = "Could not start AI sharing. Connect again." }
+        } else status.text = "AI sharing cancelled. Tap Connect Phone with AI to retry."
+        refreshIdleUi()
+    }
 
     private var hostObserver: Closeable? = null
     private var controllerObserver: Closeable? = null
@@ -141,7 +172,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(buildUi())
+        aiSetupPending = savedInstanceState?.getBoolean("aiSetupPending") ?: false
+        aiProjectionPending = savedInstanceState?.getBoolean("aiProjectionPending") ?: false
+        aiLinkRegistered = savedInstanceState?.getBoolean("aiLinkRegistered") ?: false
+        setContentView(ScrollView(this).apply { isFillViewport = true; addView(buildUi()) })
+        AiConnectorRuntime.addListener(aiStateListener)
+        if (AiConnectorRuntime.state.active || aiLinkRegistered) showAiLink(false)
         ConnectionFlightRecorder.addListener(
             hostDiagnosticListener
         )
@@ -244,6 +280,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         mainActivityResumed = true
+        if (aiSetupPending && aiLinkRegistered && !aiProjectionPending && PermissionGate.isAccessibilityEnabled(this)) continueAiSetup()
 
         val pendingController =
             pendingControllerSessionId
@@ -325,6 +362,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        AiConnectorRuntime.removeListener(aiStateListener)
         accessibilityReadyJob?.cancel()
         accessibilityReadyJob = null
         hostObserver?.close()
@@ -658,6 +696,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun connect(code: String) {
+        if (!isIdleForNewSession()) { toast("End the current session first."); return }
         clearPendingShareRequest()
 
         connectivityBlockMessage()?.let { message ->
@@ -1862,6 +1901,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun isIdleForNewSession(): Boolean {
+        if (AiConnectorRuntime.state.active || SessionCoordinator.isAiReserved() || aiSetupPending) return false
         if (activeHostSessionId != null) return false
         if (pendingControllerSessionId != null) return false
 
@@ -2071,6 +2111,23 @@ class MainActivity : ComponentActivity() {
             )
         )
 
+        aiButton = Button(this).apply {
+            text = "Connect Phone with AI"
+            AarisUi.secondaryButton(this)
+            setOnClickListener { requestAiConnection() }
+        }
+        root.addView(aiButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)).apply { topMargin = dp(12) })
+        aiLink = TextView(this).apply {
+            textSize = 12f
+            maxLines = 4
+            setTextColor(AarisUi.TEXT_SECONDARY)
+            setPadding(0, dp(6), 0, dp(6))
+            visibility = View.GONE
+            contentDescription = "Private AI connection link. Tap to copy."
+            setOnClickListener { showAiLink(true) }
+        }
+        root.addView(aiLink, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
         val statusCard = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -2246,10 +2303,76 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun setButtonsEnabled(enabled: Boolean) {
-        connectButton.isEnabled = enabled
-        shareButton.isEnabled = enabled
-        connectButton.alpha = if (enabled) 1f else 0.58f
-        shareButton.alpha = if (enabled) 1f else 0.58f
+        val humanEnabled = enabled && !AiConnectorRuntime.state.active && !aiSetupPending
+        connectButton.isEnabled = humanEnabled
+        shareButton.isEnabled = humanEnabled
+        connectButton.alpha = if (humanEnabled) 1f else 0.58f
+        shareButton.alpha = if (humanEnabled) 1f else 0.58f
+        if (::aiButton.isInitialized) aiButton.isEnabled = AiConnectorRuntime.state.active || (enabled && !aiSetupPending)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("aiSetupPending", aiSetupPending)
+        outState.putBoolean("aiProjectionPending", aiProjectionPending)
+        outState.putBoolean("aiLinkRegistered", aiLinkRegistered)
+        super.onSaveInstanceState(outState)
+    }
+
+    private fun requestAiConnection() {
+        if (AiConnectorRuntime.state.active) { AiConnectorService.stop(this); return }
+        if (!isIdleForNewSession()) { toast("End the current remote session first."); return }
+        connectivityBlockMessage()?.let { status.text = it; return }
+        aiSetupPending = true; aiLinkRegistered = false
+        status.text = "Creating this phone's AI link…"; setButtonsEnabled(false)
+        aiSetupJob = scope.launch {
+            val backend = AiConnectorBackend()
+            try {
+                val value = AiConnectorStore(this@MainActivity).rotateLink()
+                backend.register(value)
+                aiLinkRegistered = true
+                showAiLink(true)
+                if (!PermissionGate.isAccessibilityEnabled(this@MainActivity)) {
+                    status.text = "Link copied. Turn on Aaris Remote Accessibility, then return."
+                    PermissionGate.openAccessibilitySettings(this@MainActivity)
+                } else continueAiSetup()
+            } catch (error: Exception) {
+                aiSetupPending = false
+                status.text = error.message ?: "Could not create AI link. Try again."
+                refreshIdleUi()
+            } finally { backend.close() }
+        }
+    }
+
+    private fun continueAiSetup() {
+        if (!aiSetupPending || aiProjectionPending) return
+        // The registration coroutine may call this; its job must not be cancelled here.
+        scope.launch {
+            val deadline = SystemClock.elapsedRealtime() + 6000
+            while (!AssistAccessibilityService.isConnected() && SystemClock.elapsedRealtime() < deadline) delay(100)
+            if (!aiSetupPending || aiProjectionPending || isFinishing) return@launch
+            if (!AssistAccessibilityService.isConnected()) {
+                aiSetupPending = false; status.text = "Accessibility is still starting. Tap Connect Phone with AI again."; refreshIdleUi(); return@launch
+            }
+            aiProjectionPending = true
+            status.text = "Link copied. Allow full-screen sharing to enable AI control."
+            val manager = getSystemService(MediaProjectionManager::class.java)
+            val intent = if (Build.VERSION.SDK_INT >= 34) manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay()) else manager.createScreenCaptureIntent()
+            runCatching { aiScreenLauncher.launch(intent) }.onFailure {
+                aiSetupPending = false; aiProjectionPending = false; status.text = "Could not open screen permission. Try again."; refreshIdleUi()
+            }
+        }
+    }
+
+    private fun showAiLink(copy: Boolean) {
+        val value = runCatching { AiConnectorStore(this).load() }.getOrNull() ?: return
+        aiLink.visibility = View.VISIBLE
+        aiLink.text = "Private MCP link • tap to copy\n${value.link}\nAdd this in your AI app's MCP/connector settings."
+        if (copy) {
+            val clip = ClipData.newPlainText("Aaris Phone MCP", value.link)
+            clip.description.extras = android.os.PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE", true) }
+            getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
+            toast("AI link copied")
+        }
     }
 
     private fun showBackendError(error: Throwable) {

@@ -6,6 +6,10 @@ import org.webrtc.ScreenCapturerAndroid
 import org.webrtc.SurfaceTextureHelper
 import org.webrtc.VideoSource
 import org.webrtc.VideoTrack
+import org.webrtc.VideoFrame
+import org.webrtc.VideoSink
+import org.webrtc.CapturerObserver
+import java.util.concurrent.CopyOnWriteArraySet
 import com.aaris.remoteassist.webrtc.WebRtcRuntime
 import java.io.Closeable
 import java.util.concurrent.atomic.AtomicBoolean
@@ -19,6 +23,7 @@ class ScreenCaptureTrack(
     private val factory = WebRtcRuntime.factory(appContext)
     private val eglBase = WebRtcRuntime.eglBase(appContext)
     private val closed = AtomicBoolean(false)
+    private val snapshotSinks = CopyOnWriteArraySet<VideoSink>()
 
     private val capturer = ScreenCapturerAndroid(
         grant.data,
@@ -53,7 +58,14 @@ class ScreenCaptureTrack(
         capturer.initialize(
             surfaceTextureHelper,
             appContext,
-            videoSource.capturerObserver
+            object : CapturerObserver {
+                override fun onCapturerStarted(success: Boolean) { videoSource.capturerObserver.onCapturerStarted(success) }
+                override fun onCapturerStopped() { videoSource.capturerObserver.onCapturerStopped() }
+                override fun onFrameCaptured(frame: VideoFrame) {
+                    snapshotSinks.forEach { sink -> runCatching { sink.onFrame(frame) } }
+                    videoSource.capturerObserver.onFrameCaptured(frame)
+                }
+            }
         )
         videoTrack.setEnabled(true)
     }
@@ -61,6 +73,7 @@ class ScreenCaptureTrack(
     fun start(profile: CaptureProfile) {
         check(!closed.get())
         if (started) return
+        videoSource.adaptOutputFormat(profile.captureWidthPx, profile.captureHeightPx, profile.fps)
 
         capturer.startCapture(
             profile.captureWidthPx,
@@ -72,6 +85,7 @@ class ScreenCaptureTrack(
 
     fun update(profile: CaptureProfile) {
         if (closed.get() || !started) return
+        videoSource.adaptOutputFormat(profile.captureWidthPx, profile.captureHeightPx, profile.fps)
 
         capturer.changeCaptureFormat(
             profile.captureWidthPx,
@@ -80,8 +94,19 @@ class ScreenCaptureTrack(
         )
     }
 
+    fun addSnapshotSink(sink: VideoSink) { snapshotSinks += sink }
+    fun removeSnapshotSink(sink: VideoSink) { snapshotSinks -= sink }
+    fun requestSnapshot() {
+        check(started && !closed.get()) { "CAPTURE_STOPPED" }
+        // Static Android screens may emit no new frames. forceFrame reads the
+        // current SurfaceTexture on its owning thread without a second projection.
+        // Snapshot sinks run before native frame-rate adaptation can drop duplicates.
+        surfaceTextureHelper.forceFrame()
+    }
+
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        snapshotSinks.clear()
 
         if (started) {
             runCatching { capturer.stopCapture() }

@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.Looper
 import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Rect
 import android.text.InputType
 import android.graphics.PixelFormat
 import android.view.Gravity
@@ -36,6 +37,14 @@ import com.aaris.remoteassist.control.TwoFingerCommand
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionSnapshot
 import com.aaris.remoteassist.session.SessionState
+import com.aaris.remoteassist.session.SessionRuntime
+import com.aaris.remoteassist.ai.AiConnectorRuntime
+import com.aaris.remoteassist.ai.AiConnectorService
+import com.aaris.remoteassist.ai.AiConnectorState
+import com.aaris.remoteassist.ai.AiObservationSignals
+import com.aaris.remoteassist.ai.AiUiSnapshot
+import org.json.JSONArray
+import org.json.JSONObject
 import java.lang.ref.WeakReference
 import java.util.ArrayDeque
 
@@ -50,7 +59,8 @@ class AssistAccessibilityService : AccessibilityService() {
 
     private class PendingCommand(
         val command: RemoteCommand,
-        private val callback: (Boolean) -> Unit
+        private val callback: (Boolean) -> Unit,
+        val precondition: () -> Boolean
     ) {
         private var completed = false
 
@@ -80,6 +90,10 @@ class AssistAccessibilityService : AccessibilityService() {
 
     private val sessionListener: (SessionSnapshot) -> Unit = { snapshot ->
         mainHandler.post {
+            if (AiConnectorRuntime.state.active) {
+                showStopOverlay(AiConnectorRuntime.state.online)
+                return@post
+            }
             val sharingOnThisPhone =
                 ScreenShareRuntime.isActive(snapshot.sessionId)
             val sharingState =
@@ -97,13 +111,23 @@ class AssistAccessibilityService : AccessibilityService() {
         }
     }
 
+    private val aiListener: (AiConnectorState) -> Unit = { state ->
+        mainHandler.post {
+            if (state.active) showStopOverlay(state.online)
+            else sessionListener(SessionCoordinator.snapshot())
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = WeakReference(this)
         SessionCoordinator.addListener(sessionListener)
+        AiConnectorRuntime.addListener(aiListener)
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
+        AiConnectorRuntime.removeListener(aiListener)
+        stopAiIfActive()
         SessionCoordinator.removeListener(sessionListener)
         hideStopOverlay()
         failPendingCommands()
@@ -113,11 +137,16 @@ class AssistAccessibilityService : AccessibilityService() {
         return super.onUnbind(intent)
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event == null || !AiConnectorRuntime.state.active) return
+        AiObservationSignals.changed?.invoke()
+    }
 
-    override fun onInterrupt() = Unit
+    override fun onInterrupt() { stopAiIfActive() }
 
     override fun onDestroy() {
+        AiConnectorRuntime.removeListener(aiListener)
+        stopAiIfActive()
         SessionCoordinator.removeListener(sessionListener)
         hideStopOverlay()
         failPendingCommands()
@@ -129,8 +158,10 @@ class AssistAccessibilityService : AccessibilityService() {
 
     private fun execute(
         command: RemoteCommand,
+        precondition: () -> Boolean,
         onResult: (Boolean) -> Unit
     ) {
+        if (!precondition()) { onResult(false); return }
         if (!CommandGate.accept(command)) {
             onResult(false)
             return
@@ -170,7 +201,11 @@ class AssistAccessibilityService : AccessibilityService() {
              */
             mainHandler.postDelayed(
                 {
-                    performCommand(command, onResult)
+                    // STOP, rotation or a new screen can occur during overlay relocation.
+                    if (SessionRuntime.isAuthorized(command.sessionId, command.leaseSecret, command.generation) &&
+                        !keyguard.isDeviceLocked && !keyguard.isKeyguardLocked && precondition()) {
+                        performCommand(command, onResult)
+                    } else onResult(false)
                 },
                 OVERLAY_REPOSITION_SETTLE_MS
             )
@@ -711,11 +746,12 @@ class AssistAccessibilityService : AccessibilityService() {
 
     private fun dispatchOnMain(
         command: RemoteCommand,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean) -> Unit,
+        precondition: () -> Boolean
     ): Boolean {
         val task = Runnable {
             if (instance.get() === this) {
-                enqueueCommand(command, onResult)
+                enqueueCommand(command, onResult, precondition)
             } else {
                 onResult(false)
             }
@@ -731,9 +767,10 @@ class AssistAccessibilityService : AccessibilityService() {
 
     private fun enqueueCommand(
         command: RemoteCommand,
-        onResult: (Boolean) -> Unit
+        onResult: (Boolean) -> Unit,
+        precondition: () -> Boolean
     ) {
-        val pending = PendingCommand(command, onResult)
+        val pending = PendingCommand(command, onResult, precondition)
 
         /*
          * Remote drag segments are freshness-sensitive, not archival events.
@@ -808,7 +845,7 @@ class AssistAccessibilityService : AccessibilityService() {
             COMMAND_EXECUTION_TIMEOUT_MS
         )
 
-        execute(next.command) { applied ->
+        execute(next.command, next.precondition) { applied ->
             finishCommand(next, applied)
         }
     }
@@ -1023,7 +1060,9 @@ class AssistAccessibilityService : AccessibilityService() {
 
     private fun showStopOverlay(isLive: Boolean) {
         val label =
-            if (isLive) {
+            if (AiConnectorRuntime.state.active) {
+                if (isLive) "STOP • AI" else "STOP • AI CONNECTING"
+            } else if (isLive) {
                 "STOP"
             } else {
                 "STOP • CONNECTING"
@@ -1051,6 +1090,10 @@ class AssistAccessibilityService : AccessibilityService() {
                 (6f * density).toInt()
             )
             setOnClickListener {
+                if (AiConnectorRuntime.state.active) {
+                    stopAiIfActive()
+                    return@setOnClickListener
+                }
                 startService(
                     Intent(
                         this@AssistAccessibilityService,
@@ -1178,6 +1221,49 @@ class AssistAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun stopAiIfActive() {
+        if (AiConnectorRuntime.state.active) {
+            AiConnectorService.stop(this)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun collectAiSnapshot(): AiUiSnapshot? {
+        check(Looper.myLooper() == mainHandler.looper)
+        if (keyguard.isDeviceLocked || keyguard.isKeyguardLocked) return null
+        val root = rootInActiveWindow ?: return AiUiSnapshot("", JSONArray(), emptyList(), false, false)
+        val packageName = root.packageName?.toString().orEmpty()
+        val hints = JSONArray(); val masks = mutableListOf<Rect>()
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        var count = 0; var sensitiveFocus = false
+        while (queue.isNotEmpty() && count++ < 400) {
+            val node = queue.removeFirst()
+            try {
+                if (!node.isVisibleToUser) continue
+                val rect = Rect().also(node::getBoundsInScreen)
+                val sensitive = isSensitiveInput(node)
+                if (sensitive) {
+                    masks += rect
+                    if (node.isFocused) sensitiveFocus = true
+                    continue
+                }
+                val text = (node.text?.toString() ?: node.contentDescription?.toString()).orEmpty().take(160)
+                if (hints.length() < 80 && (text.isNotBlank() || node.isClickable || node.isEditable)) {
+                    hints.put(JSONObject().put("text", text).put("role", node.className?.toString()?.substringAfterLast('.').orEmpty())
+                        .put("bounds", JSONArray(listOf(rect.left, rect.top, rect.right, rect.bottom)))
+                        .put("clickable", node.isClickable).put("editable", node.isEditable))
+                }
+                for (i in 0 until node.childCount.coerceAtMost(100)) node.getChild(i)?.let { child ->
+                    if (queue.size < 400) queue.add(child) else child.recycle()
+                }
+            } finally { node.recycle() }
+        }
+        val truncated = queue.isNotEmpty()
+        while (queue.isNotEmpty()) queue.removeFirst().recycle()
+        return AiUiSnapshot(packageName, hints, masks, sensitiveFocus || hasSensitiveFocusedInput(), truncated)
+    }
+
     companion object {
         private const val MAX_REMOTE_TEXT_CHARS = 1000
         private const val MAX_REMOTE_FIELD_CHARS = 4000
@@ -1195,6 +1281,7 @@ class AssistAccessibilityService : AccessibilityService() {
 
         fun dispatch(
             command: RemoteCommand,
+            precondition: () -> Boolean = { true },
             onResult: (Boolean) -> Unit
         ): Boolean {
             val service = instance.get()
@@ -1205,7 +1292,8 @@ class AssistAccessibilityService : AccessibilityService() {
 
             val queued = service.dispatchOnMain(
                 command,
-                onResult
+                onResult,
+                precondition
             )
             if (!queued) {
                 onResult(false)
@@ -1214,5 +1302,6 @@ class AssistAccessibilityService : AccessibilityService() {
         }
 
         fun isConnected(): Boolean = instance.get() != null
+        fun aiSnapshot(): AiUiSnapshot? = instance.get()?.collectAiSnapshot()
     }
 }

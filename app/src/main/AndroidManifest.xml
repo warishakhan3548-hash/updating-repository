@@ -55,6 +55,12 @@
             android:exported="false" />
 
         <service
+            android:name=".ai.AiConnectorService"
+            android:foregroundServiceType="mediaProjection"
+            android:exported="false"
+            android:stopWithTask="false" />
+
+        <service
             android:name=".webrtc.ControllerConnectionService"
             android:foregroundServiceType="dataSync"
             android:exported="false"
