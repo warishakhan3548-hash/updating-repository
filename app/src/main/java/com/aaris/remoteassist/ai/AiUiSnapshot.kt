@@ -22,18 +22,90 @@ data class AiUiNode(
     val valueDigest: String = ""
 ) {
     fun contains(x: Double, y: Double) = x >= left && x < right && y >= top && y < bottom
-    val area: Long get() = (right - left).toLong().coerceAtLeast(0) * (bottom - top).coerceAtLeast(0)
+    val area: Long get() = (right - left).toLong().coerceAtLeast(0) * (bottom - top).toLong().coerceAtLeast(0)
 }
 
-/** A padded touch point/path in full-display coordinates, independent of other animation. */
-data class AiActionScope(val x: Double, val y: Double, val toX: Double = x, val toY: Double = y) {
+internal data class AiActionSegment(
+    val x: Double,
+    val y: Double,
+    val toX: Double,
+    val toY: Double
+)
+
+/**
+ * Padded action geometry in full-display coordinates.
+ *
+ * A tap/ordinary swipe uses one segment. Curved and multi-pointer actions keep
+ * every real segment, so stale-screen validation watches the actual paths
+ * instead of a broad bounding box or only the first/last point.
+ */
+data class AiActionScope(
+    val x: Double,
+    val y: Double,
+    val toX: Double = x,
+    val toY: Double = y,
+    internal val segments: List<AiActionSegment> = emptyList()
+) {
     fun contains(px: Double, py: Double): Boolean {
+        val active = if (segments.isEmpty()) {
+            listOf(AiActionSegment(x, y, toX, toY))
+        } else {
+            segments
+        }
+        return active.any { segment ->
+            containsSegment(px, py, segment)
+        }
+    }
+
+    private fun containsSegment(
+        px: Double,
+        py: Double,
+        segment: AiActionSegment
+    ): Boolean {
         // Normalize by clearance so a vertical swipe checks a narrow corridor,
         // not every pixel in a large axis-aligned rectangle.
-        val dx = (toX - x) / 0.04; val dy = (toY - y) / 0.025
-        val vx = (px - x) / 0.04; val vy = (py - y) / 0.025
-        val t = if (dx * dx + dy * dy == 0.0) 0.0 else ((vx * dx + vy * dy) / (dx * dx + dy * dy)).coerceIn(0.0, 1.0)
-        return (vx - t * dx) * (vx - t * dx) + (vy - t * dy) * (vy - t * dy) <= 1.0
+        val dx = (segment.toX - segment.x) / X_CLEARANCE
+        val dy = (segment.toY - segment.y) / Y_CLEARANCE
+        val vx = (px - segment.x) / X_CLEARANCE
+        val vy = (py - segment.y) / Y_CLEARANCE
+        val lengthSquared = dx * dx + dy * dy
+        val t = if (lengthSquared == 0.0) {
+            0.0
+        } else {
+            ((vx * dx + vy * dy) / lengthSquared).coerceIn(0.0, 1.0)
+        }
+        val rx = vx - t * dx
+        val ry = vy - t * dy
+        return rx * rx + ry * ry <= 1.0
+    }
+
+    companion object {
+        fun path(points: List<Pair<Double, Double>>): AiActionScope {
+            require(points.size >= 2)
+            return paths(listOf(points))
+        }
+
+        fun paths(paths: List<List<Pair<Double, Double>>>): AiActionScope {
+            val usable = paths.filter { it.size >= 2 }
+            require(usable.isNotEmpty())
+            val segments = usable.flatMap { path ->
+                path.zipWithNext { from, to ->
+                    AiActionSegment(from.first, from.second, to.first, to.second)
+                }
+            }
+            val first = usable.first().first()
+            val last = usable.last().last()
+            return AiActionScope(
+                x = first.first,
+                y = first.second,
+                toX = last.first,
+                toY = last.second,
+                segments = segments
+            )
+        }
+
+        private const val X_CLEARANCE = 0.04
+        private const val Y_CLEARANCE = 0.025
     }
 }
 
