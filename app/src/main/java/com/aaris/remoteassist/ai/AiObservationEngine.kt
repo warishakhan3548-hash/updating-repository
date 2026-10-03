@@ -92,7 +92,7 @@ class AiObservationEngine internal constructor(
             ledger.issue(id, now())
             return JSONObject().put("observationId", id).put("screenVersion", ledger.version)
                 .put("capturedAtElapsedMs", frame.receivedAtMs).put("settled", stable)
-                .put("currentPackage", ui.packageName).put("uiHints", if (hideAll) JSONArray() else ui.hints)
+                .put("currentPackage", ui.packageName).put("uiHints", if (hideAll) JSONArray() else publishedHints(ui))
                 .put("treeTruncated", ui.truncated).put("redacted", hideAll || ui.masks.isNotEmpty())
                 .put("display", JSONObject().put("width", width).put("height", height)
                     .put("coordinateSpace", "full-upright-display-normalized-0-to-1"))
@@ -107,6 +107,54 @@ class AiObservationEngine internal constructor(
         return error("CAPTURE_UNAVAILABLE")
     }
 
+    /**
+     * Add a semantic selector only when Accessibility proves it is unique on
+     * this observation. The original compact hints stay byte-for-byte compatible
+     * apart from that optional field, so older MCP clients can keep using pixels.
+     *
+     * A raw Android resource id is useful only as an exact selector. We never
+     * synthesize one from text, and duplicate resource ids (common in lists) are
+     * intentionally withheld so the model cannot accidentally target the wrong
+     * repeated row.
+     */
+    private fun publishedHints(ui: AiUiSnapshot): JSONArray {
+        if (ui.hints.length() == 0 || ui.nodes.isEmpty()) return ui.hints
+
+        val idCounts = ui.nodes.asSequence()
+            .map { it.id }
+            .filter { it.isNotBlank() && it.length <= MAX_TARGET_ID_CHARS }
+            .groupingBy { it }
+            .eachCount()
+        val eligible = ui.nodes.filter { node ->
+            node.enabled && node.clickable && node.area > 0L &&
+                node.id.isNotBlank() && node.id.length <= MAX_TARGET_ID_CHARS &&
+                idCounts[node.id] == 1
+        }
+        if (eligible.isEmpty()) return ui.hints
+
+        val result = JSONArray()
+        for (index in 0 until ui.hints.length()) {
+            val original = ui.hints.optJSONObject(index)
+            if (original == null) {
+                result.put(ui.hints.opt(index))
+                continue
+            }
+            val hint = JSONObject(original.toString())
+            val bounds = original.optJSONArray("bounds")
+            if (bounds != null && bounds.length() == 4 && original.optBoolean("clickable", false)) {
+                val target = eligible.singleOrNull { node ->
+                    node.left == bounds.optInt(0, Int.MIN_VALUE) &&
+                        node.top == bounds.optInt(1, Int.MIN_VALUE) &&
+                        node.right == bounds.optInt(2, Int.MIN_VALUE) &&
+                        node.bottom == bounds.optInt(3, Int.MIN_VALUE)
+                }
+                target?.let { hint.put("targetId", it.id) }
+            }
+            result.put(hint)
+        }
+        return result
+    }
+
     suspend fun validate(args: JSONObject): AiActionValidation {
         fun refused(reason: String) = AiActionValidation(reason)
         fun ticketValid() = ledger.valid(args.getString("observationId"), args.getLong("screenVersion"), now())
@@ -115,7 +163,7 @@ class AiObservationEngine internal constructor(
         val geometry = display()
         if (geometry.displayWidthPx != width || geometry.displayHeightPx != height) return refused("CAPTURE_GEOMETRY_CHANGED")
         val action = args.getString("action")
-        if (action == "tap") snapTapToClickableTarget(args, observed)
+        if (action == "tap" && !snapTapToClickableTarget(args, observed)) return refused("TARGET_CHANGED")
         val navigation = action in setOf("home", "back", "recents", "open_app")
         val epoch = ledger.invalidationGeneration
         val ui = uiSnapshot() ?: return refused("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
@@ -147,11 +195,23 @@ class AiObservationEngine internal constructor(
         return if (check()) AiActionValidation(stillValid = check) else refused("TARGET_CHANGED")
     }
 
-    private fun snapTapToClickableTarget(args: JSONObject, ui: AiUiSnapshot) {
+    private fun snapTapToClickableTarget(args: JSONObject, ui: AiUiSnapshot): Boolean {
+        val requestedTarget = args.optString("targetId", "").trim()
+        if (args.has("targetId")) {
+            if (requestedTarget.isEmpty() || requestedTarget.length > MAX_TARGET_ID_CHARS) return false
+            val exact = ui.nodes.filter { node ->
+                node.id == requestedTarget && node.enabled && node.clickable && node.area > 0L
+            }
+            // Fail closed instead of guessing when an id is stale or repeated.
+            if (exact.size != 1) return false
+            centerTap(args, exact.single())
+            return true
+        }
+
         val x = args.optDouble("x", Double.NaN)
         val y = args.optDouble("y", Double.NaN)
-        if (!x.isFinite() || !y.isFinite() || x !in 0.0..1.0 || y !in 0.0..1.0) return
-        if (width <= 0 || height <= 0) return
+        if (!x.isFinite() || !y.isFinite() || x !in 0.0..1.0 || y !in 0.0..1.0) return false
+        if (width <= 0 || height <= 0) return false
 
         val tapX = x * width
         val tapY = y * height
@@ -167,7 +227,7 @@ class AiObservationEngine internal constructor(
             .minByOrNull { it.area }
         if (direct != null) {
             centerTap(args, direct)
-            return
+            return true
         }
 
         /*
@@ -187,6 +247,7 @@ class AiObservationEngine internal constructor(
         if (nearby.size == 1) {
             centerTap(args, nearby.single())
         }
+        return true
     }
 
     private fun centerTap(args: JSONObject, node: AiUiNode) {
@@ -295,6 +356,7 @@ class AiObservationEngine internal constructor(
 
     companion object {
         private const val MAX_AI_DRAG_POINTS = 24
+        private const val MAX_TARGET_ID_CHARS = 256
         private const val QUIET_WINDOW_MS = 100L
         private const val MAX_ANIMATED_SETTLE_MS = 220L
         private const val SETTLE_POLL_MS = 40L
