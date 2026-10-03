@@ -1,0 +1,32 @@
+name: Release APK Artifact
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  release-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v4
+      - run: sdkmanager "platforms;android-36"
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "9.6.0"
+      - run: gradle :app:assembleRelease --stacktrace
+      - uses: actions/upload-artifact@v7
+        with:
+          name: AarisRemote-release-unsigned
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
