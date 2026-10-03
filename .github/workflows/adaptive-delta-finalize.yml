@@ -1,0 +1,85 @@
+name: Adaptive Delta Finalize
+
+on:
+  push:
+    branches:
+      - upgrade/v1.8.39-adaptive-delta-screen
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: ${{ !contains(github.event.head_commit.message, '[delta-integrated]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: upgrade/v1.8.39-adaptive-delta-screen
+          fetch-depth: 0
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - run: sdkmanager "platforms;android-36"
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Replay verified integration patches
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          workflow = Path('.github/workflows/adaptive-delta-integrate.yml').read_text().splitlines()
+          names = [
+              'Patch control capability protocol',
+              'Patch controller capability advertisement',
+              'Patch host adaptive recovery policy',
+              'Patch fallback WebRTC transport',
+              'Harden authoritative fallback reference model',
+              'Patch controller atomic delta compositor',
+              'Bump version and add capability regression test',
+          ]
+
+          for name in names:
+              marker = f'      - name: {name}'
+              start = workflow.index(marker)
+              run_index = None
+              for i in range(start + 1, len(workflow)):
+                  if workflow[i].startswith('      - name:'):
+                      break
+                  if workflow[i] == '        run: |':
+                      run_index = i
+                      break
+              if run_index is None:
+                  raise SystemExit(f'missing run block: {name}')
+
+              body = []
+              for line in workflow[run_index + 1:]:
+                  if line.startswith('      - name:'):
+                      break
+                  if line.startswith('          '):
+                      body.append(line[10:])
+                  elif line.strip() == '':
+                      body.append('')
+                  else:
+                      break
+
+              script = '\n'.join(body) + '\n'
+              print(f'== replay: {name} ==')
+              subprocess.run(['bash', '-euo', 'pipefail', '-c', script], check=True)
+          PY
+
+      - name: Verify full Android regression suite
+        run: gradle :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease --stacktrace
+
+      - name: Commit verified source upgrade
+        shell: bash
+        run: |
+          git config user.name "warishakhan3548-hash"
+          git config user.email "warishakhan3548@gmail.com"
+          git add app
+          git commit -m "v1.8.39: integrate adaptive delta recovery [delta-integrated]"
+          git push origin HEAD:upgrade/v1.8.39-adaptive-delta-screen
