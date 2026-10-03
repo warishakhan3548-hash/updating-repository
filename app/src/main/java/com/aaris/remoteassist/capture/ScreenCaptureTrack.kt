@@ -64,13 +64,27 @@ class ScreenCaptureTrack(
                 override fun onCapturerStarted(success: Boolean) { videoSource.capturerObserver.onCapturerStarted(success) }
                 override fun onCapturerStopped() { videoSource.capturerObserver.onCapturerStopped() }
                 override fun onFrameCaptured(frame: VideoFrame) {
-                    snapshotSinks.forEach { sink -> runCatching { sink.onFrame(frame) } }
+                    // Admit the latency-critical RTP sample first. Auxiliary
+                    // sinks are best-effort consumers (fallback recovery / AI
+                    // snapshots); a slow conversion or retain must never hold
+                    // the current live frame behind non-primary work.
+                    //
                     // forceFrame reuses the SurfaceTexture timestamp on a static
                     // screen. Give that new sample a monotonic timestamp so the
                     // native FPS adapter does not discard recovery requests.
-                    val sampled = VideoFrame(frame.buffer, frame.rotation,
-                        sampleClock.timestamp(frame.timestampNs, System.nanoTime()))
+                    val sampled = VideoFrame(
+                        frame.buffer,
+                        frame.rotation,
+                        sampleClock.timestamp(frame.timestampNs, System.nanoTime())
+                    )
                     videoSource.capturerObserver.onFrameCaptured(sampled)
+
+                    // These sinks are invoked explicitly for every capturer
+                    // callback, even when WebRTC adaptation elects not to send
+                    // the corresponding RTP frame.
+                    snapshotSinks.forEach { sink ->
+                        runCatching { sink.onFrame(frame) }
+                    }
                 }
             }
         )
@@ -111,7 +125,8 @@ class ScreenCaptureTrack(
         check(started && !closed.get()) { "CAPTURE_STOPPED" }
         // Static Android screens may emit no new frames. forceFrame reads the
         // current SurfaceTexture on its owning thread without a second projection.
-        // Snapshot sinks run before native frame-rate adaptation can drop duplicates.
+        // Snapshot sinks receive the forced callback even when native adaptation
+        // decides not to forward the duplicate into RTP.
         surfaceTextureHelper.forceFrame()
     }
 
