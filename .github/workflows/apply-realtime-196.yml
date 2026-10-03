@@ -35,19 +35,31 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
-          def replace_once(path: str, old: str, new: str):
+          def replace_once(path: str, old: str, new: str, label: str):
               p = Path(path)
               text = p.read_text()
               count = text.count(old)
               if count != 1:
-                  raise SystemExit(f"{path}: expected exactly one match, found {count}")
+                  raise SystemExit(f"{label}: expected exactly one match in {path}, found {count}")
               p.write_text(text.replace(old, new, 1))
+              print(f"patched {label}")
+
+          def sub_once(path: str, pattern: str, replacement: str, label: str):
+              p = Path(path)
+              text = p.read_text()
+              updated, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one regex match in {path}, found {count}")
+              p.write_text(updated)
+              print(f"patched {label}")
 
           replace_once(
               "app/build.gradle.kts",
               '        versionCode = 93\n        versionName = "1.9.5"',
               '        versionCode = 94\n        versionName = "1.9.6"',
+              "version"
           )
 
           controller = "app/src/main/java/com/aaris/remoteassist/webrtc/ControllerWebRtcSession.kt"
@@ -85,19 +97,17 @@ jobs:
                               maxGapMs = window.maxGapMs
                           )
                       ),
-                      // Render telemetry is freshness-only. Once control-live-v1
-                      // is open, never let a lost/retransmitted report sit ahead
-                      // of a newer tap/START/END on the reliable ordered lane.
+                      // Render cadence is freshness telemetry, not an authoritative command.
+                      // Keep retransmission/HOL delay away from the next tap or gesture edge.
                       freshnessSensitive = true
                   )
               }''',
+              "presentation feedback freshness lane"
           )
-          replace_once(
+
+          sub_once(
               controller,
-              '''            peer.sendControl(ControlProtocol.encode(ControlPacket.VideoFeedback(lease, display.generation,
-                  feedbackSequence.incrementAndGet(), recent.intervalMs, recent.frames,
-                  recent.processingMs?.toFloat() ?: -1f, recent.jitterMs?.toFloat() ?: -1f,
-                  recent.dropped ?: -1, recent.freezes ?: -1)))''',
+              r'''            peer\.sendControl\(ControlProtocol\.encode\(ControlPacket\.VideoFeedback\(lease, display\.generation,\n[ \t]+feedbackSequence\.incrementAndGet\(\), recent\.intervalMs, recent\.frames,\n[ \t]+recent\.processingMs\?\.toFloat\(\) \?: -1f, recent\.jitterMs\?\.toFloat\(\) \?: -1f,\n[ \t]+recent\.dropped \?: -1, recent\.freezes \?: -1\)\)\)''',
               '''            peer.sendControl(
                   bytes = ControlProtocol.encode(
                       ControlPacket.VideoFeedback(
@@ -112,11 +122,11 @@ jobs:
                           recent.freezes ?: -1
                       )
                   ),
-                  // Decoder health is periodic telemetry, not an authoritative
-                  // command. Dropping an old sample is better than head-of-line
-                  // blocking the user's next input under packet loss.
+                  // Decoder samples age quickly; stale telemetry may be dropped rather
+                  // than queueing ahead of authoritative user input on control-v1.
                   freshnessSensitive = true
               )''',
+              "decoder feedback freshness lane"
           )
 
           observation = "app/src/main/java/com/aaris/remoteassist/ai/AiObservationEngine.kt"
@@ -140,6 +150,7 @@ jobs:
                       pause(minOf(SETTLE_POLL_MS, remainingQuiet, remainingBudget))
                   }
               }''',
+              "adaptive observation settling"
           )
           replace_once(
               observation,
@@ -148,6 +159,7 @@ jobs:
               '''        val action = args.getString("action")
                   if (action == "tap") snapTapToClickableTarget(args, observed)
                   val navigation = action in setOf("home", "back", "recents", "open_app")''',
+              "tap target snap hook"
           )
           replace_once(
               observation,
@@ -158,10 +170,9 @@ jobs:
                   if (!x.isFinite() || !y.isFinite() || x !in 0.0..1.0 || y !in 0.0..1.0) return
                   if (width <= 0 || height <= 0) return
 
-                  // Coordinate taps remain the universal fallback for canvases and
-                  // custom views. When Accessibility exposes a stable clickable
-                  // target, aim at its center so tiny text/icons and edge taps do
-                  // not turn a correct AI decision into a physical mis-click.
+                  // Preserve coordinate taps as the universal canvas/custom-view fallback.
+                  // If Accessibility exposes a stable clickable target under the point,
+                  // center the tap inside the smallest enabled target to reduce edge misses.
                   val target = ui.nodes.asSequence()
                       .filter { node ->
                           node.enabled && node.clickable && node.area > 0L &&
@@ -175,6 +186,7 @@ jobs:
               }
 
               private fun actionScope(args: JSONObject, ui: AiUiSnapshot): AiActionScope? {''',
+              "semantic tap centering"
           )
           replace_once(
               observation,
@@ -188,10 +200,10 @@ jobs:
                       const val SETTLE_POLL_MS = 40L
                   }
               }''',
+              "settle constants"
           )
 
-          launcher = Path("app/src/main/java/com/aaris/remoteassist/ai/AiAppLauncher.kt")
-          launcher.write_text('''package com.aaris.remoteassist.ai
+          Path("app/src/main/java/com/aaris/remoteassist/ai/AiAppLauncher.kt").write_text('''package com.aaris.remoteassist.ai
 
           import android.content.Context
           import android.content.Intent
@@ -211,9 +223,8 @@ jobs:
                       }.getOrDefault(false)
                   }
 
-                  // Package names are already unique. Avoid enumerating every launcher
-                  // activity when the AI supplied one, then retain conservative label
-                  // matching as the universal fallback.
+                  // A package name is already an exact unique target. Avoid enumerating
+                  // every launcher activity when the model/tool supplied one directly.
                   packageManager.getLaunchIntentForPackage(raw)?.let { intent ->
                       return launchIntent(intent)
                   }
@@ -234,6 +245,7 @@ jobs:
               }
           }
           '''.replace("\n          ", "\n").lstrip())
+          print("patched exact-package app launch fast path")
 
           test_path = "app/src/test/java/com/aaris/remoteassist/ai/AiObservationEngineTest.kt"
           replace_once(
@@ -263,6 +275,7 @@ jobs:
               }
 
               @Test fun privacyContextChangingDuringCaptureNeverReturnsUnmaskedImage() = runBlocking {''',
+              "AI latency and targeting regression tests"
           )
 
           replace_once(
@@ -271,41 +284,37 @@ jobs:
                 CONTINUE packets;''',
               '''  - unordered, non-retransmitted `control-live-v1` lane for freshness-only drag
                 CONTINUE packets plus stale-safe decoder/presentation telemetry;''',
+              "architecture transport map"
           )
 
           Path("docs/RTC_AND_AI_196.md").write_text('''# Aaris Remote 1.9.6 — input-first realtime + faster AI targeting
 
-          ## Surgical goal
+          ## Realtime transport
 
-          Keep the proven v1.9.5 architecture and remove latency that does not help correctness.
-          Steady-state screen pixels still use WebRTC directly or through TURN; Cloudflare Workers remain the authentication/signaling/TURN-credential control plane and do not proxy screen video.
+          Screen pixels continue to use WebRTC directly or through TURN. Cloudflare Workers remain the authentication, signaling, and TURN-credential control plane; they do not proxy steady-state screen video.
 
-          ## Realtime transport upgrade
+          Decoder-health and EGL-presentation telemetry now use the existing unordered, non-retransmitted `control-live-v1` freshness lane after it opens. Startup keeps the reliable fallback. Old telemetry therefore cannot sit in retransmission head-of-line ahead of a newer authoritative tap, gesture START/END, navigation, or text command. Host feedback remains lease/display-generation bound and replay protected.
 
-          The controller now sends decoder-health and EGL-presentation telemetry through the existing unordered, non-retransmitted `control-live-v1` freshness lane once it is available. Startup retains the reliable-lane fallback.
+          ## AI hands
 
-          Telemetry is periodic and replay-protected, so retransmitting an old sample has less value than protecting the next authoritative tap, gesture START/END, navigation command, or text action from SCTP head-of-line delay. Host-side decoder and presentation sequence gates remain independent and lease/display-generation bound.
+          AI tap coordinates remain universal, including custom views and canvases. When the fresh Accessibility snapshot exposes an enabled clickable node under the requested point, the tap is centered inside the smallest matching target before the existing semantic and fresh-pixel revalidation. This reduces tiny-icon and edge-tap misses without introducing a second execution path.
 
-          ## AI hand upgrade
+          `open_app` now fast-paths an exact launcher package before enumerating launcher labels; conservative label matching remains the fallback.
 
-          AI tap coordinates remain compatible with every Android surface, but when the fresh Accessibility snapshot exposes an enabled clickable node under the requested point, the action is snapped to the center of the smallest such target before the existing pixel/semantic revalidation. Canvas/custom-view taps remain untouched.
+          ## Observation latency
 
-          `open_app` also fast-paths an exact launcher package without first enumerating the full launcher catalog; conservative label matching remains the fallback.
+          `phone_observe` no longer pays an unconditional 80 ms delay on an already-quiet screen. It returns immediately when the UI is already quiescent, otherwise waits for 100 ms of quiet with the existing 320 ms ceiling. Privacy masking, fresh capture, one-use tickets, target revalidation, and the one-action contract stay intact.
 
-          ## Observation latency upgrade
+          ## Regression gates
 
-          `phone_observe` no longer pays an unconditional 80 ms sleep on an already-quiet screen. It uses a bounded quiescence window: return immediately when the UI has already been quiet, otherwise wait only until 100 ms of quiet or the existing 320 ms ceiling. Fresh pixels, privacy checks, one-use observation tickets, target revalidation, and the one-action contract are unchanged.
-
-          ## Regression coverage
-
-          - Stable observations incur no synthetic settle delay.
-          - A just-invalidated screen waits exactly for the quiescence window in the deterministic clock test.
-          - AI taps snap to the center of a stable clickable target and remain valid.
-          - Existing MCP protocol tests, Android unit tests, debug/release lint, and debug/release builds remain required.
-          - Production Cloudflare smoke coverage remains unchanged because the data-plane video path was intentionally not moved through Workers.
+          - Deterministic tests cover zero synthetic delay on quiet screens and bounded settling after invalidation.
+          - AI target-centering is verified against the smallest enabled clickable node.
+          - MCP protocol tests, Android unit tests, debug/release lint, and debug/release builds are required before commit.
+          - Cloudflare production topology is intentionally unchanged because Workers are not the video data plane.
           '''.replace("\n          ", "\n").lstrip())
 
           Path(".github/workflows/apply-realtime-196.yml").unlink()
+          print("patch complete; self-removing surgeon workflow")
           PY
 
       - name: MCP protocol regression
