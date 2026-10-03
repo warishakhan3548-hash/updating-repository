@@ -47,12 +47,40 @@ class VideoCadenceGovernor(private val maxFps: Int) {
 
         val sendQueueMs = sender.sendQueueMs
         val receiverJitterMs = receiver?.jitterMs
+        val receiverMeasured = receiver != null && receiver.frames >= MIN_MEASURED_FRAMES
         val queuePressureThresholdMs = maxOf(MIN_QUEUE_PRESSURE_MS, budgetMs * QUEUE_BUDGET_MULTIPLIER)
         val jitterPressureThresholdMs = maxOf(MIN_JITTER_PRESSURE_MS, budgetMs * JITTER_BUDGET_MULTIPLIER)
         val queuePressure = sendQueueMs != null && sendQueueMs > queuePressureThresholdMs
         val receiverDelay =
-            receiver != null && receiver.frames >= MIN_MEASURED_FRAMES &&
+            receiverMeasured &&
                 receiverJitterMs != null && receiverJitterMs > jitterPressureThresholdMs
+
+        /*
+         * A remoting stream can feel late even when no single queue crosses its
+         * individual alarm threshold. Sender pacer residence and receiver jitter
+         * residence are serial waiting rooms in the same motion-to-photon path,
+         * so budget them together as well. This catches e.g. 35 ms sender queue
+         * + 45 ms jitter at 60 fps before either queue becomes pathological.
+         *
+         * Libwebrtc still owns bandwidth estimation and packet pacing. This
+         * governor only lowers capture cadence when the measured pipeline is
+         * accumulating stale frames, which gives GCC room to drain its queues.
+         */
+        val pipelineResidenceMs =
+            if (sendQueueMs != null || (receiverMeasured && receiverJitterMs != null)) {
+                (sendQueueMs ?: 0.0) +
+                    if (receiverMeasured) (receiverJitterMs ?: 0.0) else 0.0
+            } else {
+                null
+            }
+        val pipelineResidencePressureThresholdMs =
+            maxOf(
+                MIN_PIPELINE_RESIDENCE_PRESSURE_MS,
+                budgetMs * PIPELINE_RESIDENCE_BUDGET_MULTIPLIER
+            )
+        val pipelineResidencePressure =
+            pipelineResidenceMs != null &&
+                pipelineResidenceMs > pipelineResidencePressureThresholdMs
 
         /*
          * RTP/decode counters can look healthy while the controller GPU is
@@ -81,7 +109,7 @@ class VideoCadenceGovernor(private val maxFps: Int) {
         val congestion =
             loss >= PACKET_LOSS_PRESSURE_RATIO ||
                 (outbound.roundTripTimeMs ?: 0) >= RTT_PRESSURE_MS ||
-                queuePressure || receiverDelay
+                queuePressure || receiverDelay || pipelineResidencePressure
 
         val severePresentationPressure =
             presentationMeasured &&
@@ -91,6 +119,7 @@ class VideoCadenceGovernor(private val maxFps: Int) {
                 (outbound.roundTripTimeMs ?: 0) >= SEVERE_RTT_MS ||
                 (sendQueueMs ?: 0.0) >= SEVERE_QUEUE_MS ||
                 (receiverJitterMs ?: 0.0) >= SEVERE_JITTER_MS ||
+                (pipelineResidenceMs ?: 0.0) >= SEVERE_PIPELINE_RESIDENCE_MS ||
                 receiverDropRatio >= SEVERE_RECEIVER_DROP_RATIO ||
                 severePresentationPressure
         val cpuPressure = outbound.qualityLimitationReason == "cpu"
@@ -214,6 +243,8 @@ class VideoCadenceGovernor(private val maxFps: Int) {
         const val QUEUE_BUDGET_MULTIPLIER = 2.0
         const val MIN_JITTER_PRESSURE_MS = 85.0
         const val JITTER_BUDGET_MULTIPLIER = 2.5
+        const val MIN_PIPELINE_RESIDENCE_PRESSURE_MS = 75.0
+        const val PIPELINE_RESIDENCE_BUDGET_MULTIPLIER = 4.0
         const val MIN_RENDER_GAP_PRESSURE_MS = 55.0
         const val RENDER_GAP_BUDGET_MULTIPLIER = 2.5
         const val PRESENTATION_DELIVERY_RATIO = 0.82
@@ -226,6 +257,7 @@ class VideoCadenceGovernor(private val maxFps: Int) {
         const val SEVERE_RTT_MS = 900
         const val SEVERE_QUEUE_MS = 150.0
         const val SEVERE_JITTER_MS = 180.0
+        const val SEVERE_PIPELINE_RESIDENCE_MS = 220.0
         const val SEVERE_RECEIVER_DROP_RATIO = 0.25
         const val SEVERE_PRESENTATION_DELIVERY_RATIO = 0.60
         const val SEVERE_RENDER_GAP_MS = 150.0
