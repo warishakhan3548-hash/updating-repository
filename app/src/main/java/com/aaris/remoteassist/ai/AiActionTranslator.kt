@@ -31,15 +31,30 @@ object AiActionTranslator {
         }
         fun boundedDuration(defaultMs: Int): Int =
             args.optInt("durationMs", defaultMs).also { require(it in 80..1500) }
-        fun adaptiveDuration(distance: Double): Int =
-            (140.0 + distance.coerceIn(0.0, 1.25) * 240.0)
+
+        /*
+         * Different gestures need different default motor profiles. A navigation
+         * swipe/flick should get out of the way quickly, while a path drag needs
+         * enough dwell time for small controls and continued Android strokes to
+         * track the requested curve. The AI can still override durationMs when
+         * the task explicitly calls for a very fast or very slow motion.
+         */
+        fun adaptiveSwipeDuration(distance: Double): Int =
+            (110.0 + distance.coerceIn(0.0, 1.25) * 180.0)
                 .roundToInt()
-                .coerceIn(140, 440)
+                .coerceIn(110, 335)
+        fun adaptiveDragDuration(distance: Double): Int =
+            (160.0 + distance.coerceIn(0.0, 1.25) * 270.0)
+                .roundToInt()
+                .coerceIn(160, 500)
+        fun adaptiveTwoFingerDuration(distance: Double): Int =
+            (150.0 + distance.coerceIn(0.0, 1.25) * 240.0)
+                .roundToInt()
+                .coerceIn(150, 450)
         fun pathDistance(points: List<ControlPathPoint>): Double =
             points.zipWithNext().sumOf { (from, to) ->
                 hypot(
-                    (to.nx - from.nx).toDouble(),
-                    (to.ny - from.ny).toDouble()
+                    (to.nx - from.nx).toDouble(), (to.ny - from.ny).toDouble()
                 )
             }
 
@@ -69,7 +84,7 @@ object AiActionTranslator {
                     y,
                     toX,
                     toY,
-                    boundedDuration(adaptiveDuration(distance))
+                    boundedDuration(adaptiveSwipeDuration(distance))
                 )
             }
             "drag" -> {
@@ -79,7 +94,7 @@ object AiActionTranslator {
                     generation,
                     sequence,
                     points,
-                    boundedDuration(adaptiveDuration(pathDistance(points)))
+                    boundedDuration(adaptiveDragDuration(pathDistance(points)))
                 )
             }
             "two_finger" -> {
@@ -93,8 +108,7 @@ object AiActionTranslator {
                 val secondToY = unit("secondToY")
                 val firstDistance = hypot((toX - x).toDouble(), (toY - y).toDouble())
                 val secondDistance = hypot(
-                    (secondToX - secondX).toDouble(),
-                    (secondToY - secondY).toDouble()
+                    (secondToX - secondX).toDouble(), (secondToY - secondY).toDouble()
                 )
                 ControlPacket.TwoFinger(
                     leaseSecret = secret,
@@ -108,7 +122,7 @@ object AiActionTranslator {
                     secondFromNy = secondY,
                     secondToNx = secondToX,
                     secondToNy = secondToY,
-                    durationMs = boundedDuration(adaptiveDuration(maxOf(firstDistance, secondDistance)))
+                    durationMs = boundedDuration(adaptiveTwoFingerDuration(maxOf(firstDistance, secondDistance)))
                 )
             }
             "back" -> ControlPacket.Back(secret, generation, sequence)
