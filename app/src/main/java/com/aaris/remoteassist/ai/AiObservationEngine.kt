@@ -49,11 +49,11 @@ class AiObservationEngine internal constructor(
             val current = now()
             val elapsed = current - start
             val quietFor = current - ledger.changedAtMs
-            if (quietFor >= 100L || elapsed >= 320L) return
+            if (quietFor >= QUIET_WINDOW_MS || elapsed >= MAX_SETTLE_MS) return
 
-            val remainingQuiet = (100L - quietFor).coerceAtLeast(1L)
-            val remainingBudget = (320L - elapsed).coerceAtLeast(1L)
-            pause(minOf(40L, remainingQuiet, remainingBudget))
+            val remainingQuiet = (QUIET_WINDOW_MS - quietFor).coerceAtLeast(1L)
+            val remainingBudget = (MAX_SETTLE_MS - elapsed).coerceAtLeast(1L)
+            pause(minOf(SETTLE_POLL_MS, remainingQuiet, remainingBudget))
         }
     }
 
@@ -169,16 +169,70 @@ class AiObservationEngine internal constructor(
     }
 
     private fun actionScope(args: JSONObject, ui: AiUiSnapshot): AiActionScope? {
-        if (args.getString("action") == "type") {
-            val field = ui.nodes.singleOrNull { it.focused && it.editable } ?: return null
-            return AiActionScope((field.left + field.right) / 2.0 / width, (field.top + field.bottom) / 2.0 / height)
+        return when (args.getString("action")) {
+            "type" -> {
+                val field = ui.nodes.singleOrNull { it.focused && it.editable } ?: return null
+                AiActionScope((field.left + field.right) / 2.0 / width, (field.top + field.bottom) / 2.0 / height)
+            }
+            "gesture_path" -> {
+                val points = readPath(args) ?: return null
+                AiActionScope.path(points)
+            }
+            "two_finger" -> {
+                val first = readPath(
+                    args,
+                    "firstX", "firstY", "firstToX", "firstToY"
+                ) ?: return null
+                val second = readPath(
+                    args,
+                    "secondX", "secondY", "secondToX", "secondToY"
+                ) ?: return null
+                AiActionScope.paths(listOf(first, second))
+            }
+            else -> {
+                val x = readUnit(args, "x") ?: return null
+                val y = readUnit(args, "y") ?: return null
+                if (args.getString("action") == "swipe") {
+                    val tx = readUnit(args, "toX") ?: return null
+                    val ty = readUnit(args, "toY") ?: return null
+                    AiActionScope(x, y, tx, ty)
+                } else {
+                    AiActionScope(x, y)
+                }
+            }
         }
-        val x = args.getDouble("x"); val y = args.getDouble("y")
-        val swipe = args.getString("action") == "swipe"
-        val tx = if (swipe) args.getDouble("toX") else x
-        val ty = if (swipe) args.getDouble("toY") else y
-        require(listOf(x, y, tx, ty).all { it.isFinite() && it in 0.0..1.0 })
-        return AiActionScope(x, y, tx, ty)
+    }
+
+    private fun readPath(args: JSONObject): List<Pair<Double, Double>>? {
+        val array = args.optJSONArray("points") ?: return null
+        if (array.length() !in 2..MAX_AI_GESTURE_POINTS) return null
+        return buildList(array.length()) {
+            for (index in 0 until array.length()) {
+                val point = array.optJSONObject(index) ?: return null
+                val x = readUnit(point, "x") ?: return null
+                val y = readUnit(point, "y") ?: return null
+                add(x to y)
+            }
+        }
+    }
+
+    private fun readPath(
+        args: JSONObject,
+        fromX: String,
+        fromY: String,
+        toX: String,
+        toY: String
+    ): List<Pair<Double, Double>>? {
+        val x = readUnit(args, fromX) ?: return null
+        val y = readUnit(args, fromY) ?: return null
+        val tx = readUnit(args, toX) ?: return null
+        val ty = readUnit(args, toY) ?: return null
+        return listOf(x to y, tx to ty)
+    }
+
+    private fun readUnit(source: JSONObject, key: String): Double? {
+        val value = source.optDouble(key, Double.NaN)
+        return value.takeIf { it.isFinite() && it in 0.0..1.0 }
     }
 
     private fun sameTarget(args: JSONObject, a: AiUiSnapshot, b: AiUiSnapshot): Boolean {
@@ -188,7 +242,7 @@ class AiObservationEngine internal constructor(
             return field.enabled && field == b.nodes.singleOrNull { it.focused && it.editable }
         }
         val scope = actionScope(args, a) ?: return false
-        if (args.getString("action") == "swipe") {
+        if (args.getString("action") in MOTION_ACTIONS) {
             fun relevant(ui: AiUiSnapshot) = ui.nodes.filter {
                 it.area < width.toLong() * height / 3 &&
                     scope.contains((it.left + it.right) / 2.0 / width, (it.top + it.bottom) / 2.0 / height)
@@ -211,4 +265,12 @@ class AiObservationEngine internal constructor(
         return kotlin.math.abs(w.toDouble() / h - profile.displayWidthPx.toDouble() / profile.displayHeightPx) <= 0.015
     }
     private fun error(code: String) = JSONObject().put("error", code).put("applied", false)
+
+    private companion object {
+        const val QUIET_WINDOW_MS = 100L
+        const val MAX_SETTLE_MS = 220L
+        const val SETTLE_POLL_MS = 40L
+        const val MAX_AI_GESTURE_POINTS = 32
+        val MOTION_ACTIONS = setOf("swipe", "gesture_path", "two_finger")
+    }
 }
