@@ -52,12 +52,12 @@ data class CaptureProfile(
          * is genuinely constrained.
          *
          * HIGH stays distinct without violating the compatibility-video safety
-         * contract, whose current hard dimension ceiling is 2560. That gives
-         * capable >=6 GB devices extra detail on QHD-class panels while keeping
-         * black-screen recovery valid for every capture tier.
+         * contract. That gives capable >=6 GB devices extra detail on QHD-class
+         * panels while keeping black-screen recovery valid for every tier.
          */
         private const val STANDARD_CAPTURE_LONG_SIDE = 2400
-        private const val HIGH_CAPTURE_LONG_SIDE = 2560
+        private const val HIGH_CAPTURE_LONG_SIDE =
+            CaptureVideoContract.MAX_FALLBACK_SAFE_LONG_SIDE_PX
 
         private const val LOW_FPS = 15
         private const val BALANCED_FPS = 24
