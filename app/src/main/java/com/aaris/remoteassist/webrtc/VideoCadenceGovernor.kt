@@ -67,7 +67,7 @@ class VideoCadenceGovernor(private val maxFps: Int) {
          * 60 -> 45 relief step. At lower cadence the absolute budget expands,
          * avoiding needless quality loss on constrained devices. Two consecutive
          * pressure windows and the existing change hysteresis still protect the
-         * stream from reacting to a single jitter spike.
+         * stream from reacting to a single small jitter spike.
          *
          * Require both measurements for this cross-layer signal. If either
          * endpoint omits its stat, the established per-layer thresholds keep
@@ -132,6 +132,31 @@ class VideoCadenceGovernor(private val maxFps: Int) {
                 (pipelineResidenceMs ?: 0.0) >= SEVERE_PIPELINE_RESIDENCE_MS ||
                 receiverDropRatio >= SEVERE_RECEIVER_DROP_RATIO ||
                 severePresentationPressure
+
+        /*
+         * Remote control is more sensitive to stale frames than a passive call.
+         * A queue that is clearly beyond the normal alarm budget should not need
+         * a second full stats window before receiving the gentle 60 -> 45 relief.
+         * This is intentionally NOT classified as severe: it earns one fast soft
+         * cadence step, while 30 fps-or-lower jumps remain reserved for genuinely
+         * severe loss/queue/decode/GPU pressure.
+         *
+         * Requiring ~1.5x the ordinary budget makes this a high-confidence signal,
+         * so a single marginal spike still follows the established two-window
+         * hysteresis. The shorter change interval is also bounded to prevent
+         * repeated downshifts while GCC is draining the previous queue.
+         */
+        val urgentFreshnessPressure =
+            !severePressure &&
+                (
+                    (sendQueueMs ?: 0.0) >= queuePressureThresholdMs * URGENT_FRESHNESS_MULTIPLIER ||
+                        (receiverJitterMs ?: 0.0) >= jitterPressureThresholdMs * URGENT_FRESHNESS_MULTIPLIER ||
+                        (pipelineResidenceMs ?: 0.0) >=
+                            pipelineResidencePressureThresholdMs * URGENT_FRESHNESS_MULTIPLIER ||
+                        (presentationMeasured &&
+                            renderGapMs >= renderGapPressureMs * URGENT_FRESHNESS_MULTIPLIER)
+                    )
+
         val cpuPressure = outbound.qualityLimitationReason == "cpu"
 
         val overloaded =
@@ -140,8 +165,13 @@ class VideoCadenceGovernor(private val maxFps: Int) {
 
         if (overloaded) {
             healthy = 0
-            pressure = (pressure + if (severePressure) 2 else 1).coerceAtMost(PRESSURE_SAMPLES_TO_REDUCE)
-            val changeInterval = if (severePressure) SEVERE_CHANGE_INTERVAL_MS else MIN_CHANGE_INTERVAL_MS
+            val pressureWeight = if (severePressure || urgentFreshnessPressure) 2 else 1
+            pressure = (pressure + pressureWeight).coerceAtMost(PRESSURE_SAMPLES_TO_REDUCE)
+            val changeInterval = when {
+                severePressure -> SEVERE_CHANGE_INTERVAL_MS
+                urgentFreshnessPressure -> URGENT_FRESHNESS_CHANGE_INTERVAL_MS
+                else -> MIN_CHANGE_INTERVAL_MS
+            }
             if (pressure < PRESSURE_SAMPLES_TO_REDUCE || nowMs - changedAt < changeInterval) return false
 
             val ceiling = minOf(cap, requestedFps)
@@ -273,6 +303,9 @@ class VideoCadenceGovernor(private val maxFps: Int) {
         const val SEVERE_RENDER_GAP_MS = 150.0
         const val SEVERE_OBSERVED_HEADROOM = 1.10
         const val STRONG_RELIEF_MAX_STEP_FPS = 30
+
+        const val URGENT_FRESHNESS_MULTIPLIER = 1.5
+        const val URGENT_FRESHNESS_CHANGE_INTERVAL_MS = 1_500L
 
         const val HEALTHY_RTT_MS = 300
         const val HEALTHY_JITTER_MS = 45.0
