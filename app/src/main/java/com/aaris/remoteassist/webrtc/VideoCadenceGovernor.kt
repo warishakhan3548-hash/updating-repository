@@ -141,7 +141,7 @@ class VideoCadenceGovernor(private val maxFps: Int) {
          * cadence step, while 30 fps-or-lower jumps remain reserved for genuinely
          * severe loss/queue/decode/GPU pressure.
          *
-         * Requiring ~1.5x the ordinary budget makes this a high-confidence signal,
+         * Requiring 2x the ordinary budget makes this a high-confidence signal,
          * so a single marginal spike still follows the established two-window
          * hysteresis. The shorter change interval is also bounded to prevent
          * repeated downshifts while GCC is draining the previous queue.
@@ -304,7 +304,7 @@ class VideoCadenceGovernor(private val maxFps: Int) {
         const val SEVERE_OBSERVED_HEADROOM = 1.10
         const val STRONG_RELIEF_MAX_STEP_FPS = 30
 
-        const val URGENT_FRESHNESS_MULTIPLIER = 1.5
+        const val URGENT_FRESHNESS_MULTIPLIER = 2.0
         const val URGENT_FRESHNESS_CHANGE_INTERVAL_MS = 1_500L
 
         const val HEALTHY_RTT_MS = 300
