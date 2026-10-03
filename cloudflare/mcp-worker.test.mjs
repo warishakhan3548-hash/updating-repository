@@ -35,6 +35,11 @@ const result = async response => JSON.parse((await response.json()).result.conte
 test('strict arguments reject nonfinite, missing and out of range coordinates, unknown fields and oversized text', () => {
   assert.ok(validateArguments('phone_action', args));
   for (const bad of [{ ...args, x: NaN }, { ...args, x: 1.001 }, { ...args, y: undefined }, { ...args, x: '0.4' }, { ...args, shell: 'anything' }, { ...args, screenVersion: -1 }, { ...args, action: 'swipe' }, { ...args, action: 'type', text: 'a'.repeat(1001) }]) assert.equal(validateArguments('phone_action', bad), false);
+  assert.ok(validateArguments('phone_action', { ...args, targetId: 'com.example:id/submit' }));
+  assert.equal(validateArguments('phone_action', { ...args, targetId: '   ' }), false);
+  assert.equal(validateArguments('phone_action', { ...args, targetId: 'x'.repeat(257) }), false);
+  assert.equal(validateArguments('phone_action', { ...args, action: 'swipe', toX: 0.5, toY: 0.5, targetId: 'com.example:id/submit' }), false);
+  assert.equal(TOOLS[2].inputSchema.properties.targetId.maxLength, 256);
   assert.ok(validateArguments('phone_action', { ...args, action: 'type', text: 'Hello' }));
   assert.ok(validateArguments('phone_action', { ...args, action: 'open_app', app: 'ChatGPT' }));
   assert.equal(validateArguments('phone_action', { ...args, action: 'open_app' }), false);
