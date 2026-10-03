@@ -78,7 +78,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          ./gradlew :app:compileDebugKotlin --stacktrace > /tmp/compile.log 2>&1
+          gradle :app:compileDebugKotlin --stacktrace > /tmp/compile.log 2>&1
           code=$?
           echo "=== focused compiler diagnostics ==="
           grep -E "(^e: | error: |Compilation error|FAILURE:|What went wrong|FAILED|Unresolved reference|Type mismatch|overrides nothing|No value passed)" /tmp/compile.log | tail -n 160 || true
