@@ -52,10 +52,31 @@ test('drag accepts bounded normalized paths and rejects malformed paths', () => 
   assert.equal(validateArguments('phone_action', { ...drag, points: Array.from({ length: 25 }, (_, i) => ({ x: i / 24, y: 0.5 })) }), false);
 });
 
-test('deep canonicalization makes nested drag retries independent of object key order', () => {
+test('two-finger action requires both bounded pointer paths and valid duration', () => {
+  const twoFinger = {
+    actionId: 'step-twofinger-0001', observationId: 'observation-twofinger-0001', screenVersion: 9,
+    action: 'two_finger', durationMs: 450,
+    firstX: 0.40, firstY: 0.50, firstToX: 0.25, firstToY: 0.50,
+    secondX: 0.60, secondY: 0.50, secondToX: 0.75, secondToY: 0.50
+  };
+  assert.equal(validateArguments('phone_action', twoFinger), true);
+  const missing = { ...twoFinger }; delete missing.secondToY;
+  assert.equal(validateArguments('phone_action', missing), false);
+  assert.equal(validateArguments('phone_action', { ...twoFinger, firstX: -0.01 }), false);
+  assert.equal(validateArguments('phone_action', { ...twoFinger, secondToX: 1.01 }), false);
+  assert.equal(validateArguments('phone_action', { ...twoFinger, durationMs: 79 }), false);
+});
+
+test('deep canonicalization makes nested drag and two-finger retries independent of object key order', () => {
   const a = { action: 'drag', points: [{ x: 0.2, y: 0.8 }, { x: 0.7, y: 0.3 }], outer: { b: 2, a: 1 } };
   const b = { outer: { a: 1, b: 2 }, points: [{ y: 0.8, x: 0.2 }, { y: 0.3, x: 0.7 }], action: 'drag' };
   assert.equal(canonical(a), canonical(b));
+  const twoFinger = {
+    actionId: 'step-twofinger-0001', observationId: 'observation-twofinger-0001', screenVersion: 9,
+    action: 'two_finger', firstX: 0.4, firstY: 0.5, firstToX: 0.25, firstToY: 0.5,
+    secondX: 0.6, secondY: 0.5, secondToX: 0.75, secondToY: 0.5, durationMs: 450
+  };
+  assert.equal(canonical(twoFinger), canonical(Object.fromEntries(Object.entries(twoFinger).reverse())));
 });
 
 test('MCP initialization negotiates a supported version and images are first-class content', async () => {
