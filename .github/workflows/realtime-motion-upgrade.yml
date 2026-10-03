@@ -1,0 +1,141 @@
+name: Realtime Motion Upgrade
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches:
+      - upgrade/v1.8.38-realtime-motion
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v4
+      - run: sdkmanager "platforms;android-36"
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "9.6.0"
+
+      - name: Apply adaptive realtime-motion upgrade
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              assert count == 1, f"{label}: expected 1 match, found {count}"
+              return text.replace(old, new, 1)
+
+          # 1) Capture profile: keep idle clarity at 30fps-class while exposing
+          # a motion burst ceiling that can reach the phone's 60Hz-class cadence.
+          p = Path("app/src/main/java/com/aaris/remoteassist/capture/CaptureProfile.kt")
+          text = p.read_text()
+          text = replace_once(
+              text,
+              '''    val maxVideoBitrateBps: Int,\n    val tier: CaptureTier\n) {''',
+              '''    val maxVideoBitrateBps: Int,\n    val tier: CaptureTier,\n    val motionFps: Int = fps\n) {''',
+              "CaptureProfile motionFps field"
+          )
+          text = replace_once(
+              text,
+              '''        private const val LOW_FPS = 15\n        private const val BALANCED_FPS = 24\n        private const val STANDARD_FPS = 30\n        private const val HIGH_FPS = 30''',
+              '''        private const val LOW_FPS = 15\n        private const val BALANCED_FPS = 24\n        private const val STANDARD_FPS = 30\n        private const val HIGH_FPS = 30\n\n        // Motion is bursty: use higher cadence only while the controller is\n        // actively touching or while the resulting fling/animation is settling.\n        // Constrained tiers remain conservative; STANDARD/HIGH can match a\n        // common 60Hz phone display when the encoder and path are healthy.\n        private const val LOW_MOTION_FPS = 20\n        private const val BALANCED_MOTION_FPS = 30\n        private const val STANDARD_MOTION_FPS = 60\n        private const val HIGH_MOTION_FPS = 60''',
+              "CaptureProfile fps constants"
+          )
+          text = replace_once(text, "private const val STANDARD_BITRATE_BPS = 7_200_000", "private const val STANDARD_BITRATE_BPS = 10_000_000", "standard bitrate")
+          text = replace_once(text, "private const val HIGH_BITRATE_BPS = 8_000_000", "private const val HIGH_BITRATE_BPS = 12_000_000", "high bitrate")
+          marker = '''            val maxVideoBitrateBps =\n                when (tier) {'''
+          insertion = '''            val motionFps =\n                when (tier) {\n                    CaptureTier.LOW -> LOW_MOTION_FPS\n                    CaptureTier.BALANCED -> BALANCED_MOTION_FPS\n                    CaptureTier.STANDARD -> STANDARD_MOTION_FPS\n                    CaptureTier.HIGH -> HIGH_MOTION_FPS\n                }\n\n            val maxVideoBitrateBps =\n                when (tier) {'''
+          text = replace_once(text, marker, insertion, "motion fps mapping")
+          text = replace_once(
+              text,
+              '''                maxVideoBitrateBps = maxVideoBitrateBps,\n                tier = tier\n            )''',
+              '''                maxVideoBitrateBps = maxVideoBitrateBps,\n                tier = tier,\n                motionFps = motionFps\n            )''',
+              "CaptureProfile constructor"
+          )
+          p.write_text(text)
+
+          # 2) During interaction, freshness wins for every tier. Idle behavior
+          # stays unchanged, so STANDARD/HIGH return to native-detail priority.
+          p = Path("app/src/main/java/com/aaris/remoteassist/webrtc/InteractiveVideoPolicy.kt")
+          text = p.read_text()
+          text = replace_once(
+              text,
+              '''                CaptureTier.STANDARD,\n                CaptureTier.HIGH ->\n                    InteractiveVideoPolicy(\n                        preserveResolution = false,\n                        motionPriority = false\n                    )''',
+              '''                CaptureTier.STANDARD,\n                CaptureTier.HIGH ->\n                    InteractiveVideoPolicy(\n                        preserveResolution = false,\n                        motionPriority = true\n                    )''',
+              "strong-tier motion priority"
+          )
+          text = text.replace(
+              "strongest capture tiers therefore use WebRTC's BALANCED strategy during\n * motion instead of forcing MAINTAIN_FRAMERATE (which can create an abrupt\n * resolution/clarity cliff). Constrained tiers still favor frame freshness\n * because their capture resolution is already intentionally bounded.",
+              "all capture tiers therefore use MAINTAIN_FRAMERATE during active\n * interaction. STANDARD/HIGH temporarily raise capture cadence as well; if the\n * encoder or network cannot sustain that burst, WebRTC may trade resolution for\n * fresh frames while the slower quality governor remains the safety backstop."
+          )
+          p.write_text(text)
+
+          # 3) Host dynamically raises the actual ScreenCapturer cadence during
+          # interaction; changing only the RTP maxFramerate would not create new
+          # source frames and would therefore not improve perceived motion.
+          p = Path("app/src/main/java/com/aaris/remoteassist/webrtc/HostWebRtcSession.kt")
+          text = p.read_text()
+          assert text.count("        capture.update(latest)\n") == 1
+          text = text.replace("        capture.update(latest)\n", "", 1)
+          assert text.count("        capture.update(next)\n") == 1
+          text = text.replace("        capture.update(next)\n", "", 1)
+          assert text.count("capture.update(profile)") >= 2
+          text = text.replace("capture.update(profile)", "capture.update(effectiveCaptureProfile(profile))")
+          old = '''    private fun applyVideoPolicy(target: CaptureProfile) {\n        val policy =\n            InteractiveVideoPolicy.forState(\n                tier = target.tier,\n                interactionActive = interactionActive\n            )\n\n        peer.updateInteractiveVideoPolicy(\n            maxBitrateBps = target.maxVideoBitrateBps,\n            maxFramerate = target.fps,\n            preserveResolution = policy.preserveResolution,\n            motionPriority = policy.motionPriority\n        )\n    }'''
+          new = '''    private fun effectiveCaptureProfile(\n        target: CaptureProfile\n    ): CaptureProfile {\n        val targetFps =\n            if (interactionActive) {\n                target.motionFps\n            } else {\n                target.fps\n            }\n\n        return if (targetFps == target.fps) {\n            target\n        } else {\n            target.copy(fps = targetFps)\n        }\n    }\n\n    private fun applyVideoPolicy(target: CaptureProfile) {\n        val policy =\n            InteractiveVideoPolicy.forState(\n                tier = target.tier,\n                interactionActive = interactionActive\n            )\n        val effective = effectiveCaptureProfile(target)\n\n        // ScreenCapturerAndroid must actually produce the faster frames; merely\n        // increasing RtpSender.maxFramerate cannot make a 30fps source become\n        // 60fps. changeCaptureFormat is lightweight and keeps the same\n        // MediaProjection/VirtualDisplay consent session.\n        capture.update(effective)\n        peer.updateInteractiveVideoPolicy(\n            maxBitrateBps = target.maxVideoBitrateBps,\n            maxFramerate = effective.fps,\n            preserveResolution = policy.preserveResolution,\n            motionPriority = policy.motionPriority\n        )\n    }'''
+          text = replace_once(text, old, new, "Host effective motion capture")
+          p.write_text(text)
+
+          # 4) Let the sender accept 60fps and enough healthy-link headroom.
+          p = Path("app/src/main/java/com/aaris/remoteassist/webrtc/WebRtcPeer.kt")
+          text = p.read_text()
+          text = replace_once(text, "private const val MAX_VIDEO_BITRATE_BPS = 8_000_000", "private const val MAX_VIDEO_BITRATE_BPS = 12_000_000", "WebRTC max bitrate")
+          text = replace_once(text, "private const val DEFAULT_VIDEO_FRAMERATE = 20", "private const val DEFAULT_VIDEO_FRAMERATE = 30", "WebRTC default fps")
+          text = replace_once(text, "private const val MAX_VIDEO_FRAMERATE = 30", "private const val MAX_VIDEO_FRAMERATE = 60", "WebRTC max fps")
+          p.write_text(text)
+
+          # 5) Keep motion mode alive long enough to cover normal Android fling
+          # and transition animations after the finger leaves the screen.
+          p = Path("app/src/main/java/com/aaris/remoteassist/ui/InlineRemoteControllerView.kt")
+          text = p.read_text()
+          text = replace_once(text, "private const val REMOTE_MOTION_TAIL_MS = 900L", "private const val REMOTE_MOTION_TAIL_MS = 1_500L", "motion tail")
+          text = text.replace("independently from the 30 fps video path.", "independently from the video frame cadence.")
+          p.write_text(text)
+
+          # 6) Regression tests: explicit idle and motion budgets per tier.
+          Path("app/src/test/java/com/aaris/remoteassist/capture/CaptureProfileTest.kt").write_text('''package com.aaris.remoteassist.capture\n\nimport org.junit.Assert.assertEquals\nimport org.junit.Assert.assertTrue\nimport org.junit.Test\n\nclass CaptureProfileTest {\n    @Test\n    fun lowRamFlagAlwaysProtectsDevice() {\n        assertEquals(\n            CaptureTier.LOW,\n            CaptureProfile.recommendedTierForDevice(\n                isLowRamDevice = true,\n                totalMemoryBytes = 8L * GIB\n            )\n        )\n    }\n\n    @Test\n    fun twoAndThreeGigabyteDevicesStayLow() {\n        assertEquals(CaptureTier.LOW, CaptureProfile.recommendedTierForDevice(false, 2L * GIB))\n        assertEquals(CaptureTier.LOW, CaptureProfile.recommendedTierForDevice(false, 3L * GIB))\n    }\n\n    @Test\n    fun fourGigabyteClassUsesNativeDetailStandardTier() {\n        assertEquals(CaptureTier.STANDARD, CaptureProfile.recommendedTierForDevice(false, 4L * GIB))\n    }\n\n    @Test\n    fun sixGigabyteAndAboveUsesHighTier() {\n        assertEquals(CaptureTier.HIGH, CaptureProfile.recommendedTierForDevice(false, 6L * GIB))\n    }\n\n    @Test\n    fun unknownMemoryFailsSafeToBalanced() {\n        assertEquals(CaptureTier.BALANCED, CaptureProfile.recommendedTierForDevice(false, 0L))\n    }\n\n    @Test\n    fun standardKeepsNativeModernTallPhoneDetailAndCanBurstTo60fps() {\n        val profile = CaptureProfile.forDisplay(1080, 2400, CaptureTier.STANDARD)\n        assertEquals(1080, profile.captureWidthPx)\n        assertEquals(2400, profile.captureHeightPx)\n        assertEquals(30, profile.fps)\n        assertEquals(60, profile.motionFps)\n        assertEquals(10_000_000, profile.maxVideoBitrateBps)\n    }\n\n    @Test\n    fun balancedTierKeepsConservativeRealtimeBudget() {\n        val profile = CaptureProfile.forDisplay(1080, 2400, CaptureTier.BALANCED)\n        assertEquals(540, profile.captureWidthPx)\n        assertEquals(1200, profile.captureHeightPx)\n        assertEquals(24, profile.fps)\n        assertEquals(30, profile.motionFps)\n        assertEquals(3_000_000, profile.maxVideoBitrateBps)\n    }\n\n    @Test\n    fun highTierKeepsExtraDetailAnd60fpsMotionHeadroom() {\n        val profile = CaptureProfile.forDisplay(1440, 3200, CaptureTier.HIGH)\n        assertEquals(1152, profile.captureWidthPx)\n        assertEquals(2560, profile.captureHeightPx)\n        assertEquals(30, profile.fps)\n        assertEquals(60, profile.motionFps)\n        assertEquals(12_000_000, profile.maxVideoBitrateBps)\n    }\n\n    @Test\n    fun lowTierProtectsLowRamDevicesWhileImprovingMotionModestly() {\n        val profile = CaptureProfile.forDisplay(720, 1600, CaptureTier.LOW)\n        assertEquals(324, profile.captureWidthPx)\n        assertEquals(720, profile.captureHeightPx)\n        assertEquals(15, profile.fps)\n        assertEquals(20, profile.motionFps)\n        assertEquals(1_200_000, profile.maxVideoBitrateBps)\n    }\n\n    @Test\n    fun everyTierMotionBudgetIsNeverBelowIdleBudget() {\n        CaptureTier.entries.forEach { tier ->\n            val profile = CaptureProfile.forDisplay(1080, 2400, tier)\n            assertTrue(profile.motionFps >= profile.fps)\n        }\n    }\n\n    companion object {\n        private const val GIB = 1024L * 1024L * 1024L\n    }\n}\n''')
+
+          Path("app/src/test/java/com/aaris/remoteassist/webrtc/InteractiveVideoPolicyTest.kt").write_text('''package com.aaris.remoteassist.webrtc\n\nimport com.aaris.remoteassist.capture.CaptureTier\nimport org.junit.Assert.assertFalse\nimport org.junit.Assert.assertTrue\nimport org.junit.Test\n\nclass InteractiveVideoPolicyTest {\n    @Test\n    fun idleStrongTiersPreserveResolution() {\n        listOf(CaptureTier.STANDARD, CaptureTier.HIGH).forEach { tier ->\n            val policy = InteractiveVideoPolicy.forState(tier, false)\n            assertTrue(policy.preserveResolution)\n            assertFalse(policy.motionPriority)\n        }\n    }\n\n    @Test\n    fun everyActiveTierPrioritizesFreshFrames() {\n        CaptureTier.entries.forEach { tier ->\n            val policy = InteractiveVideoPolicy.forState(tier, true)\n            assertFalse(policy.preserveResolution)\n            assertTrue(policy.motionPriority)\n        }\n    }\n\n    @Test\n    fun idleConstrainedTiersStayBalanced() {\n        listOf(CaptureTier.LOW, CaptureTier.BALANCED).forEach { tier ->\n            val policy = InteractiveVideoPolicy.forState(tier, false)\n            assertFalse(policy.preserveResolution)\n            assertFalse(policy.motionPriority)\n        }\n    }\n}\n''')
+
+          # 7) Version bump.
+          p = Path("app/build.gradle.kts")
+          text = p.read_text()
+          text = replace_once(text, "versionCode = 85", "versionCode = 86", "versionCode")
+          text = replace_once(text, 'versionName = "1.8.37"', 'versionName = "1.8.38"', "versionName")
+          p.write_text(text)
+          PY
+
+      - name: Verify realtime-motion regression suite
+        run: gradle :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease --stacktrace
+
+      - name: Commit verified source upgrade
+        shell: bash
+        run: |
+          rm -f .github/workflows/realtime-motion-upgrade.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: adaptive 60fps realtime motion mode"
+          git push origin HEAD:upgrade/v1.8.38-realtime-motion
