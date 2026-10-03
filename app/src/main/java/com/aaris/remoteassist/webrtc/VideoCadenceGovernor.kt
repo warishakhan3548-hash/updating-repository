@@ -2,8 +2,8 @@ package com.aaris.remoteassist.webrtc
 
 /**
  * Bounds capture cost while libwebrtc remains the owner of bitrate, pacing and
- * congestion control. Freshness wins over nominal FPS: a sustainable 30 fps
- * screen is better remote-control UX than a queued/stuttering 60 fps stream.
+ * congestion control. Freshness wins over nominal FPS: a sustainable cadence
+ * is better remote-control UX than a queued/stuttering 60 fps stream.
  */
 class VideoCadenceGovernor(private val maxFps: Int) {
     @Volatile
@@ -62,12 +62,9 @@ class VideoCadenceGovernor(private val maxFps: Int) {
          */
         val presentedFrames = receiver?.presentedFrames ?: 0
         val presentedFps = receiver?.presentedFps
+        val measuredReceiverFps = receiver?.takeIf { it.frames >= MIN_MEASURED_FRAMES }?.fps
         val expectedPresentationFps = if (presentedFps != null) {
-            var expected = minOf(requestedFps.toDouble(), sender.fps)
-            if (receiver != null && receiver.frames >= MIN_MEASURED_FRAMES) {
-                expected = minOf(expected, receiver.fps)
-            }
-            expected
+            minOf(requestedFps.toDouble(), sender.fps, measuredReceiverFps ?: Double.POSITIVE_INFINITY)
         } else 0.0
         val presentationRatio =
             if (presentedFps != null && expectedPresentationFps >= MIN_PRESENTATION_EXPECTED_FPS) {
@@ -96,10 +93,11 @@ class VideoCadenceGovernor(private val maxFps: Int) {
                 (receiverJitterMs ?: 0.0) >= SEVERE_JITTER_MS ||
                 receiverDropRatio >= SEVERE_RECEIVER_DROP_RATIO ||
                 severePresentationPressure
+        val cpuPressure = outbound.qualityLimitationReason == "cpu"
 
         val overloaded =
             codecPressure || receiverDrops || congestion || presentationPressure ||
-                outbound.qualityLimitationReason == "cpu"
+                cpuPressure
 
         if (overloaded) {
             healthy = 0
@@ -108,7 +106,18 @@ class VideoCadenceGovernor(private val maxFps: Int) {
             if (pressure < PRESSURE_SAMPLES_TO_REDUCE || nowMs - changedAt < changeInterval) return false
 
             val ceiling = minOf(cap, requestedFps)
-            val ordinaryNext = DESCENDING_CAPS.firstOrNull { it < ceiling } ?: return false
+            /*
+             * 45 fps is an important intermediate rung for ordinary interactive
+             * pressure: it avoids the visible 60 -> 30 cliff. Severe queue/jitter/
+             * presentation pressure and CPU limitation are different: freshness
+             * is already at risk, so they deliberately skip the soft rung and
+             * take a stronger <=30 fps relief step.
+             */
+            val needsStrongRelief = severePressure || cpuPressure
+            val ordinaryNext = DESCENDING_CAPS.firstOrNull { candidate ->
+                candidate < ceiling &&
+                    (!needsStrongRelief || candidate <= STRONG_RELIEF_MAX_STEP_FPS)
+            } ?: return false
             val next = if (severePressure) {
                 val delivered = buildList {
                     if (sender.frames >= MIN_MEASURED_FRAMES) add(sender.fps)
@@ -117,7 +126,11 @@ class VideoCadenceGovernor(private val maxFps: Int) {
                 }.minOrNull()
                 val guarded = delivered?.times(SEVERE_OBSERVED_HEADROOM)?.toInt()
                 if (guarded == null) ordinaryNext
-                else DESCENDING_CAPS.firstOrNull { it < ceiling && it <= guarded } ?: ordinaryNext
+                else DESCENDING_CAPS.firstOrNull {
+                    it < ceiling &&
+                        it <= guarded &&
+                        it <= STRONG_RELIEF_MAX_STEP_FPS
+                } ?: ordinaryNext
             } else ordinaryNext
 
             cap = next
@@ -168,8 +181,8 @@ class VideoCadenceGovernor(private val maxFps: Int) {
         cap <= RESOLUTION_REDUCTION_MAX_FPS && nowMs - changedAt >= RESOLUTION_REDUCTION_GRACE_MS
 
     private companion object {
-        val DESCENDING_CAPS = listOf(60, 30, 24, 20, 15)
-        val ASCENDING_CAPS = listOf(15, 20, 24, 30, 60)
+        val DESCENDING_CAPS = listOf(60, 45, 30, 24, 20, 15)
+        val ASCENDING_CAPS = listOf(15, 20, 24, 30, 45, 60)
 
         const val MIN_MEASURED_FRAMES = 5
         const val MIN_DROPPED_FRAMES_FOR_PRESSURE = 2
@@ -201,6 +214,7 @@ class VideoCadenceGovernor(private val maxFps: Int) {
         const val SEVERE_PRESENTATION_DELIVERY_RATIO = 0.60
         const val SEVERE_RENDER_GAP_MS = 150.0
         const val SEVERE_OBSERVED_HEADROOM = 1.10
+        const val STRONG_RELIEF_MAX_STEP_FPS = 30
 
         const val HEALTHY_RTT_MS = 300
         const val HEALTHY_JITTER_MS = 45.0
