@@ -60,6 +60,41 @@ class CrossLayerLatencyBudgetTest {
     }
 
     @Test
+    fun sixtyFpsUsesTighterFrameRelativeResidenceBudget() {
+        val governor = VideoCadenceGovernor(60)
+        val sender = outbound(sendQueueMs = 25.0)
+        val controller = receiver(jitterMs = 35.0)
+
+        // Neither endpoint is individually unhealthy. Together they retain
+        // about 3.6 60-Hz frame periods, which is enough to make a fresh swipe
+        // visibly trail the controlled phone. Persistent pressure should take
+        // the soft 60 -> 45 step instead of waiting for ~75 ms of residence.
+        assertFalse(governor.observe(sender, controller, 60, 1_000))
+        assertTrue(governor.observe(sender, controller, 60, 4_000))
+        assertEquals(45, governor.cap)
+    }
+
+    @Test
+    fun sameAbsoluteResidenceIsAcceptedAtThirtyFps() {
+        val governor = VideoCadenceGovernor(60)
+        val sender = outbound(sendQueueMs = 25.0, fps = 30)
+        val controller = receiver(jitterMs = 35.0, fps = 30)
+
+        repeat(4) { index ->
+            assertFalse(
+                governor.observe(
+                    sender,
+                    controller,
+                    30,
+                    1_000L + index * 3_000L
+                )
+            )
+        }
+
+        assertEquals(60, governor.cap)
+    }
+
+    @Test
     fun cleanPipelineDoesNotSacrificeSixtyFps() {
         val governor = VideoCadenceGovernor(60)
         val sender = outbound(sendQueueMs = 12.0)
