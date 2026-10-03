@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { AiDevice, validateArguments, TOOLS, toolResult } from './mcp-worker.js';
+import worker, { AiDevice, canonical, validateArguments, TOOLS, toolResult } from './mcp-worker.js';
 
 const id = '1'.repeat(64), deviceToken = '2'.repeat(64), clientToken = '3'.repeat(64);
 const base = 'https://aaris-phone-mcp.example';
@@ -41,6 +41,23 @@ test('strict arguments reject nonfinite, missing and out of range coordinates, u
   assert.equal(validateArguments('phone_action', { ...args, action: 'open_app', app: '   ' }), false);
   assert.equal(validateArguments('phone_observe', { quality: 'invalid' }), false);
 });
+
+test('drag accepts bounded normalized paths and rejects malformed paths', () => {
+  const drag = { ...args, action: 'drag', x: undefined, y: undefined,
+    points: [{ x: 0.10, y: 0.80 }, { x: 0.14, y: 0.72 }, { x: 0.22, y: 0.64 }], durationMs: 420 };
+  assert.equal(validateArguments('phone_action', drag), true);
+  assert.equal(validateArguments('phone_action', { ...drag, points: [{ x: 0.1, y: 0.8 }] }), false);
+  assert.equal(validateArguments('phone_action', { ...drag, points: [{ x: 0.1, y: 0.8 }, { x: 1.1, y: 0.4 }] }), false);
+  assert.equal(validateArguments('phone_action', { ...drag, points: [{ x: 0.1, y: 0.8 }, { x: 0.2, y: 0.4, z: 0.3 }] }), false);
+  assert.equal(validateArguments('phone_action', { ...drag, points: Array.from({ length: 25 }, (_, i) => ({ x: i / 24, y: 0.5 })) }), false);
+});
+
+test('deep canonicalization makes nested drag retries independent of object key order', () => {
+  const a = { action: 'drag', points: [{ x: 0.2, y: 0.8 }, { x: 0.7, y: 0.3 }], outer: { b: 2, a: 1 } };
+  const b = { outer: { a: 1, b: 2 }, points: [{ y: 0.8, x: 0.2 }, { y: 0.3, x: 0.7 }], action: 'drag' };
+  assert.equal(canonical(a), canonical(b));
+});
+
 test('MCP initialization negotiates a supported version and images are first-class content', async () => {
   const f = await fixture();
   const response = await f.obj.fetch(f.request(`/mcp/${id}/${clientToken}`, { jsonrpc: '2.0', id: 0, method: 'initialize', params: { protocolVersion: '2025-06-18' } }));

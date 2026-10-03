@@ -169,16 +169,35 @@ class AiObservationEngine internal constructor(
     }
 
     private fun actionScope(args: JSONObject, ui: AiUiSnapshot): AiActionScope? {
-        if (args.getString("action") == "type") {
-            val field = ui.nodes.singleOrNull { it.focused && it.editable } ?: return null
-            return AiActionScope((field.left + field.right) / 2.0 / width, (field.top + field.bottom) / 2.0 / height)
+        return when (args.getString("action")) {
+            "type" -> {
+                val field = ui.nodes.singleOrNull { it.focused && it.editable } ?: return null
+                AiActionScope((field.left + field.right) / 2.0 / width, (field.top + field.bottom) / 2.0 / height)
+            }
+            "drag" -> AiActionScope.fromPath(dragPoints(args))
+            else -> {
+                val x = args.getDouble("x")
+                val y = args.getDouble("y")
+                val swipe = args.getString("action") == "swipe"
+                val tx = if (swipe) args.getDouble("toX") else x
+                val ty = if (swipe) args.getDouble("toY") else y
+                require(listOf(x, y, tx, ty).all { it.isFinite() && it in 0.0..1.0 })
+                AiActionScope(x, y, tx, ty)
+            }
         }
-        val x = args.getDouble("x"); val y = args.getDouble("y")
-        val swipe = args.getString("action") == "swipe"
-        val tx = if (swipe) args.getDouble("toX") else x
-        val ty = if (swipe) args.getDouble("toY") else y
-        require(listOf(x, y, tx, ty).all { it.isFinite() && it in 0.0..1.0 })
-        return AiActionScope(x, y, tx, ty)
+    }
+
+    private fun dragPoints(args: JSONObject): List<Pair<Double, Double>> {
+        val points = args.getJSONArray("points")
+        require(points.length() in 2..MAX_AI_DRAG_POINTS)
+        return List(points.length()) { index ->
+            val point = points.getJSONObject(index)
+            require(point.length() == 2 && point.has("x") && point.has("y"))
+            val x = point.getDouble("x")
+            val y = point.getDouble("y")
+            require(x.isFinite() && y.isFinite() && x in 0.0..1.0 && y in 0.0..1.0)
+            x to y
+        }
     }
 
     private fun sameTarget(args: JSONObject, a: AiUiSnapshot, b: AiUiSnapshot): Boolean {
@@ -188,7 +207,7 @@ class AiObservationEngine internal constructor(
             return field.enabled && field == b.nodes.singleOrNull { it.focused && it.editable }
         }
         val scope = actionScope(args, a) ?: return false
-        if (args.getString("action") == "swipe") {
+        if (args.getString("action") in setOf("swipe", "drag")) {
             fun relevant(ui: AiUiSnapshot) = ui.nodes.filter {
                 it.area < width.toLong() * height / 3 &&
                     scope.contains((it.left + it.right) / 2.0 / width, (it.top + it.bottom) / 2.0 / height)
@@ -211,4 +230,8 @@ class AiObservationEngine internal constructor(
         return kotlin.math.abs(w.toDouble() / h - profile.displayWidthPx.toDouble() / profile.displayHeightPx) <= 0.015
     }
     private fun error(code: String) = JSONObject().put("error", code).put("applied", false)
+
+    companion object {
+        private const val MAX_AI_DRAG_POINTS = 24
+    }
 }
