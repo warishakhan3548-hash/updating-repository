@@ -89,7 +89,7 @@ data class AiActionScope(
                 toX = first.last().first,
                 toY = first.last().second,
                 via = first.subList(1, first.lastIndex),
-                extraPaths = paths.drop(1).map(List<Pair<Double, Double>>::toList)
+                extraPaths = paths.drop(1).map { it.toList() }
             )
         }
     }
