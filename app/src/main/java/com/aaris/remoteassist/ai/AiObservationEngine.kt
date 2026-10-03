@@ -49,11 +49,11 @@ class AiObservationEngine internal constructor(
             val current = now()
             val elapsed = current - start
             val quietFor = current - ledger.changedAtMs
-            if (quietFor >= 100L || elapsed >= 320L) return
+            if (quietFor >= QUIET_WINDOW_MS || elapsed >= MAX_ANIMATED_SETTLE_MS) return
 
-            val remainingQuiet = (100L - quietFor).coerceAtLeast(1L)
-            val remainingBudget = (320L - elapsed).coerceAtLeast(1L)
-            pause(minOf(40L, remainingQuiet, remainingBudget))
+            val remainingQuiet = (QUIET_WINDOW_MS - quietFor).coerceAtLeast(1L)
+            val remainingBudget = (MAX_ANIMATED_SETTLE_MS - elapsed).coerceAtLeast(1L)
+            pause(minOf(SETTLE_POLL_MS, remainingQuiet, remainingBudget))
         }
     }
 
@@ -175,6 +175,12 @@ class AiObservationEngine internal constructor(
                 AiActionScope((field.left + field.right) / 2.0 / width, (field.top + field.bottom) / 2.0 / height)
             }
             "drag" -> AiActionScope.fromPath(dragPoints(args))
+            "two_finger" -> AiActionScope.fromPaths(
+                listOf(
+                    twoFingerPath(args, "firstX", "firstY", "firstToX", "firstToY"),
+                    twoFingerPath(args, "secondX", "secondY", "secondToX", "secondToY")
+                )
+            )
             else -> {
                 val x = args.getDouble("x")
                 val y = args.getDouble("y")
@@ -200,6 +206,21 @@ class AiObservationEngine internal constructor(
         }
     }
 
+    private fun twoFingerPath(
+        args: JSONObject,
+        fromX: String,
+        fromY: String,
+        toX: String,
+        toY: String
+    ): List<Pair<Double, Double>> {
+        val x = args.getDouble(fromX)
+        val y = args.getDouble(fromY)
+        val tx = args.getDouble(toX)
+        val ty = args.getDouble(toY)
+        require(listOf(x, y, tx, ty).all { it.isFinite() && it in 0.0..1.0 })
+        return listOf(x to y, tx to ty)
+    }
+
     private fun sameTarget(args: JSONObject, a: AiUiSnapshot, b: AiUiSnapshot): Boolean {
         if (!sameWindow(a, b) || a.sensitiveFocus != b.sensitiveFocus || a.masks != b.masks) return false
         if (args.getString("action") == "type") {
@@ -207,7 +228,7 @@ class AiObservationEngine internal constructor(
             return field.enabled && field == b.nodes.singleOrNull { it.focused && it.editable }
         }
         val scope = actionScope(args, a) ?: return false
-        if (args.getString("action") in setOf("swipe", "drag")) {
+        if (args.getString("action") in MOTION_ACTIONS) {
             fun relevant(ui: AiUiSnapshot) = ui.nodes.filter {
                 it.area < width.toLong() * height / 3 &&
                     scope.contains((it.left + it.right) / 2.0 / width, (it.top + it.bottom) / 2.0 / height)
@@ -233,5 +254,9 @@ class AiObservationEngine internal constructor(
 
     companion object {
         private const val MAX_AI_DRAG_POINTS = 24
+        private const val QUIET_WINDOW_MS = 100L
+        private const val MAX_ANIMATED_SETTLE_MS = 220L
+        private const val SETTLE_POLL_MS = 40L
+        private val MOTION_ACTIONS = setOf("swipe", "drag", "two_finger")
     }
 }
