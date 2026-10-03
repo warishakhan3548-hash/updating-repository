@@ -63,11 +63,11 @@ class VideoCadenceGovernor(private val maxFps: Int) {
          *
          * The combined budget is deliberately frame-relative. At 60 fps we do
          * not allow roughly four to five old frames to accumulate before reacting:
-         * persistent residence above about three frame periods takes the soft
+         * residence above about three frame periods qualifies for the soft
          * 60 -> 45 relief step. At lower cadence the absolute budget expands,
-         * avoiding needless quality loss on constrained devices. Two consecutive
-         * pressure windows and the existing change hysteresis still protect the
-         * stream from reacting to a single small jitter spike.
+         * avoiding needless quality loss on constrained devices. Full 60 fps may
+         * take one early soft relief step; lower cadence retains the established
+         * multi-window hysteresis unless pressure is already urgent or severe.
          *
          * Require both measurements for this cross-layer signal. If either
          * endpoint omits its stat, the established per-layer thresholds keep
@@ -141,10 +141,10 @@ class VideoCadenceGovernor(private val maxFps: Int) {
          * cadence step, while 30 fps-or-lower jumps remain reserved for genuinely
          * severe loss/queue/decode/GPU pressure.
          *
-         * Requiring 2x the ordinary budget makes this a high-confidence signal,
-         * so a single marginal spike still follows the established two-window
-         * hysteresis. The shorter change interval is also bounded to prevent
-         * repeated downshifts while GCC is draining the previous queue.
+         * Requiring 2x the ordinary budget makes this a high-confidence signal.
+         * The shorter change interval is bounded to prevent repeated downshifts
+         * while GCC is draining the previous queue. Ordinary full-cadence relief
+         * is handled separately below and cannot cascade below the 60 -> 45 step.
          */
         val urgentFreshnessPressure =
             !severePressure &&
