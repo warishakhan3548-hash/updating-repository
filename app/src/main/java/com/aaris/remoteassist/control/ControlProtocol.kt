@@ -128,6 +128,17 @@ sealed interface ControlPacket {
         val leaseSecret: Long
     ) : ControlPacket
 
+    data class VideoFeedback(
+        val leaseSecret: Long, val generation: Int, val sequence: Long,
+        val intervalMs: Int, val decodedFrames: Int, val decodeMs: Float,
+        val jitterMs: Float, val droppedFrames: Int, val freezeEvents: Int
+    ) : ControlPacket {
+        fun valid() = sequence > 0 && intervalMs in 500..6000 && decodedFrames in 0..2048 &&
+            decodeMs.isFinite() && (decodeMs == -1f || decodeMs in 0f..5000f) &&
+            jitterMs.isFinite() && (jitterMs == -1f || jitterMs in 0f..5000f) &&
+            droppedFrames in -1..2048 && freezeEvents in -1..2048
+    }
+
     data object Disconnect : ControlPacket
 }
 
@@ -152,12 +163,14 @@ object ControlProtocol {
     private const val INTERACTION_STATE: Byte = 16
     private const val GESTURE_STREAM: Byte = 17
     private const val FALLBACK_DELTA_READY: Byte = 18
+    private const val VIDEO_FEEDBACK: Byte = 19
 
     private const val MAX_TEXT_BYTES = 2048
     private const val MAX_GESTURE_PATH_POINTS = 96
     private const val MAX_GESTURE_STREAM_POINTS = 16
 
     fun encode(packet: ControlPacket): ByteArray {
+        if (packet is ControlPacket.VideoFeedback) require(packet.valid())
         val textBytes = (packet as? ControlPacket.Text)
             ?.text
             ?.toByteArray(Charsets.UTF_8)
@@ -211,6 +224,7 @@ object ControlProtocol {
             is ControlPacket.PrimaryVideoReady,
             is ControlPacket.FallbackDeltaReady -> 2 + 8
             is ControlPacket.InteractionState -> 2 + 8 + 1
+            is ControlPacket.VideoFeedback -> 2 + 8 + 4 + 8 + 24
             ControlPacket.Disconnect -> 2
         }
 
@@ -384,6 +398,12 @@ object ControlProtocol {
                 buffer.putLong(packet.leaseSecret)
             }
 
+            is ControlPacket.VideoFeedback -> {
+                putCommandHeader(buffer, packet.leaseSecret, packet.generation, packet.sequence)
+                buffer.putInt(packet.intervalMs); buffer.putInt(packet.decodedFrames)
+                buffer.putFloat(packet.decodeMs); buffer.putFloat(packet.jitterMs)
+                buffer.putInt(packet.droppedFrames); buffer.putInt(packet.freezeEvents)
+            }
             ControlPacket.Disconnect -> Unit
         }
 
@@ -616,6 +636,12 @@ object ControlProtocol {
                     )
                 }
 
+                VIDEO_FEEDBACK -> {
+                    require(buffer.remaining() == 44)
+                    val header = readHeader(buffer)
+                    ControlPacket.VideoFeedback(header.leaseSecret, header.generation, header.sequence,
+                        buffer.int, buffer.int, buffer.float, buffer.float, buffer.int, buffer.int).also { require(it.valid()) }
+                }
                 DISCONNECT -> {
                     require(buffer.remaining() == 0)
                     ControlPacket.Disconnect
@@ -757,6 +783,7 @@ object ControlProtocol {
             is ControlPacket.PrimaryVideoReady,
             is ControlPacket.InteractionState,
             is ControlPacket.FallbackDeltaReady,
+            is ControlPacket.VideoFeedback,
             ControlPacket.Disconnect -> null
         }
     }
@@ -817,6 +844,7 @@ object ControlProtocol {
             INTERACTION_STATE
         is ControlPacket.FallbackDeltaReady ->
             FALLBACK_DELTA_READY
+        is ControlPacket.VideoFeedback -> VIDEO_FEEDBACK
         ControlPacket.Disconnect -> DISCONNECT
     }
 }

@@ -44,6 +44,8 @@ class ControllerWebRtcSession(
     private val sequence = AtomicLong(0L)
     private val commandLatency = CommandLatencyTracker()
     private var lastLatencyReportMs = 0L
+    private val feedbackSequence = AtomicLong(0L)
+    private var lastVideoLivenessMs = 0L
     private val gestureStreamIds = AtomicLong(0L)
     private val handler = Handler(Looper.getMainLooper())
     private val transport = ControlTransportTracker()
@@ -553,14 +555,26 @@ class ControllerWebRtcSession(
     override fun onVideoHealth(
         snapshot: VideoHealthSnapshot
     ) {
-        listener.onDiagnostic(snapshot.compact())
-
         if (
             snapshot.direction != "inbound" ||
             leaseSecret == null
         ) {
             return
         }
+
+        val lease = leaseSecret
+        val display = geometry
+        val recent = snapshot.recent
+        if (lease != null && display != null && recent != null) {
+            peer.sendControl(ControlProtocol.encode(ControlPacket.VideoFeedback(lease, display.generation,
+                feedbackSequence.incrementAndGet(), recent.intervalMs, recent.frames,
+                recent.processingMs?.toFloat() ?: -1f, recent.jitterMs?.toFloat() ?: -1f,
+                recent.dropped ?: -1, recent.freezes ?: -1)))
+        }
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastVideoLivenessMs < 3000) return
+        lastVideoLivenessMs = now
+        listener.onDiagnostic(snapshot.compact())
 
         when (
             inboundVideoLiveness.observe(

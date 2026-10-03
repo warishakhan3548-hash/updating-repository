@@ -1233,6 +1233,8 @@ class AssistAccessibilityService : AccessibilityService() {
         if (keyguard.isDeviceLocked || keyguard.isKeyguardLocked) return null
         val root = rootInActiveWindow ?: return AiUiSnapshot("", JSONArray(), emptyList(), false, false)
         val packageName = root.packageName?.toString().orEmpty()
+        val windowId = root.windowId
+        val nodes = mutableListOf<com.aaris.remoteassist.ai.AiUiNode>()
         val hints = JSONArray(); val masks = mutableListOf<Rect>()
         val queue = ArrayDeque<AccessibilityNodeInfo>()
         queue.add(root)
@@ -1248,7 +1250,15 @@ class AssistAccessibilityService : AccessibilityService() {
                     if (node.isFocused) sensitiveFocus = true
                     continue
                 }
-                val text = (node.text?.toString() ?: node.contentDescription?.toString()).orEmpty().take(160)
+                val rawText = (node.text?.toString() ?: node.contentDescription?.toString()).orEmpty()
+                val text = rawText.take(160)
+                val valueDigest = if (node.isEditable && node.isFocused) java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(rawText.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) } else ""
+                if (rect.width() > 0 && rect.height() > 0 && (text.isNotBlank() || node.isClickable || node.isEditable)) {
+                    nodes += com.aaris.remoteassist.ai.AiUiNode(node.viewIdResourceName.orEmpty(), node.className?.toString().orEmpty(),
+                        text, rect.left, rect.top, rect.right, rect.bottom, node.isClickable, node.isEditable, node.isFocused,
+                        node.isEnabled, node.textSelectionStart, node.textSelectionEnd, valueDigest)
+                }
                 if (hints.length() < 80 && (text.isNotBlank() || node.isClickable || node.isEditable)) {
                     hints.put(JSONObject().put("text", text).put("role", node.className?.toString()?.substringAfterLast('.').orEmpty())
                         .put("bounds", JSONArray(listOf(rect.left, rect.top, rect.right, rect.bottom)))
@@ -1261,7 +1271,7 @@ class AssistAccessibilityService : AccessibilityService() {
         }
         val truncated = queue.isNotEmpty()
         while (queue.isNotEmpty()) queue.removeFirst().recycle()
-        return AiUiSnapshot(packageName, hints, masks, sensitiveFocus || hasSensitiveFocusedInput(), truncated)
+        return AiUiSnapshot(packageName, hints, masks, sensitiveFocus || hasSensitiveFocusedInput(), truncated, windowId, nodes)
     }
 
     companion object {

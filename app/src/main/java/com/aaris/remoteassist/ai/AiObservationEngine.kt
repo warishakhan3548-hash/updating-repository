@@ -16,83 +16,169 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Called on Main; pixel encoding runs off Main. No image archive or unbounded frame queue. */
-class AiObservationEngine(private val context: Context, private val snapshots: AiSnapshotProvider) {
+data class AiActionValidation(val error: String? = null, val stillValid: () -> Boolean = { false })
+
+/** Main-thread owner. Events guide settling; fresh pixels and target semantics authorize actions. */
+class AiObservationEngine internal constructor(
+    private val ownPackage: String,
+    private val display: () -> CaptureProfile,
+    private val uiSnapshot: () -> AiUiSnapshot?,
+    private val freshFrame: suspend () -> AiRawFrame,
+    private val now: () -> Long = SystemClock::elapsedRealtime,
+    private val pause: suspend (Long) -> Unit = { delay(it) },
+    private val encodeFrame: (AiRawFrame, Int, List<android.graphics.Rect>, Int, Int, Boolean) -> FrameImageEncoder.Encoded = FrameImageEncoder::encode
+) {
+    constructor(context: Context, snapshots: AiSnapshotProvider) : this(
+        context.packageName, { CaptureProfile.current(context, CaptureTier.BALANCED) },
+        AssistAccessibilityService::aiSnapshot, snapshots::fresh
+    )
+
     val ledger = AiScreenLedger()
     private var lastFingerprint: ByteArray? = null
+    private var issuedUi: AiUiSnapshot? = null
     private var width = 0
     private var height = 0
     private var rotation = 0
-    private var issuedPackage = ""
 
-    fun changed() = ledger.changed(SystemClock.elapsedRealtime())
-    fun invalidate() = ledger.invalidate(SystemClock.elapsedRealtime())
+    fun changed() = ledger.changed(now())
+    fun invalidate() = ledger.invalidate(now())
 
-    suspend fun settle() {
-        val start = SystemClock.elapsedRealtime()
-        delay(100)
-        while (SystemClock.elapsedRealtime() - start < 650 && SystemClock.elapsedRealtime() - ledger.changedAtMs < 120) delay(40)
+    private suspend fun settle() {
+        val start = now()
+        pause(80)
+        while (now() - start < 320 && now() - ledger.changedAtMs < 100) pause(40)
     }
 
     suspend fun observe(detail: Boolean = false): JSONObject {
         repeat(2) { attempt ->
             settle()
-            val version = ledger.version
-            val ui = AssistAccessibilityService.aiSnapshot() ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
-            val geometry = CaptureProfile.current(context, CaptureTier.BALANCED)
-            val frame = snapshots.fresh()
+            val epoch = ledger.invalidationGeneration
+            val revision = ledger.eventRevision
+            val before = uiSnapshot() ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
+            val geometry = display()
+            val frame = freshFrame()
             if (!geometryMatches(frame, geometry)) { invalidate(); return error("CAPTURE_GEOMETRY_CHANGED") }
-            val hideAll = ui.sensitiveFocus || ui.packageName == context.packageName
-            val encoded = withContext(Dispatchers.Default) {
-                FrameImageEncoder.encode(frame, if (detail) 2400 else 1280, ui.masks, geometry.displayWidthPx, geometry.displayHeightPx, hideAll)
+            val ui = uiSnapshot() ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
+            // Never publish pixels if privacy masks or foreground window changed
+            // during capture. Ordinary animated text may keep moving.
+            if (!samePrivacyContext(before, ui)) {
+                if (attempt == 0) return@repeat
+                return error("SCREEN_CHANGING")
             }
-            val stable = version == ledger.version
-            if (!stable && attempt == 0) return@repeat
+            val hideAll = ui.sensitiveFocus || ui.packageName == ownPackage
+            val (encoded, fingerprint) = withContext(Dispatchers.Default) {
+                encodeFrame(frame, if (detail) 2400 else 1280, ui.masks,
+                    geometry.displayWidthPx, geometry.displayHeightPx, hideAll) to
+                    AiVisualFingerprint.sample(frame.nv21, frame.width, frame.height, frame.rotation)
+            }
+            val after = uiSnapshot() ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
+            if (epoch != ledger.invalidationGeneration) return error("OBSERVATION_INVALIDATED")
+            if (!samePrivacyContext(ui, after)) {
+                if (attempt == 0) return@repeat
+                return error("SCREEN_CHANGING")
+            }
+            val stable = revision == ledger.eventRevision
             val id = UUID.randomUUID().toString()
-            if (stable) {
-                width = geometry.displayWidthPx; height = geometry.displayHeightPx; rotation = frame.rotation
-                issuedPackage = ui.packageName
-                lastFingerprint = AiVisualFingerprint.sample(frame.nv21, frame.width, frame.height)
-                ledger.issue(id, SystemClock.elapsedRealtime())
-            } else ledger.consume()
-            return JSONObject().put("observationId", id).put("screenVersion", version)
+            width = geometry.displayWidthPx; height = geometry.displayHeightPx; rotation = frame.rotation
+            issuedUi = ui; lastFingerprint = fingerprint
+            ledger.issue(id, now())
+            return JSONObject().put("observationId", id).put("screenVersion", ledger.version)
                 .put("capturedAtElapsedMs", frame.receivedAtMs).put("settled", stable)
                 .put("currentPackage", ui.packageName).put("uiHints", if (hideAll) JSONArray() else ui.hints)
                 .put("treeTruncated", ui.truncated).put("redacted", hideAll || ui.masks.isNotEmpty())
-                .put("display", JSONObject().put("width", geometry.displayWidthPx).put("height", geometry.displayHeightPx)
+                .put("display", JSONObject().put("width", width).put("height", height)
                     .put("coordinateSpace", "full-upright-display-normalized-0-to-1"))
                 .put("image", JSONObject().put("mimeType", "image/jpeg").put("width", encoded.width).put("height", encoded.height)
                     .put("data", Base64.encodeToString(encoded.bytes, Base64.NO_WRAP)))
                 .apply {
-                    if (!stable) put("error", "SCREEN_CHANGING")
-                    if (ui.packageName == context.packageName) put("note", "Connector setup is hidden to protect the access link. Use home to open the phone launcher.")
+                    if (!stable) put("note", "Animation is present. Actions remain available; their target is rechecked against a fresh frame.")
+                    if (ui.packageName == ownPackage) put("note", "Connector setup is hidden to protect the access link. Use home to open the phone launcher.")
                     else if (ui.sensitiveFocus) put("note", "Sensitive input is local-only; use back or home to leave it.")
                 }
         }
         return error("CAPTURE_UNAVAILABLE")
     }
 
-    suspend fun validate(args: JSONObject): Boolean {
-        if (!ledger.valid(args.getString("observationId"), args.getLong("screenVersion"), SystemClock.elapsedRealtime())) return false
-        val geometry = CaptureProfile.current(context, CaptureTier.BALANCED)
-        if (geometry.displayWidthPx != width || geometry.displayHeightPx != height) { invalidate(); return false }
-        val ui = AssistAccessibilityService.aiSnapshot() ?: return false
-        if (ui.packageName != issuedPackage) { invalidate(); return false }
-        if ((ui.sensitiveFocus || ui.packageName == context.packageName) && args.getString("action") !in setOf("home", "back", "recents")) return false
-        val fresh = snapshots.fresh()
-        if (fresh.rotation != rotation || !geometryMatches(fresh, geometry) ||
-            AiVisualFingerprint.materiallyDifferent(lastFingerprint ?: byteArrayOf(), AiVisualFingerprint.sample(fresh.nv21, fresh.width, fresh.height))) {
-            invalidate(); return false
+    suspend fun validate(args: JSONObject): AiActionValidation {
+        fun refused(reason: String) = AiActionValidation(reason)
+        fun ticketValid() = ledger.valid(args.getString("observationId"), args.getLong("screenVersion"), now())
+        if (!ticketValid()) return refused("OBSERVATION_EXPIRED_OR_USED")
+        val observed = issuedUi ?: return refused("OBSERVATION_REQUIRED")
+        val geometry = display()
+        if (geometry.displayWidthPx != width || geometry.displayHeightPx != height) return refused("CAPTURE_GEOMETRY_CHANGED")
+        val action = args.getString("action")
+        val navigation = action in setOf("home", "back", "recents")
+        val epoch = ledger.invalidationGeneration
+        val ui = uiSnapshot() ?: return refused("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
+        if (!navigation && (ui.sensitiveFocus || ui.packageName == ownPackage)) return refused("LOCAL_ONLY_SCREEN")
+        if (action != "home" && !sameWindow(observed, ui)) return refused("FOREGROUND_CHANGED")
+        val scope = if (navigation) null else (actionScope(args, observed) ?: return refused("FOCUSED_FIELD_REQUIRED"))
+        if (!navigation && !sameTarget(args, observed, ui)) return refused("TARGET_CHANGED")
+        if (!navigation) {
+            val fresh = freshFrame()
+            if (fresh.rotation != rotation || !geometryMatches(fresh, geometry)) return refused("CAPTURE_GEOMETRY_CHANGED")
+            val changed = withContext(Dispatchers.Default) {
+                AiVisualFingerprint.materiallyDifferent(lastFingerprint ?: byteArrayOf(),
+                    AiVisualFingerprint.sample(fresh.nv21, fresh.width, fresh.height, fresh.rotation), checkNotNull(scope))
+            }
+            if (changed) return refused("TARGET_CHANGED")
         }
-        return ledger.valid(args.getString("observationId"), args.getLong("screenVersion"), SystemClock.elapsedRealtime())
+        if (!ticketValid() || epoch != ledger.invalidationGeneration) return refused("OBSERVATION_EXPIRED_OR_USED")
+        // Re-read window/target at execution, including after STOP relocation.
+        // The deadline bounds canvas races when Accessibility provides no nodes.
+        val deadline = now() + 500
+        val check = {
+            val current = uiSnapshot()
+            val currentDisplay = display()
+            epoch == ledger.invalidationGeneration && now() <= deadline && current != null &&
+                currentDisplay.displayWidthPx == width && currentDisplay.displayHeightPx == height &&
+                (action == "home" || sameWindow(ui, current)) &&
+                (navigation || (!current.sensitiveFocus && current.packageName != ownPackage && sameTarget(args, ui, current)))
+        }
+        return if (check()) AiActionValidation(stillValid = check) else refused("TARGET_CHANGED")
+    }
+
+    private fun actionScope(args: JSONObject, ui: AiUiSnapshot): AiActionScope? {
+        if (args.getString("action") == "type") {
+            val field = ui.nodes.singleOrNull { it.focused && it.editable } ?: return null
+            return AiActionScope((field.left + field.right) / 2.0 / width, (field.top + field.bottom) / 2.0 / height)
+        }
+        val x = args.getDouble("x"); val y = args.getDouble("y")
+        val swipe = args.getString("action") == "swipe"
+        val tx = if (swipe) args.getDouble("toX") else x
+        val ty = if (swipe) args.getDouble("toY") else y
+        require(listOf(x, y, tx, ty).all { it.isFinite() && it in 0.0..1.0 })
+        return AiActionScope(x, y, tx, ty)
+    }
+
+    private fun sameTarget(args: JSONObject, a: AiUiSnapshot, b: AiUiSnapshot): Boolean {
+        if (!sameWindow(a, b) || a.sensitiveFocus != b.sensitiveFocus || a.masks != b.masks) return false
+        if (args.getString("action") == "type") {
+            val field = a.nodes.singleOrNull { it.focused && it.editable } ?: return false
+            return field.enabled && field == b.nodes.singleOrNull { it.focused && it.editable }
+        }
+        val scope = actionScope(args, a) ?: return false
+        if (args.getString("action") == "swipe") {
+            fun relevant(ui: AiUiSnapshot) = ui.nodes.filter {
+                it.area < width.toLong() * height / 3 &&
+                    scope.contains((it.left + it.right) / 2.0 / width, (it.top + it.bottom) / 2.0 / height)
+            }.toSet()
+            return relevant(a) == relevant(b)
+        }
+        fun target(ui: AiUiSnapshot) = ui.nodes.filter {
+            it.area < width.toLong() * height / 3 && it.contains(scope.x * width, scope.y * height)
+        }.minByOrNull { it.area }
+        val target = target(a)
+        return target == target(b) && target?.enabled != false
     }
 
     fun geometry(): Pair<Int, Int> = width to height
+    private fun sameWindow(a: AiUiSnapshot, b: AiUiSnapshot) = a.packageName == b.packageName && a.windowId == b.windowId
+    private fun samePrivacyContext(a: AiUiSnapshot, b: AiUiSnapshot) = sameWindow(a, b) && a.sensitiveFocus == b.sensitiveFocus && a.masks == b.masks
     private fun geometryMatches(frame: AiRawFrame, profile: CaptureProfile): Boolean {
         val w = if (frame.rotation % 180 == 0) frame.width else frame.height
         val h = if (frame.rotation % 180 == 0) frame.height else frame.width
-        val ratio = profile.displayWidthPx.toDouble() / profile.displayHeightPx
-        return kotlin.math.abs(w.toDouble() / h - ratio) <= 0.015
+        return kotlin.math.abs(w.toDouble() / h - profile.displayWidthPx.toDouble() / profile.displayHeightPx) <= 0.015
     }
     private fun error(code: String) = JSONObject().put("error", code).put("applied", false)
 }

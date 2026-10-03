@@ -172,3 +172,18 @@ test('delayed pause from an old service cannot stop the new service, and pause r
   assert.equal((await f.obj.fetch(f.request(path, { runId: 'run-second' }, deviceToken))).status, 200);
   assert.equal((await result(await f.call('phone_status'))).connectionState, 'stopped');
 });
+
+test('animated observations retain their usable ticket and target rejection retains fresh image and reason', async () => {
+  const animated = toolResult({ settled: false, observationId: args.observationId, screenVersion: 4,
+    image: { mimeType: 'image/jpeg', data: 'jpeg-base64', width: 1, height: 1 } });
+  assert.equal(animated.isError, false); assert.equal(JSON.parse(animated.content[0].text).observationId, args.observationId);
+  const f = await fixture(); f.connect();
+  const pending = f.call('phone_action', args);
+  await f.complete({ error: 'STALE_SCREEN', reason: 'TARGET_CHANGED', applied: false,
+    observationId: 'new-observation-0001', screenVersion: 5, image: { mimeType: 'image/jpeg', data: 'fresh-base64' } });
+  const reply = (await (await pending).json()).result;
+  assert.equal(reply.isError, true); assert.equal(reply.content[1].data, 'fresh-base64');
+  assert.equal(JSON.parse(reply.content[0].text).reason, 'TARGET_CHANGED');
+  const retry = await result(await f.call('phone_action', args));
+  assert.equal(retry.replayed, true); assert.equal(retry.applied, false); assert.equal(f.sent.length, 1);
+});

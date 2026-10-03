@@ -59,6 +59,9 @@ class HostWebRtcSession(
             initialTier = captureTier,
             maxTier = maxCaptureTier
         )
+    private val cadenceGovernor = VideoCadenceGovernor(profile.motionFps)
+    private val receiverFeedback = ReceiverVideoFeedback()
+    private var lastSlowVideoCheckMs = 0L
 
     @Volatile
     private var peerConnected = false
@@ -574,6 +577,12 @@ class HostWebRtcSession(
                 )
             }
 
+            is ControlPacket.VideoFeedback -> displayHandler.post {
+                val current = lease
+                if (!closed.get() && current != null && SessionRuntime.isAuthorized(sessionId, current.leaseSecret, current.displayGeneration)) {
+                    receiverFeedback.accept(packet, current.leaseSecret, current.displayGeneration, android.os.SystemClock.elapsedRealtime())
+                }
+            }
             is ControlPacket.CommandResult,
             is ControlPacket.Hello -> Unit
         }
@@ -613,12 +622,27 @@ class HostWebRtcSession(
     override fun onVideoHealth(
         snapshot: VideoHealthSnapshot
     ) {
-        listener.onDiagnostic(snapshot.compact())
-
         if (snapshot.direction != "outbound") return
 
         displayHandler.post {
             if (closed.get()) return@post
+
+            val now = android.os.SystemClock.elapsedRealtime()
+            val current = lease
+            val receiver = current?.let { receiverFeedback.consume(it.leaseSecret, it.displayGeneration, now) }
+            if (cadenceGovernor.observe(snapshot, receiver, effectiveCaptureProfile(profile).fps, now)) {
+                applyVideoPolicy(profile)
+                listener.onDiagnostic("Sustainable video cadence → ${cadenceGovernor.cap}fps ceiling • preserving screen geometry")
+            }
+            // Preserve the existing recovery/governor timing despite 1s sampling.
+            if (now - lastSlowVideoCheckMs < 3000) return@post
+            lastSlowVideoCheckMs = now
+            listener.onDiagnostic(snapshot.compact())
+            val pressured = snapshot.qualityLimitationReason == "cpu" ||
+                (snapshot.packetLossRatio ?: 0.0) >= CaptureQualityGovernor.PRESSURE_PACKET_LOSS_RATIO ||
+                (snapshot.roundTripTimeMs ?: 0) >= CaptureQualityGovernor.PRESSURE_RTT_MS
+            // Give cadence reductions time to work before sacrificing text resolution.
+            if (pressured && !cadenceGovernor.mayReduceResolution(now)) return@post
 
             captureQualityGovernor
                 .observeQualityLimitation(
@@ -675,12 +699,12 @@ class HostWebRtcSession(
     private fun effectiveCaptureProfile(
         target: CaptureProfile
     ): CaptureProfile {
-        val targetFps =
+        val targetFps = minOf(cadenceGovernor.cap,
             if (interactionActive) {
                 target.motionFps
             } else {
                 target.fps
-            }
+            })
 
         return if (targetFps == target.fps) {
             target

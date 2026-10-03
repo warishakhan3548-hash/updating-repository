@@ -138,6 +138,7 @@ class WebRtcPeer(
         }
     }
 
+    private val videoHealthWindows = VideoHealthWindowTracker()
     private val videoStatsProbe = object : Runnable {
         override fun run() {
             if (closed.get()) return
@@ -148,7 +149,7 @@ class WebRtcPeer(
                     .from(report, role)
                     ?.let { snapshot ->
                         if (role == PeerRole.HOST) latestOutboundCodec = snapshot.codec?.substringAfterLast('/')
-                        listener.onVideoHealth(snapshot)
+                        listener.onVideoHealth(videoHealthWindows.sample(snapshot))
                     }
             }
 
@@ -1692,7 +1693,7 @@ class WebRtcPeer(
         private const val DEFAULT_VIDEO_FRAMERATE = 30
         private const val MAX_VIDEO_FRAMERATE = 60
         private const val VIDEO_STATS_INITIAL_DELAY_MS = 1_500L
-        private const val VIDEO_STATS_INTERVAL_MS = 3_000L
+        private const val VIDEO_STATS_INTERVAL_MS = 1_000L
         private const val RESTART_ICE_REFRESH_TIMEOUT_MS = 1_500L
         private const val PRELIVE_ICE_REFRESH_TIMEOUT_MS = 5_000L
         private const val ICE_RESTART_MIN_INTERVAL_MS = 2_500L
