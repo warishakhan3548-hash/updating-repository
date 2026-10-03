@@ -72,7 +72,10 @@ class PresentationProvenRecoveryTest {
     fun realHealthyEglPresentationLetsTransientDownshiftRecoverWithoutStickyLag() {
         val governor = VideoCadenceGovernor(60)
         val sending60 = outbound(frames = 60, processingMs = 5.0)
-        val overloadedReceiver = receiver(frames = 60, processingMs = 25.0)
+        // A real overloaded receiver is both expensive and falling behind the
+        // requested cadence. High processing time at a full 60 fps is not
+        // pressure by itself, because it is still delivering every frame.
+        val overloadedReceiver = receiver(frames = 30, processingMs = 25.0)
 
         assertFalse(governor.observe(sending60, overloadedReceiver, 60, 1_000))
         assertTrue(governor.observe(sending60, overloadedReceiver, 60, 2_000))
