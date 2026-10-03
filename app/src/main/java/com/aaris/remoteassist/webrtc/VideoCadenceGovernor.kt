@@ -167,8 +167,24 @@ class VideoCadenceGovernor(private val maxFps: Int) {
                 outbound.qualityLimitationReason != "bandwidth"
 
         healthy = if (headroom) healthy + 1 else 0
-        val healthySamplesRequired = if (receiver == null) LEGACY_HEALTHY_SAMPLES_TO_RAISE else HEALTHY_SAMPLES_TO_RAISE
-        if (healthy < healthySamplesRequired || nowMs - changedAt < MIN_RECOVERY_INTERVAL_MS) return false
+
+        /*
+         * Recovery stays conservative without end-to-end evidence. When the
+         * controller proves healthy EGL presentation as well as clean RTP/decode
+         * telemetry, five consecutive healthy windows are enough to cautiously
+         * probe the next cadence step after five seconds. This prevents a short
+         * transient from leaving interaction visibly sluggish for twelve seconds.
+         */
+        val presentationProvenHealthy = presentationMeasured && presentationHealthy
+        val healthySamplesRequired = when {
+            receiver == null -> LEGACY_HEALTHY_SAMPLES_TO_RAISE
+            presentationProvenHealthy -> PRESENTATION_PROVEN_HEALTHY_SAMPLES_TO_RAISE
+            else -> HEALTHY_SAMPLES_TO_RAISE
+        }
+        val recoveryIntervalMs =
+            if (presentationProvenHealthy) PRESENTATION_PROVEN_RECOVERY_INTERVAL_MS
+            else MIN_RECOVERY_INTERVAL_MS
+        if (healthy < healthySamplesRequired || nowMs - changedAt < recoveryIntervalMs) return false
 
         val next = ASCENDING_CAPS.firstOrNull { it > cap && it <= maxFps } ?: return false
         cap = next
@@ -226,10 +242,12 @@ class VideoCadenceGovernor(private val maxFps: Int) {
 
         const val PRESSURE_SAMPLES_TO_REDUCE = 2
         const val HEALTHY_SAMPLES_TO_RAISE = 8
+        const val PRESENTATION_PROVEN_HEALTHY_SAMPLES_TO_RAISE = 5
         const val LEGACY_HEALTHY_SAMPLES_TO_RAISE = 16
         const val MIN_CHANGE_INTERVAL_MS = 3_000L
         const val SEVERE_CHANGE_INTERVAL_MS = 1_000L
         const val MIN_RECOVERY_INTERVAL_MS = 12_000L
+        const val PRESENTATION_PROVEN_RECOVERY_INTERVAL_MS = 5_000L
 
         const val RESOLUTION_REDUCTION_MAX_FPS = 24
         const val RESOLUTION_REDUCTION_GRACE_MS = 6_000L

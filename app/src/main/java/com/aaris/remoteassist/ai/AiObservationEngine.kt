@@ -49,11 +49,11 @@ class AiObservationEngine internal constructor(
             val current = now()
             val elapsed = current - start
             val quietFor = current - ledger.changedAtMs
-            if (quietFor >= 100L || elapsed >= 320L) return
+            if (quietFor >= QUIET_WINDOW_MS || elapsed >= MAX_ANIMATED_SETTLE_MS) return
 
-            val remainingQuiet = (100L - quietFor).coerceAtLeast(1L)
-            val remainingBudget = (320L - elapsed).coerceAtLeast(1L)
-            pause(minOf(40L, remainingQuiet, remainingBudget))
+            val remainingQuiet = (QUIET_WINDOW_MS - quietFor).coerceAtLeast(1L)
+            val remainingBudget = (MAX_ANIMATED_SETTLE_MS - elapsed).coerceAtLeast(1L)
+            pause(minOf(SETTLE_POLL_MS, remainingQuiet, remainingBudget))
         }
     }
 
@@ -247,5 +247,8 @@ class AiObservationEngine internal constructor(
 
     companion object {
         private const val MAX_AI_DRAG_POINTS = 24
+        private const val QUIET_WINDOW_MS = 100L
+        private const val MAX_ANIMATED_SETTLE_MS = 220L
+        private const val SETTLE_POLL_MS = 40L
     }
 }
