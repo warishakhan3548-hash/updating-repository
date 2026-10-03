@@ -93,6 +93,29 @@ class AiObservationEngineTest {
         val next = engine.validate(args); clock += 501
         assertFalse(next.stillValid())
     }
+    @Test fun quietScreensAvoidFixedDelayAndRecentChangesWaitOnlyForQuiescence() = runBlocking {
+        val quietStart = clock
+        val first = engine.observe()
+        assertFalse(first.has("error"))
+        assertEquals(quietStart, clock)
+
+        engine.invalidate()
+        val changedAt = clock
+        val second = engine.observe()
+        assertFalse(second.has("error"))
+        assertEquals(100L, clock - changedAt)
+    }
+
+    @Test fun tapCoordinatesSnapToSmallestEnabledClickableTargetCenter() = runBlocking {
+        val observed = engine.observe()
+        val args = action(observed).put("x", 0.72).put("y", 0.72)
+        val validation = engine.validate(args)
+        assertNull(validation.error)
+        assertEquals(0.8, args.getDouble("x"), 0.0001)
+        assertEquals(0.8, args.getDouble("y"), 0.0001)
+        assertTrue(validation.stillValid())
+    }
+
     @Test fun privacyContextChangingDuringCaptureNeverReturnsUnmaskedImage() = runBlocking {
         onFrame = { ui = ui!!.copy(masks = listOf(Rect(0, 0, (++clock % 100).toInt(), 120))) }
         val observed = engine.observe()

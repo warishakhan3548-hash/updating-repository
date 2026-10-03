@@ -151,7 +151,7 @@ class ControllerWebRtcSession(
         val lease = leaseSecret ?: return false
         val display = geometry ?: return false
         return peer.sendControl(
-            ControlProtocol.encode(
+            bytes = ControlProtocol.encode(
                 ControlPacket.PresentationFeedback(
                     leaseSecret = lease,
                     generation = display.generation,
@@ -160,7 +160,10 @@ class ControllerWebRtcSession(
                     renderedFrames = window.renderedFrames,
                     maxGapMs = window.maxGapMs
                 )
-            )
+            ),
+            // Presentation telemetry is freshness-only: stale retransmits must
+            // never sit ahead of the user's next authoritative control packet.
+            freshnessSensitive = true
         )
     }
 
@@ -586,10 +589,24 @@ class ControllerWebRtcSession(
         val display = geometry
         val recent = snapshot.recent
         if (lease != null && display != null && recent != null) {
-            peer.sendControl(ControlProtocol.encode(ControlPacket.VideoFeedback(lease, display.generation,
-                feedbackSequence.incrementAndGet(), recent.intervalMs, recent.frames,
-                recent.processingMs?.toFloat() ?: -1f, recent.jitterMs?.toFloat() ?: -1f,
-                recent.dropped ?: -1, recent.freezes ?: -1)))
+            peer.sendControl(
+        bytes = ControlProtocol.encode(
+            ControlPacket.VideoFeedback(
+                lease,
+                display.generation,
+                feedbackSequence.incrementAndGet(),
+                recent.intervalMs,
+                recent.frames,
+                recent.processingMs?.toFloat() ?: -1f,
+                recent.jitterMs?.toFloat() ?: -1f,
+                recent.dropped ?: -1,
+                recent.freezes ?: -1
+            )
+        ),
+        // Decoder health is periodic freshness telemetry. Once the live lane
+        // exists, dropping an old sample beats head-of-line blocking input.
+        freshnessSensitive = true
+    )
         }
         val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastVideoLivenessMs < 3000) return

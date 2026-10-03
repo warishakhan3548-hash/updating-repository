@@ -105,7 +105,7 @@ Authoritative backend flow:
   - controller RECV_ONLY video transceiver created before offer replay;
   - ordered `control-v1` DataChannel for authoritative commands;
   - unordered, non-retransmitted `control-live-v1` lane for freshness-only drag
-    CONTINUE packets;
+    CONTINUE packets plus stale-safe decoder/presentation telemetry;
   - separate unordered fallback-video lane;
   - direct + STUN + TURN candidates available in the initial negotiation;
   - relay-only escalation reserved for recovery;
