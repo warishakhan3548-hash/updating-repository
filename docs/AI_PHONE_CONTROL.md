@@ -1,4 +1,4 @@
-# AI phone control (v1.9.2)
+# AI phone control (v1.9.3)
 
 Tap **Connect Phone with AI** below Connect/Share. The app registers a random,
 device-specific MCP link, copies it automatically, and displays it below the
@@ -46,10 +46,24 @@ it does not authorize blindly repeating the action. Android also consumes the
 observation before dispatch, so eviction of the bounded server journal cannot
 make an old observation executable again.
 
-Actions carry a short dispatch deadline. Event revisions, current display
-geometry, foreground package and a live luma thumbnail are checked before input;
-the revision/lease/deadline are checked again inside the actual Accessibility
-queue. After input, the engine waits for a bounded quiet interval and requests a
+Observation tickets expire after 90 seconds and are single-use. Accessibility
+events guide a bounded settling wait; they no longer revoke an observation just
+because streaming text, a floating window or an overlay keeps updating. A coherent
+observation can have `settled: false` and still authorize an action. Window/privacy
+changes during capture fail closed without returning an unmasked image.
+
+Before tap/long press, fresh upright color samples around the target and the local
+Accessibility target are compared. Swipes compare the padded path; animation
+elsewhere does not invalidate either. Typing binds the focused field, full-value
+digest and selection. A changed foreground window, target, geometry, expired ticket
+or disconnect still blocks input. Home requires no static pixels; Back/Recents
+require the same foreground window but allow animation. Errors include a specific
+`reason` and, when capture is available, a fresh image/ticket for a new decision.
+
+Actions carry a 500 ms validation-to-dispatch deadline. Window/target state,
+lease and deadline are checked again inside the actual Accessibility queue,
+including after STOP moves out of the way. After input, the engine waits for a
+bounded quiet interval (at most about 320 ms) and requests a
 current SurfaceTexture after the capture barrier, including on a static screen
 that emits no new frames. These checks reduce stale clicks; they do
 not prove a model chose the correct target or eliminate every app/UI race.

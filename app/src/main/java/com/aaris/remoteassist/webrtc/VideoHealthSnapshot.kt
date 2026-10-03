@@ -21,7 +21,14 @@ data class VideoHealthSnapshot(
     val framesDropped: Long? = null,
     val freezeCount: Long? = null,
     val candidatePath: String? = null,
-    val codecImplementation: String? = null
+    val codecImplementation: String? = null,
+    val streamId: String = "",
+    val timestampUs: Double = 0.0,
+    val processingTotalSeconds: Double? = null,
+    val jitterTotalSeconds: Double? = null,
+    val jitterEmittedCount: Long? = null,
+    val sendDelayTotalSeconds: Double? = null,
+    val recent: VideoHealthWindow? = null
 ) {
     fun compact(): String {
         val primary =
@@ -72,6 +79,7 @@ data class VideoHealthSnapshot(
             freezeCount?.let { append(" freezes=$it") }
             candidatePath?.let { append(" path=$it") }
             codecImplementation?.let { append(" implementation=$it") }
+            recent?.let { append(" recent={${it.compact()}}") }
             packetLossRatio?.let {
                 append(" loss=")
                 append(
@@ -211,7 +219,10 @@ data class VideoHealthSnapshot(
                     packetLossRatio = packetLossRatio,
                     processingAverageMs = meanMs("totalEncodeTime", "framesEncoded"),
                     candidatePath = candidatePath,
-                    codecImplementation = members["encoderImplementation"]?.toString()
+                    codecImplementation = members["encoderImplementation"]?.toString(),
+                    streamId = selected.id, timestampUs = report.timestampUs,
+                    processingTotalSeconds = decimal(members["totalEncodeTime"]),
+                    sendDelayTotalSeconds = decimal(members["totalPacketSendDelay"])
                 )
             } else {
                 VideoHealthSnapshot(
@@ -236,7 +247,11 @@ data class VideoHealthSnapshot(
                     framesDropped = members["framesDropped"]?.let(::number),
                     freezeCount = members["freezeCount"]?.let(::number),
                     candidatePath = candidatePath,
-                    codecImplementation = members["decoderImplementation"]?.toString()
+                    codecImplementation = members["decoderImplementation"]?.toString(),
+                    streamId = selected.id, timestampUs = report.timestampUs,
+                    processingTotalSeconds = decimal(members["totalDecodeTime"]),
+                    jitterTotalSeconds = decimal(members["jitterBufferDelay"]),
+                    jitterEmittedCount = members["jitterBufferEmittedCount"]?.let(::number)
                 )
             }
         }

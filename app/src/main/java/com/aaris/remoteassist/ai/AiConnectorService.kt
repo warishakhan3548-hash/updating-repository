@@ -228,18 +228,23 @@ class AiConnectorService : Service() {
                         val id = args.getString("actionId").also { require(it.matches(Regex("[a-zA-Z0-9_-]{8,96}"))) }
                         actionId = id
                         outcomes[id]?.let { return@withTimeout JSONObject(it.toString()).put("replayed", true).put("needsObservation", true) }
-                        if (!engine.validate(args)) return@withTimeout engine.observe().put("error", "STALE_SCREEN").put("applied", false).put("actionId", id)
+                        val validation = engine.validate(args)
+                        if (validation.error != null) {
+                            val code = if (validation.error in setOf("LOCAL_ONLY_SCREEN", "DEVICE_LOCKED_OR_ACCESSIBILITY_OFF", "FOCUSED_FIELD_REQUIRED"))
+                                validation.error else "STALE_SCREEN"
+                            return@withTimeout engine.observe().put("error", code)
+                                .put("reason", validation.error).put("applied", false).put("actionId", id)
+                        }
                         val currentLease = lease ?: return@withTimeout failure("NOT_CONNECTED")
                         val (width, height) = engine.geometry()
                         val command = AiActionTranslator.translate(args, currentLease, ++sequence, width, height)
-                        val expectedVersion = engine.ledger.version
                         engine.ledger.consume() // Even a refused/no-op action consumes its observation.
                         outcomes[id] = failure("OUTCOME_UNKNOWN", null)
                         dispatched = true; applied = null
                         val done = CompletableDeferred<Boolean>()
                         val expiresAt = SystemClock.elapsedRealtime() + 1500
                         AssistAccessibilityService.dispatch(command, precondition = {
-                            !stopping && socket === ws && engine.ledger.version == expectedVersion &&
+                            !stopping && socket === ws && validation.stillValid() &&
                                 SystemClock.elapsedRealtime() <= expiresAt &&
                                 CaptureProfile.current(this@AiConnectorService, CaptureTier.BALANCED).let {
                                     it.displayWidthPx == width && it.displayHeightPx == height
