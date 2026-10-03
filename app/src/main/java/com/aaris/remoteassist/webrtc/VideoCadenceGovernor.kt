@@ -59,8 +59,15 @@ class VideoCadenceGovernor(private val maxFps: Int) {
          * A remoting stream can feel late even when no single queue crosses its
          * individual alarm threshold. Sender pacer residence and receiver jitter
          * residence are serial waiting rooms in the same motion-to-photon path,
-         * so budget them together as well. This catches e.g. 35 ms sender queue
-         * + 45 ms jitter at 60 fps before either queue becomes pathological.
+         * so budget them together as well.
+         *
+         * The combined budget is deliberately frame-relative. At 60 fps we do
+         * not allow roughly four to five old frames to accumulate before reacting:
+         * persistent residence above about three frame periods takes the soft
+         * 60 -> 45 relief step. At lower cadence the absolute budget expands,
+         * avoiding needless quality loss on constrained devices. Two consecutive
+         * pressure windows and the existing change hysteresis still protect the
+         * stream from reacting to a single jitter spike.
          *
          * Require both measurements for this cross-layer signal. If either
          * endpoint omits its stat, the established per-layer thresholds keep
@@ -246,8 +253,8 @@ class VideoCadenceGovernor(private val maxFps: Int) {
         const val QUEUE_BUDGET_MULTIPLIER = 2.0
         const val MIN_JITTER_PRESSURE_MS = 85.0
         const val JITTER_BUDGET_MULTIPLIER = 2.5
-        const val MIN_PIPELINE_RESIDENCE_PRESSURE_MS = 75.0
-        const val PIPELINE_RESIDENCE_BUDGET_MULTIPLIER = 4.0
+        const val MIN_PIPELINE_RESIDENCE_PRESSURE_MS = 55.0
+        const val PIPELINE_RESIDENCE_BUDGET_MULTIPLIER = 3.0
         const val MIN_RENDER_GAP_PRESSURE_MS = 55.0
         const val RENDER_GAP_BUDGET_MULTIPLIER = 2.5
         const val PRESENTATION_DELIVERY_RATIO = 0.82
