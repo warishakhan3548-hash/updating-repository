@@ -153,19 +153,67 @@ class AiObservationEngine internal constructor(
         if (!x.isFinite() || !y.isFinite() || x !in 0.0..1.0 || y !in 0.0..1.0) return
         if (width <= 0 || height <= 0) return
 
-        // Keep raw coordinate taps as the universal fallback for canvases and
-        // custom views. If Accessibility exposes a stable clickable target,
-        // center the request inside the smallest enabled target to avoid edges.
-        val target = ui.nodes.asSequence()
-            .filter { node ->
-                node.enabled && node.clickable && node.area > 0L &&
-                    node.contains(x * width, y * height)
-            }
-            .minByOrNull { it.area }
-            ?: return
+        val tapX = x * width
+        val tapY = y * height
+        val clickable = ui.nodes.asSequence()
+            .filter { node -> node.enabled && node.clickable && node.area > 0L }
+            .toList()
 
-        args.put("x", ((target.left + target.right) / 2.0 / width).coerceIn(0.0, 1.0))
-        args.put("y", ((target.top + target.bottom) / 2.0 / height).coerceIn(0.0, 1.0))
+        // Keep raw coordinate taps as the universal fallback for canvases and
+        // custom views. If Accessibility exposes a stable clickable target that
+        // already contains the request, center inside the smallest enabled node.
+        val direct = clickable.asSequence()
+            .filter { node -> node.contains(tapX, tapY) }
+            .minByOrNull { it.area }
+        if (direct != null) {
+            centerTap(args, direct)
+            return
+        }
+
+        /*
+         * Vision models occasionally land a few pixels outside a small icon or
+         * button edge. Treat that as pointer imprecision, not as a reason to
+         * click arbitrary nearby UI: auto-aim only when exactly one reasonably
+         * sized clickable node falls inside a narrow normalized halo. If two
+         * controls are close together we deliberately keep the raw coordinate
+         * so the fresh-pixel/semantic validation can fail closed instead of
+         * guessing which control the model meant.
+         */
+        val displayArea = width.toLong() * height.toLong()
+        val nearby = clickable.filter { node ->
+            node.area <= displayArea / 3L &&
+                normalizedDistanceSquaredToNode(x, y, node) <= TAP_NEAR_MISS_RADIUS_SQ
+        }
+        if (nearby.size == 1) {
+            centerTap(args, nearby.single())
+        }
+    }
+
+    private fun centerTap(args: JSONObject, node: AiUiNode) {
+        args.put("x", ((node.left + node.right) / 2.0 / width).coerceIn(0.0, 1.0))
+        args.put("y", ((node.top + node.bottom) / 2.0 / height).coerceIn(0.0, 1.0))
+    }
+
+    private fun normalizedDistanceSquaredToNode(
+        x: Double,
+        y: Double,
+        node: AiUiNode
+    ): Double {
+        val left = node.left.toDouble() / width
+        val right = node.right.toDouble() / width
+        val top = node.top.toDouble() / height
+        val bottom = node.bottom.toDouble() / height
+        val dx = when {
+            x < left -> left - x
+            x > right -> x - right
+            else -> 0.0
+        }
+        val dy = when {
+            y < top -> top - y
+            y > bottom -> y - bottom
+            else -> 0.0
+        }
+        return dx * dx + dy * dy
     }
 
     private fun actionScope(args: JSONObject, ui: AiUiSnapshot): AiActionScope? {
@@ -250,5 +298,7 @@ class AiObservationEngine internal constructor(
         private const val QUIET_WINDOW_MS = 100L
         private const val MAX_ANIMATED_SETTLE_MS = 220L
         private const val SETTLE_POLL_MS = 40L
+        private const val TAP_NEAR_MISS_RADIUS = 0.035
+        private const val TAP_NEAR_MISS_RADIUS_SQ = TAP_NEAR_MISS_RADIUS * TAP_NEAR_MISS_RADIUS
     }
 }
