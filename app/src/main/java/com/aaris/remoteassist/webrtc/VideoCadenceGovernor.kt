@@ -62,14 +62,17 @@ class VideoCadenceGovernor(private val maxFps: Int) {
          * so budget them together as well. This catches e.g. 35 ms sender queue
          * + 45 ms jitter at 60 fps before either queue becomes pathological.
          *
+         * Require both measurements for this cross-layer signal. If either
+         * endpoint omits its stat, the established per-layer thresholds keep
+         * their exact behavior instead of being silently tightened.
+         *
          * Libwebrtc still owns bandwidth estimation and packet pacing. This
          * governor only lowers capture cadence when the measured pipeline is
          * accumulating stale frames, which gives GCC room to drain its queues.
          */
         val pipelineResidenceMs =
-            if (sendQueueMs != null || (receiverMeasured && receiverJitterMs != null)) {
-                (sendQueueMs ?: 0.0) +
-                    if (receiverMeasured) (receiverJitterMs ?: 0.0) else 0.0
+            if (sendQueueMs != null && receiverMeasured && receiverJitterMs != null) {
+                sendQueueMs + receiverJitterMs
             } else {
                 null
             }
