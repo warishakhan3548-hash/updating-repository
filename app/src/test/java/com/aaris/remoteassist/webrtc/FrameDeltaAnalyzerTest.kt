@@ -110,6 +110,11 @@ class FrameDeltaAnalyzerTest {
         ByteArray(width * height) { index ->
             val x = index % width
             val y = index / width
-            ((x * 17 + y * 29 + (y / 24) * 71) and 0xff).toByte()
+            var value =
+                (x * 73_856_093) xor
+                    (y * 19_349_663) xor
+                    ((x + y) * 83_492_791)
+            value = value xor (value ushr 13)
+            (value and 0xff).toByte()
         }
 }
