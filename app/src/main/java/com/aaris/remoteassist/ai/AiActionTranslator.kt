@@ -5,6 +5,8 @@ import com.aaris.remoteassist.control.ControlPathPoint
 import com.aaris.remoteassist.control.ControlProtocol
 import com.aaris.remoteassist.control.RemoteCommand
 import com.aaris.remoteassist.session.LiveLease
+import kotlin.math.hypot
+import kotlin.math.roundToInt
 import org.json.JSONObject
 
 object AiActionTranslator {
@@ -27,10 +29,22 @@ object AiActionTranslator {
                 ControlPathPoint(unit(point.get("x")), unit(point.get("y")))
             }
         }
+        fun boundedDuration(defaultMs: Int): Int =
+            args.optInt("durationMs", defaultMs).also { require(it in 80..1500) }
+        fun adaptiveDuration(distance: Double): Int =
+            (140.0 + distance.coerceIn(0.0, 1.25) * 240.0)
+                .roundToInt()
+                .coerceIn(140, 440)
+        fun pathDistance(points: List<ControlPathPoint>): Double =
+            points.zipWithNext().sumOf { (from, to) ->
+                hypot(
+                    (to.nx - from.nx).toDouble(),
+                    (to.ny - from.ny).toDouble()
+                )
+            }
 
         val secret = lease.leaseSecret
         val generation = lease.displayGeneration
-        val duration = args.optInt("durationMs", 350).also { require(it in 80..1500) }
         val packet = when (args.getString("action")) {
             "tap" -> ControlPacket.Tap(secret, generation, sequence, unit("x"), unit("y"))
             "long_press" -> ControlPacket.LongPress(
@@ -41,22 +55,62 @@ object AiActionTranslator {
                 unit("y"),
                 args.optInt("durationMs", 650).coerceIn(450, 1500)
             )
-            "swipe" -> ControlPacket.Swipe(secret, generation, sequence, unit("x"), unit("y"), unit("toX"), unit("toY"), duration)
-            "drag" -> ControlPacket.GesturePath(secret, generation, sequence, dragPoints(), duration)
-            "two_finger" -> ControlPacket.TwoFinger(
-                leaseSecret = secret,
-                generation = generation,
-                sequence = sequence,
-                firstFromNx = unit("x"),
-                firstFromNy = unit("y"),
-                firstToNx = unit("toX"),
-                firstToNy = unit("toY"),
-                secondFromNx = unit("secondX"),
-                secondFromNy = unit("secondY"),
-                secondToNx = unit("secondToX"),
-                secondToNy = unit("secondToY"),
-                durationMs = duration
-            )
+            "swipe" -> {
+                val x = unit("x")
+                val y = unit("y")
+                val toX = unit("toX")
+                val toY = unit("toY")
+                val distance = hypot((toX - x).toDouble(), (toY - y).toDouble())
+                ControlPacket.Swipe(
+                    secret,
+                    generation,
+                    sequence,
+                    x,
+                    y,
+                    toX,
+                    toY,
+                    boundedDuration(adaptiveDuration(distance))
+                )
+            }
+            "drag" -> {
+                val points = dragPoints()
+                ControlPacket.GesturePath(
+                    secret,
+                    generation,
+                    sequence,
+                    points,
+                    boundedDuration(adaptiveDuration(pathDistance(points)))
+                )
+            }
+            "two_finger" -> {
+                val x = unit("x")
+                val y = unit("y")
+                val toX = unit("toX")
+                val toY = unit("toY")
+                val secondX = unit("secondX")
+                val secondY = unit("secondY")
+                val secondToX = unit("secondToX")
+                val secondToY = unit("secondToY")
+                val firstDistance = hypot((toX - x).toDouble(), (toY - y).toDouble())
+                val secondDistance = hypot(
+                    (secondToX - secondX).toDouble(),
+                    (secondToY - secondY).toDouble()
+                )
+                ControlPacket.TwoFinger(
+                    leaseSecret = secret,
+                    generation = generation,
+                    sequence = sequence,
+                    firstFromNx = x,
+                    firstFromNy = y,
+                    firstToNx = toX,
+                    firstToNy = toY,
+                    secondFromNx = secondX,
+                    secondFromNy = secondY,
+                    secondToNx = secondToX,
+                    secondToNy = secondToY,
+                    durationMs = boundedDuration(adaptiveDuration(maxOf(firstDistance, secondDistance)))
+                )
+            }
             "back" -> ControlPacket.Back(secret, generation, sequence)
             "home" -> ControlPacket.Home(secret, generation, sequence)
             "recents" -> ControlPacket.Recents(secret, generation, sequence)
