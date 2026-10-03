@@ -78,6 +78,7 @@ class HostWebRtcSession(
     private val interactionPriorityTimeout = Runnable {
         if (!closed.get() && interactionActive) {
             interactionActive = false
+            fallbackStreamer.setInteractionActive(false)
             applyVideoPolicy(profile)
             listener.onDiagnostic(
                 "Remote interaction idle • restoring clarity-first video policy"
@@ -552,6 +553,20 @@ class HostWebRtcSession(
                 updateInteractionPriority(packet.active)
             }
 
+            is ControlPacket.FallbackDeltaReady -> {
+                val currentLease = lease ?: return
+                if (
+                    packet.leaseSecret !=
+                    currentLease.leaseSecret
+                ) {
+                    return
+                }
+                fallbackStreamer.setDeltaCapable(true)
+                listener.onDiagnostic(
+                    "Controller supports adaptive delta recovery transport"
+                )
+            }
+
             is ControlPacket.CommandResult,
             is ControlPacket.Hello -> Unit
         }
@@ -624,6 +639,7 @@ class HostWebRtcSession(
 
     private fun updateInteractionPriority(active: Boolean) {
         displayHandler.removeCallbacks(interactionPriorityTimeout)
+        fallbackStreamer.setInteractionActive(active)
 
         if (interactionActive != active) {
             interactionActive = active
