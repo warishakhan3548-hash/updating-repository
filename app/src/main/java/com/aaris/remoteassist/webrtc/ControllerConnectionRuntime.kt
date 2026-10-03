@@ -197,6 +197,11 @@ object ControllerConnectionRuntime {
                 uiListener?.onFallbackDeltaFrame(frame)
             }
 
+            override fun onPrimaryVideoRecoveryStarted() {
+                ownerListener?.onPrimaryVideoRecoveryStarted()
+                uiListener?.onPrimaryVideoRecoveryStarted()
+            }
+
             override fun onCommandResult(
                 sequence: Long,
                 applied: Boolean

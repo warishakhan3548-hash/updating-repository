@@ -117,10 +117,11 @@ class HostWebRtcSession(
 
     private val fallbackStreamer =
         FallbackScreenStreamer(
-            track = capture.videoTrack,
+            capture = capture,
             sendPacket = peer::sendFallbackVideo,
             onDiagnostic = listener::onDiagnostic,
-            canStartFrame = peer::canStartFallbackFrame
+            canStartFrame = peer::canStartFallbackFrame,
+            requestFreshFrame = capture::requestSnapshot
         )
 
     private val captureProbe = VideoSink {
@@ -537,7 +538,12 @@ class HostWebRtcSession(
                     return
                 }
 
-                fallbackStreamer.disable()
+                displayHandler.post {
+                    if (!closed.get()) {
+                        primaryRecoveryRequests = 0
+                        fallbackStreamer.disable()
+                    }
+                }
                 listener.onDiagnostic(
                     "Primary screen renderer confirmed healthy • fallback stopped"
                 )
@@ -583,37 +589,25 @@ class HostWebRtcSession(
         handleMediaRecoveryRequest()
     }
 
+    private var primaryRecoveryRequests = 0
+    private var lastPrimaryRepairRequestMs = 0L
+
     private fun handleMediaRecoveryRequest() {
-        if (closed.get()) return
-
-        listener.onDiagnostic(
-            "Controller requested video recovery • enabling compatibility stream"
-        )
-        fallbackStreamer.enable()
-        fallbackStreamer.requestKeyframe()
-
-        /*
-         * Keep authentication and the projection surface alive. Pulse the track
-         * and request its current texture; do not resize Android's display just
-         * to recover the transport. The next recovery update is a full anchor.
-         */
-        runCatching {
-            capture.videoTrack.setEnabled(false)
-            capture.update(effectiveCaptureProfile(profile))
+        displayHandler.post {
+            if (closed.get()) return@post
+            fallbackStreamer.enable()
+            fallbackStreamer.requestKeyframe()
+            // Pausing the track here also pauses the primary encoder we want to
+            // recover. Request current pixels without disabling capture/video.
+            runCatching { capture.requestSnapshot() }
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - lastPrimaryRepairRequestMs >= 2500L) {
+                lastPrimaryRepairRequestMs = now
+                primaryRecoveryRequests++
+                if (primaryRecoveryRequests >= 2) peer.recoverPrimaryVideoCodec()
+            }
+            listener.onDiagnostic("Video recovery active • fresh capture requested")
         }
-
-        displayHandler.postDelayed(
-            {
-                if (!closed.get()) {
-                    runCatching {
-                        capture.videoTrack.setEnabled(true)
-                        capture.update(effectiveCaptureProfile(profile))
-                        capture.requestSnapshot()
-                    }
-                }
-            },
-            VIDEO_RECOVERY_TRACK_PULSE_MS
-        )
     }
 
     override fun onVideoHealth(
@@ -826,7 +820,6 @@ class HostWebRtcSession(
         private const val CAPTURE_FIRST_FRAME_TIMEOUT_MS = 12_000L
         private const val CAPTURE_RECOVERY_INTERVAL_MS = 8_000L
         private const val MAX_CAPTURE_RECOVERY_ATTEMPTS = 3
-        private const val VIDEO_RECOVERY_TRACK_PULSE_MS = 180L
         private const val LEASE_WATCHDOG_MS = 3_000L
         private const val INTERACTION_PRIORITY_TIMEOUT_MS = 3_000L
     }

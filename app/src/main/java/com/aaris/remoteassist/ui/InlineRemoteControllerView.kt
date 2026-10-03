@@ -170,7 +170,10 @@ class InlineRemoteControllerView(
     private var mediaRecoveryAttempts = 0
     private var rendererRecoveryAttempts = 0
     private val rawFrameSeen = AtomicBoolean(false)
+    @Volatile private var lastRawFrameAtMs = 0L
     private val renderedFrameSeen = AtomicBoolean(false)
+    private val recoveryGeneration = AtomicLong(0L)
+    private var imageDisplayed = false
 
     private val controlsAutoHide = Runnable {
         if (attached) {
@@ -195,6 +198,7 @@ class InlineRemoteControllerView(
     }
 
     private val renderSink = VideoSink { frame ->
+        lastRawFrameAtMs = android.os.SystemClock.elapsedRealtime()
         val rotatedWidth = frame.rotatedWidth
         val rotatedHeight = frame.rotatedHeight
         latestObservedFrameWidth = rotatedWidth
@@ -229,9 +233,7 @@ class InlineRemoteControllerView(
         if (rawFrameSeen.compareAndSet(false, true)) {
             activity.runOnUiThread {
                 if (attached) {
-                    status.visibility = View.VISIBLE
-                    status.text =
-                        "Remote video frames received • rendering…"
+                    showVideoStatus("Remote video frames received • rendering…")
                 }
             }
         }
@@ -244,31 +246,20 @@ class InlineRemoteControllerView(
             override fun run() {
                 if (!attached) return
 
-                if (!rawFrameSeen.get()) {
-                    if (fallbackActive) {
-                        status.visibility = View.VISIBLE
-                        status.text =
-                            "Compatibility video active • primary stream recovering…"
-                        return
-                    }
-
+                if (!rawFrameSeen.get() || android.os.SystemClock.elapsedRealtime() - lastRawFrameAtMs > FIRST_FRAME_DEADLINE_MS) {
                     if (
                         mediaRecoveryAttempts <
                             MAX_MEDIA_RECOVERY_ATTEMPTS
                     ) {
                         mediaRecoveryAttempts += 1
-                        status.visibility = View.VISIBLE
-                        status.text =
-                            "Connected • video stream recovering…"
+                        showVideoStatus("Connected • video stream recovering…")
                         session()?.requestMediaRecovery()
                         mainHandler.postDelayed(
                             this,
                             MEDIA_RECOVERY_RETRY_MS
                         )
                     } else {
-                        status.visibility = View.VISIBLE
-                        status.text =
-                            "Connected • controls work • waiting for video frames…"
+                        showVideoStatus("Connected • controls work • waiting for live video…")
                     }
                     return
                 }
@@ -279,9 +270,7 @@ class InlineRemoteControllerView(
                             MAX_RENDERER_RECOVERY_ATTEMPTS
                     ) {
                         rendererRecoveryAttempts += 1
-                        status.visibility = View.VISIBLE
-                        status.text =
-                            "Video frames are here • rebuilding display…"
+                        showVideoStatus("Video frames are here • rebuilding display…")
 
                         if (rendererRecoveryAttempts == 1) {
                             /*
@@ -299,9 +288,7 @@ class InlineRemoteControllerView(
                             RENDER_RECOVERY_RETRY_MS
                         )
                     } else {
-                        status.visibility = View.VISIBLE
-                        status.text =
-                            "Video received • display retrying…"
+                        showVideoStatus("Video received • display retrying…")
                     }
                 }
             }
@@ -313,12 +300,11 @@ class InlineRemoteControllerView(
                 activity.runOnUiThread {
                     this@InlineRemoteControllerView.geometry = geometry
                     updateVideoViewport()
-                    status.text =
-                        if (remoteTrack == null) {
-                            "Connected • waiting for screen video…"
-                        } else {
-                            "Video connected • preparing display…"
-                        }
+                    showVideoStatus(if (remoteTrack == null) {
+                        "Connected • waiting for screen video…"
+                    } else {
+                        "Video connected • preparing display…"
+                    })
                 }
             }
 
@@ -327,15 +313,11 @@ class InlineRemoteControllerView(
             ) {
                 activity.runOnUiThread {
                     if (!connected) {
-                        status.visibility = View.VISIBLE
-                        status.text =
-                            "Connection interrupted • reconnecting…"
+                        showVideoStatus("Connection interrupted • reconnecting…")
                     } else if (renderedFrameSeen.get()) {
                         status.visibility = View.GONE
                     } else {
-                        status.visibility = View.VISIBLE
-                        status.text =
-                            "Reconnected • restoring remote screen…"
+                        showVideoStatus("Reconnected • restoring remote screen…")
                     }
                 }
             }
@@ -356,9 +338,7 @@ class InlineRemoteControllerView(
                         rendererRecoveryAttempts = 0
                     }
 
-                    status.visibility = View.VISIBLE
-                    status.text =
-                        "Video connected • opening remote screen…"
+                    showVideoStatus("Video connected • opening remote screen…")
 
                     ensureRenderer()
                     attachTrack(track)
@@ -383,15 +363,26 @@ class InlineRemoteControllerView(
                 decodeFallbackDeltaFrame(frame)
             }
 
+            override fun onPrimaryVideoRecoveryStarted() {
+                recoveryGeneration.incrementAndGet()
+                renderedFrameSeen.set(false)
+                mainHandler.post {
+                    if (attached) {
+                        mainHandler.removeCallbacks(mediaWatchdog)
+                        mainHandler.postDelayed(mediaWatchdog, MEDIA_RECOVERY_RETRY_MS)
+                    }
+                }
+            }
+
             override fun onCommandResult(
                 sequence: Long,
                 applied: Boolean
             ) {
                 if (!applied) {
                     activity.runOnUiThread {
-                        status.visibility = View.VISIBLE
-                        status.text =
-                            "Control command was not applied on the sharing phone."
+                        android.widget.Toast.makeText(activity,
+                            "Control command was not applied on the sharing phone.",
+                            android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -405,9 +396,7 @@ class InlineRemoteControllerView(
                 error: Throwable
             ) {
                 activity.runOnUiThread {
-                    status.visibility = View.VISIBLE
-                    status.text =
-                        "Recovering secure connection…"
+                    showVideoStatus("Recovering secure connection…")
                 }
             }
 
@@ -415,9 +404,7 @@ class InlineRemoteControllerView(
                 error: Throwable
             ) {
                 activity.runOnUiThread {
-                    status.visibility = View.VISIBLE
-                    status.text =
-                        "Session connection ended."
+                    showVideoStatus("Session connection ended.")
                 }
             }
         }
@@ -629,6 +616,7 @@ class InlineRemoteControllerView(
         status.apply {
             text = "Connected • waiting for screen video…"
             textSize = 13f
+            gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
             typeface = Typeface.create(
                 "sans-serif-medium",
@@ -652,11 +640,10 @@ class InlineRemoteControllerView(
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP
+                Gravity.CENTER
             ).apply {
                 marginStart = dp(12)
                 marginEnd = dp(12)
-                topMargin = dp(12)
             }
         )
 
@@ -687,7 +674,7 @@ class InlineRemoteControllerView(
 
         addButton("Stats") {
             AlertDialog.Builder(activity).setTitle("Connection stats")
-                .setMessage("$videoStats\n\n$inputStats\n\nDisplayed frame: ${frameWidth}x${frameHeight}\nRecovery video: $fallbackActive\nCommand ACK measures execution acknowledgement, not pixels reaching the display.")
+                .setMessage("${status.text}\n\n$videoStats\n\n$inputStats\n\nDisplayed frame: ${frameWidth}x${frameHeight}\nRecovery video: $fallbackActive\nCommand ACK measures execution acknowledgement, not pixels reaching the display.")
                 .setPositiveButton("OK", null).show()
         }
         addButton("Back", autoHide = true) {
@@ -1187,42 +1174,32 @@ class InlineRemoteControllerView(
                 textureView.height,
                 renderer
             )
-            renderer.addFrameListener(
-                {
-                    if (
-                        renderedFrameSeen.compareAndSet(
-                            false,
-                            true
-                        )
-                    ) {
-                        activity.runOnUiThread {
-                            if (attached) {
-                                fallbackActive = false
-                                textureView.alpha = 1f
-                                fallbackImageView.visibility = View.GONE
-                                fallbackImageView.setImageDrawable(null)
-                                fallbackBitmap?.recycle()
-                                fallbackBitmap = null
-                                fallbackScratchBitmap?.recycle()
-                                fallbackScratchBitmap = null
-                                fallbackCompositeFrameId = -1L
-                                status.visibility = View.GONE
-                                session()
-                                    ?.confirmPrimaryVideoRendered()
-
-                                /*
-                                 * Once the live screen is visible, maximize
-                                 * usable remote pixels. The compact side handle
-                                 * keeps controls discoverable without covering
-                                 * the remote phone's bottom navigation/buttons.
-                                 */
-                                setControlsVisible(false)
-                            }
+            // FrameListener is a ONE-SHOT screenshot API. RenderListener fires
+            // after every real EGL swap, so recovery can be confirmed repeatedly.
+            renderer.addRenderListener {
+                val generation = recoveryGeneration.get()
+                if (eglRenderer === renderer && renderedFrameSeen.compareAndSet(false, true)) {
+                    activity.runOnUiThread {
+                        if (attached && eglRenderer === renderer && generation == recoveryGeneration.get()) {
+                            fallbackActive = false
+                            imageDisplayed = true
+                            textureView.alpha = 1f
+                            fallbackImageView.visibility = View.GONE
+                            fallbackImageView.setImageDrawable(null)
+                            fallbackBitmap?.recycle()
+                            fallbackBitmap = null
+                            fallbackScratchBitmap?.recycle()
+                            fallbackScratchBitmap = null
+                            fallbackCompositeFrameId = -1L
+                            showVideoStatus("Live video connected")
+                            session()?.confirmPrimaryVideoRendered()
+                            mediaRecoveryAttempts = 0
+                            rendererRecoveryAttempts = 0
+                            setControlsVisible(false)
                         }
                     }
-                },
-                0f
-            )
+                }
+            }
 
             eglRenderer = renderer
 
@@ -1497,6 +1474,7 @@ class InlineRemoteControllerView(
             }
 
             fallbackActive = true
+            imageDisplayed = true
             fallbackCompositeFrameId = frame.frameId
             frameWidth = oriented.width
             frameHeight = oriented.height
@@ -1526,10 +1504,15 @@ class InlineRemoteControllerView(
                 previousScratch.recycle()
             }
 
-            status.visibility = View.VISIBLE
-            status.text =
-                "Compatibility video active • primary stream recovering…"
+            showVideoStatus("Compatibility video active • primary stream recovering…")
         }
+    }
+
+    // Recovery details remain in Stats. Never cover usable remote pixels with
+    // progress text; a centered placeholder is only needed before any image.
+    private fun showVideoStatus(message: String) {
+        status.text = message
+        status.visibility = if (imageDisplayed) View.GONE else View.VISIBLE
     }
 
     private fun requestRecoveryAnchor() {
@@ -1675,6 +1658,7 @@ class InlineRemoteControllerView(
             }
         fallbackCompositeFrameId = frame.frameId
         fallbackActive = true
+        imageDisplayed = true
         latestObservedFrameWidth = orientedWidth
         latestObservedFrameHeight = orientedHeight
         frameWidth = orientedWidth
@@ -1682,9 +1666,7 @@ class InlineRemoteControllerView(
         updateVideoViewport()
         fallbackImageView.visibility = View.VISIBLE
         textureView.alpha = 0f
-        status.visibility = View.VISIBLE
-        status.text =
-            "Adaptive recovery video • primary stream recovering…"
+        showVideoStatus("Adaptive recovery video • primary stream recovering…")
 
     }
 

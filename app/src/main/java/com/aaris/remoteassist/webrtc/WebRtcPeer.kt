@@ -53,6 +53,8 @@ class WebRtcPeer(
     private val factory = WebRtcRuntime.factory(appContext)
     private val closed = AtomicBoolean(false)
     private val started = AtomicBoolean(false)
+    private val codecRepairAttempted = AtomicBoolean(false)
+    @Volatile private var latestOutboundCodec: String? = null
     private val initialIceRestartAttempted = AtomicBoolean(false)
     private val offerPreparationInFlight = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
@@ -144,7 +146,10 @@ class WebRtcPeer(
                 if (closed.get()) return@getStats
                 VideoHealthSnapshot
                     .from(report, role)
-                    ?.let(listener::onVideoHealth)
+                    ?.let { snapshot ->
+                        if (role == PeerRole.HOST) latestOutboundCodec = snapshot.codec?.substringAfterLast('/')
+                        listener.onVideoHealth(snapshot)
+                    }
             }
 
             handler.postDelayed(
@@ -448,7 +453,10 @@ class WebRtcPeer(
                 peerConnection.createDataChannel(
                     FALLBACK_VIDEO_CHANNEL,
                     DataChannel.Init().apply {
-                        ordered = false
+                        // Delta B depends on A. Unordered delivery caused valid
+                        // updates to be rejected and repeatedly replaced by JPEG
+                        // anchors. Keep stream order, with bounded retransmission.
+                        ordered = true
                         maxRetransmits = 1
                     }
                 )
@@ -507,7 +515,7 @@ class WebRtcPeer(
             )
         }
         listener.onDiagnostic(
-            "Controller RECV_ONLY video transceiver ready • VP8 preferred"
+            "Controller RECV_ONLY video transceiver ready"
         )
     }
 
@@ -550,7 +558,7 @@ class WebRtcPeer(
             senderSide = true
         )
         listener.onDiagnostic(
-            "Host SEND_ONLY screen transceiver ready • VP8 preferred"
+            "Host SEND_ONLY screen transceiver ready"
         )
         applyInteractiveVideoPolicy(transceiver.sender)
     }
@@ -1540,66 +1548,43 @@ class WebRtcPeer(
         }
     }
 
-    private fun preferBaselineScreenCodec(
-        transceiver: RtpTransceiver,
-        senderSide: Boolean
-    ) {
+    private fun preferBaselineScreenCodec(transceiver: RtpTransceiver, senderSide: Boolean) {
         runCatching {
-            val capabilities =
-                if (senderSide) {
-                    factory.getRtpSenderCapabilities(
-                        MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO
-                    )
-                } else {
-                    factory.getRtpReceiverCapabilities(
-                        MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO
-                    )
-                }
-
-            val codecs = capabilities.codecs
+            val codecs = if (senderSide) factory.getRtpSenderCapabilities(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO).codecs
+                else factory.getRtpReceiverCapabilities(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO).codecs
             if (codecs.isEmpty()) return@runCatching
+            val preferred = WebRtcRuntime.preferredScreenCodec(appContext, senderSide)
+            transceiver.setCodecPreferences(ScreenCodecPolicy.order(codecs, preferred)).throwError()
+            listener.onDiagnostic("Screen codec preference=$preferred (device capabilities; negotiated fallback retained)")
+        }.onFailure { listener.onDiagnostic("Video codec preference unavailable (${it.javaClass.simpleName})") }
+    }
 
-            val vp8Payloads = codecs
-                .filter { it.name.equals("VP8", ignoreCase = true) }
-                .map { it.preferredPayloadType.toString() }
-                .toSet()
-
-            fun rank(codec: org.webrtc.RtpCapabilities.CodecCapability): Int {
-                val name = codec.name.uppercase()
-                if (name == "VP8") return 0
-
-                if (
-                    name == "RTX" &&
-                    codec.parameters["apt"] in vp8Payloads
-                ) {
-                    return 1
-                }
-
-                return when (name) {
-                    "RED", "ULPFEC", "FLEXFEC-03" -> 2
-                    "VP9" -> 3
-                    "H264" -> 4
-                    "AV1", "AV1X", "AV1F" -> 5
-                    "RTX" -> 6
-                    else -> 7
-                }
-            }
-
-            val ordered = codecs.withIndex()
-                .sortedWith(
-                    compareBy<IndexedValue<org.webrtc.RtpCapabilities.CodecCapability>>(
-                        { rank(it.value) },
-                        { it.index }
-                    )
-                )
-                .map { it.value }
-
-            transceiver.setCodecPreferences(ordered)
-        }.onFailure {
-            listener.onDiagnostic(
-                "Video codec preference fallback: " +
-                    (it.message ?: it.javaClass.simpleName)
-            )
+    /** One codec repair within the existing peer; no ICE/control/session teardown. */
+    fun recoverPrimaryVideoCodec(): Boolean {
+        if (closed.get() || role != PeerRole.HOST || codecRepairAttempted.get() ||
+            peerConnection.signalingState() != PeerConnection.SignalingState.STABLE) return false
+        val transceiver = localScreenTransceiver ?: return false
+        val current = latestOutboundCodec ?: WebRtcRuntime.preferredScreenCodec(appContext, true)
+        val alternate = if (current.equals("H264", true)) "VP8" else "H264"
+        val remote = peerConnection.remoteDescription?.description ?: return false
+        if (!ScreenCodecPolicy.remoteSupports(remote, alternate)) return false
+        val codecs = factory.getRtpSenderCapabilities(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO).codecs
+        val selected = ScreenCodecPolicy.order(codecs, alternate, exclusive = true)
+        if (selected.isEmpty() || !offerPreparationInFlight.compareAndSet(false, true)) return false
+        return try {
+            transceiver.setCodecPreferences(selected).throwError()
+            codecRepairAttempted.set(true)
+            listener.onDiagnostic("Primary video unavailable • negotiating supported $alternate without restarting control")
+            createOffer(onLocalDescriptionSet = { offerPreparationInFlight.set(false) }, onFailure = {
+                offerPreparationInFlight.set(false)
+                preferBaselineScreenCodec(transceiver, true)
+            })
+            true
+        } catch (error: Exception) {
+            offerPreparationInFlight.set(false)
+            preferBaselineScreenCodec(transceiver, true)
+            listener.onDiagnostic("Video codec repair unavailable (${error.javaClass.simpleName})")
+            false
         }
     }
 

@@ -30,6 +30,7 @@ class ControllerWebRtcSession(
         fun onRemoteVideoTrack(track: VideoTrack)
         fun onFallbackVideoFrame(frame: FallbackVideoFrame) = Unit
         fun onFallbackDeltaFrame(frame: FallbackDeltaFrame) = Unit
+        fun onPrimaryVideoRecoveryStarted() = Unit
         fun onCommandResult(sequence: Long, applied: Boolean)
         fun onDiagnostic(message: String) = Unit
         fun onRecoverableError(error: Throwable)
@@ -132,13 +133,15 @@ class ControllerWebRtcSession(
         if (closed.get()) return false
         val lease = leaseSecret ?: return false
 
-        return peer.sendControl(
+        val sent = peer.sendControl(
             ControlProtocol.encode(
                 ControlPacket.PrimaryVideoReady(
                     leaseSecret = lease
                 )
             )
         )
+        if (sent) inboundVideoLiveness.markPrimaryRecoveredConfirmed()
+        return sent
     }
 
     fun setInteractionActive(active: Boolean): Boolean {
@@ -162,6 +165,9 @@ class ControllerWebRtcSession(
 
     fun requestMediaRecovery(): Boolean {
         if (closed.get()) return false
+        // Re-arm the renderer acknowledgement before asking for recovery. Old
+        // rendered=true state must not discard all incoming fallback frames.
+        listener.onPrimaryVideoRecoveryStarted()
 
         val lease = leaseSecret
         if (
@@ -575,13 +581,9 @@ class ControllerWebRtcSession(
             }
 
             InboundVideoLivenessAction.CONFIRM_PRIMARY_RECOVERED -> {
-                if (confirmPrimaryVideoRendered()) {
-                    inboundVideoLiveness
-                        .markPrimaryRecoveredConfirmed()
-                    listener.onDiagnostic(
-                        "Primary video resumed • compatibility stream can stop"
-                    )
-                }
+                // RTP decoded counters are not proof that pixels reached EGL.
+                // Only the viewer's fresh rendered frame may stop fallback.
+                listener.onDiagnostic("Primary decoded frames resumed • waiting for display confirmation")
             }
         }
     }
