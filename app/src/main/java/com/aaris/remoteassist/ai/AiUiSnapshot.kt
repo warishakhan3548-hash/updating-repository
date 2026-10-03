@@ -31,16 +31,19 @@ data class AiActionScope(
     val y: Double,
     val toX: Double = x,
     val toY: Double = y,
-    val via: List<Pair<Double, Double>> = emptyList()
+    val via: List<Pair<Double, Double>> = emptyList(),
+    val additionalPaths: List<List<Pair<Double, Double>>> = emptyList()
 ) {
     fun contains(px: Double, py: Double): Boolean {
-        val path = buildList {
+        val primary = buildList {
             add(x to y)
             addAll(via)
             add(toX to toY)
         }
-        return path.zipWithNext().any { (from, to) ->
-            containsSegment(from.first, from.second, to.first, to.second, px, py)
+        return (listOf(primary) + additionalPaths).any { path ->
+            path.zipWithNext().any { (from, to) ->
+                containsSegment(from.first, from.second, to.first, to.second, px, py)
+            }
         }
     }
 
@@ -75,6 +78,17 @@ data class AiActionScope(
                 toY = points.last().second,
                 via = points.subList(1, points.lastIndex)
             )
+        }
+
+        /**
+         * Preserve independent pointer corridors. Connecting the end of one
+         * finger to the start of another would invent a fake path and cause
+         * unrelated animation between the fingers to invalidate the action.
+         */
+        fun fromPaths(paths: List<List<Pair<Double, Double>>>): AiActionScope {
+            require(paths.isNotEmpty() && paths.all { it.size >= 2 })
+            val first = fromPath(paths.first())
+            return first.copy(additionalPaths = paths.drop(1).map(List<Pair<Double, Double>>::toList))
         }
     }
 }
