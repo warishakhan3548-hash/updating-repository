@@ -590,12 +590,12 @@ class HostWebRtcSession(
             "Controller requested video recovery • enabling compatibility stream"
         )
         fallbackStreamer.enable()
+        fallbackStreamer.requestKeyframe()
 
         /*
-         * Keep the authenticated/control session alive. Refreshing the capture
-         * format nudges ScreenCapturerAndroid without asking for MediaProjection
-         * consent again. The fallback streamer consumes the same capture track,
-         * so Android 14's one-VirtualDisplay-per-projection rule is preserved.
+         * Keep authentication and the projection surface alive. Pulse the track
+         * and request its current texture; do not resize Android's display just
+         * to recover the transport. The next recovery update is a full anchor.
          */
         runCatching {
             capture.videoTrack.setEnabled(false)
@@ -608,6 +608,7 @@ class HostWebRtcSession(
                     runCatching {
                         capture.videoTrack.setEnabled(true)
                         capture.update(effectiveCaptureProfile(profile))
+                        capture.requestSnapshot()
                     }
                 }
             },
@@ -702,10 +703,8 @@ class HostWebRtcSession(
             )
         val effective = effectiveCaptureProfile(target)
 
-        // ScreenCapturerAndroid must actually produce the faster frames; merely
-        // increasing RtpSender.maxFramerate cannot make a 30fps source become
-        // 60fps. changeCaptureFormat is lightweight and keeps the same
-        // MediaProjection/VirtualDisplay consent session.
+        // Apply cadence in VideoSource. FPS/bandwidth changes keep the actual
+        // Android capture surface stable; only display geometry may resize it.
         capture.update(effective)
         peer.updateInteractiveVideoPolicy(
             maxBitrateBps = target.maxVideoBitrateBps,

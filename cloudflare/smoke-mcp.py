@@ -80,7 +80,22 @@ async def main():
             await ws.close()
             assert metadata(await future)["applied"] is None, "Disconnect outcome must be unknown"
             assert metadata(await asyncio.to_thread(call, p, "phone_action", uncertain))["replayed"] is True, "Never replay ambiguous action"
-        print("PASS: live provision, initialize, device isolation, image roundtrip, one action + image, busy, durable retry, idle wake, disconnect outcome")
+        assert metadata(await asyncio.to_thread(call, p, "phone_status"))["connectionState"] == "disconnected", "Disconnected status"
+        status, _ = await asyncio.to_thread(http, f"/v1/connectors/{p['id']}/register", {"clientToken": p['client']}, p['device'])
+        assert status == 200, "Reuse saved link"
+        async with websockets.connect(uri, additional_headers={"Authorization": f"Bearer {p['device']}"}, user_agent_header="AarisRemote-MCP-Smoke/1.0", open_timeout=12) as ws:
+            await ws.send(json.dumps({"type": "ready", "runId": "simulated-phone-2"}))
+            assert json.loads(await asyncio.wait_for(ws.recv(), 10))["type"] == "ack", "Resume ACK"
+            status, _ = await asyncio.to_thread(http, f"/v1/connectors/{p['id']}/pause", {"runId": "simulated-phone-1"}, p['device'])
+            assert status == 200 and metadata(await asyncio.to_thread(call, p, "phone_status"))["online"], "Ignore old stop"
+            status, _ = await asyncio.to_thread(http, f"/v1/connectors/{p['id']}/pause", {"runId": "simulated-phone-2"}, p['device'])
+            assert status == 200, "Pause current run"
+        assert metadata(await asyncio.to_thread(call, p, "phone_status"))["connectionState"] == "stopped", "Stopped link stays authenticated"
+        async with websockets.connect(uri, additional_headers={"Authorization": f"Bearer {p['device']}"}, user_agent_header="AarisRemote-MCP-Smoke/1.0", open_timeout=12) as ws:
+            await ws.send(json.dumps({"type": "ready", "runId": "simulated-phone-3"}))
+            assert json.loads(await asyncio.wait_for(ws.recv(), 10))["type"] == "ack", "Same-link restart ACK"
+            assert metadata(await asyncio.to_thread(call, p, "phone_status"))["online"], "Same-link restart online"
+        print("PASS: live provision, initialize, device isolation, image roundtrip, one action + image, busy, durable retry, idle wake, disconnect outcome, same-link reconnect, stale stop isolation, pause and resume")
     finally:
         for phone in phones:
             status, _ = await asyncio.to_thread(http, f"/v1/connectors/{phone['id']}/revoke", {"clientToken": phone['client']}, phone['device'])

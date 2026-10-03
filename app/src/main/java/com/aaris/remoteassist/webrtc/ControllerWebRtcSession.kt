@@ -3,6 +3,8 @@ package com.aaris.remoteassist.webrtc
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import com.aaris.remoteassist.control.CommandLatencyTracker
+import android.os.SystemClock
 import com.aaris.remoteassist.control.ControlPacket
 import com.aaris.remoteassist.control.ControlPathPoint
 import com.aaris.remoteassist.control.ControlProtocol
@@ -39,6 +41,8 @@ class ControllerWebRtcSession(
     private val started = AtomicBoolean(false)
     private val screenReadyArmed = AtomicBoolean(false)
     private val sequence = AtomicLong(0L)
+    private val commandLatency = CommandLatencyTracker()
+    private var lastLatencyReportMs = 0L
     private val gestureStreamIds = AtomicLong(0L)
     private val handler = Handler(Looper.getMainLooper())
     private val transport = ControlTransportTracker()
@@ -184,6 +188,10 @@ class ControllerWebRtcSession(
         return peer.requestRemoteRecovery()
     }
 
+    private fun nextCommandSequence(): Long = sequence.incrementAndGet().also {
+        commandLatency.sent(it, SystemClock.elapsedRealtime())
+    }
+
     fun sendTap(
         nx: Float,
         ny: Float,
@@ -197,7 +205,7 @@ class ControllerWebRtcSession(
                 ControlPacket.Tap(
                     leaseSecret = lease,
                     generation = geometry.generation,
-                    sequence = sequence.incrementAndGet(),
+                    sequence = nextCommandSequence(),
                     nx = nx,
                     ny = ny
                 )
@@ -219,7 +227,7 @@ class ControllerWebRtcSession(
                 ControlPacket.LongPress(
                     leaseSecret = lease,
                     generation = geometry.generation,
-                    sequence = sequence.incrementAndGet(),
+                    sequence = nextCommandSequence(),
                     nx = nx,
                     ny = ny,
                     durationMs = durationMs
@@ -244,7 +252,7 @@ class ControllerWebRtcSession(
                 ControlPacket.Swipe(
                     leaseSecret = lease,
                     generation = geometry.generation,
-                    sequence = sequence.incrementAndGet(),
+                    sequence = nextCommandSequence(),
                     fromNx = fromNx,
                     fromNy = fromNy,
                     toNx = toNx,
@@ -277,7 +285,7 @@ class ControllerWebRtcSession(
                 ControlPacket.GesturePath(
                     leaseSecret = lease,
                     generation = geometry.generation,
-                    sequence = sequence.incrementAndGet(),
+                    sequence = nextCommandSequence(),
                     points = controlPoints,
                     durationMs = durationMs
                 )
@@ -316,7 +324,7 @@ class ControllerWebRtcSession(
             ControlPacket.GestureStream(
                 leaseSecret = lease,
                 generation = geometry.generation,
-                sequence = sequence.incrementAndGet(),
+                sequence = nextCommandSequence(),
                 streamId = streamId,
                 phase = phase,
                 points = controlPoints,
@@ -352,7 +360,7 @@ class ControllerWebRtcSession(
                 ControlPacket.TwoFinger(
                     leaseSecret = lease,
                     generation = geometry.generation,
-                    sequence = sequence.incrementAndGet(),
+                    sequence = nextCommandSequence(),
                     firstFromNx = firstFromNx,
                     firstFromNy = firstFromNy,
                     firstToNx = firstToNx,
@@ -376,7 +384,7 @@ class ControllerWebRtcSession(
                 ControlPacket.Back(
                     leaseSecret = lease,
                     generation = geometry.generation,
-                    sequence = sequence.incrementAndGet()
+                    sequence = nextCommandSequence()
                 )
             )
         )
@@ -391,7 +399,7 @@ class ControllerWebRtcSession(
                 ControlPacket.Home(
                     leaseSecret = lease,
                     generation = geometry.generation,
-                    sequence = sequence.incrementAndGet()
+                    sequence = nextCommandSequence()
                 )
             )
         )
@@ -406,7 +414,7 @@ class ControllerWebRtcSession(
                 ControlPacket.Recents(
                     leaseSecret = lease,
                     generation = geometry.generation,
-                    sequence = sequence.incrementAndGet()
+                    sequence = nextCommandSequence()
                 )
             )
         )
@@ -423,7 +431,7 @@ class ControllerWebRtcSession(
                 ControlPacket.Text(
                     leaseSecret = lease,
                     generation = geometry.generation,
-                    sequence = sequence.incrementAndGet(),
+                    sequence = nextCommandSequence(),
                     text = safeText
                 )
             )
@@ -476,6 +484,7 @@ class ControllerWebRtcSession(
                     return
                 }
 
+                val resetLatency = leaseSecret != packet.leaseSecret || geometry?.generation != packet.generation
                 leaseSecret = packet.leaseSecret
                 interactionActive = false
                 inboundVideoLiveness.reset()
@@ -486,6 +495,7 @@ class ControllerWebRtcSession(
                     heightPx = packet.heightPx
                 )
                 this.geometry = geometry
+                if (resetLatency) commandLatency.reset()
 
                 handler.removeCallbacks(heartbeat)
                 handler.post(heartbeat)
@@ -500,11 +510,18 @@ class ControllerWebRtcSession(
                 )
             }
 
-            is ControlPacket.CommandResult ->
+            is ControlPacket.CommandResult -> {
+                val now = SystemClock.elapsedRealtime()
+                commandLatency.acknowledged(packet.sequence, packet.applied, now)
+                if (now - lastLatencyReportMs >= 1000) {
+                    lastLatencyReportMs = now
+                    listener.onDiagnostic(commandLatency.summary())
+                }
                 listener.onCommandResult(
                     sequence = packet.sequence,
                     applied = packet.applied
                 )
+            }
 
             else -> Unit
         }

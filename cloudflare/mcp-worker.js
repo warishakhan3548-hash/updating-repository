@@ -79,7 +79,7 @@ export default {
       const url = new URL(request.url);
       if (!validOrigin(request, env)) return json({ error: 'INVALID_ORIGIN' }, 403);
       if (url.pathname === '/healthz') return json({ ok: true, service: 'aaris-phone-mcp', version: 1 });
-      const device = url.pathname.match(/^\/v1\/connectors\/([a-f0-9]{64})\/(register|socket|revoke)$/);
+      const device = url.pathname.match(/^\/v1\/connectors\/([a-f0-9]{64})\/(register|socket|pause|revoke)$/);
       const mcp = url.pathname.match(/^\/mcp\/([a-f0-9]{64})\/([a-f0-9]{64})$/);
       if (!device && !mcp) return json({ error: 'NOT_FOUND' }, 404);
       if (device?.[2] === 'register') {
@@ -117,15 +117,27 @@ export class AiDevice {
           this.cancelPending('CONNECTION_REPLACED');
           for (const ws of this.sockets()) ws.close(4001, 'Link rotated');
         }
-        this.config = { deviceHash, clientHash, revoked: false, expiresAt: Date.now() + 30 * 86400_000 };
+        const sameLink = this.config?.clientHash === clientHash && !this.config?.revoked;
+        this.config = { deviceHash, clientHash, revoked: false, expiresAt: Date.now() + 30 * 86400_000,
+          lastRunId: sameLink ? this.config.lastRunId : null,
+          connectionState: sameLink ? this.config.connectionState : 'setup_required' };
         await this.ctx.storage.put('config', this.config);
         await this.ctx.storage.setAlarm(this.config.expiresAt);
         return json({ ok: true, expiresAt: this.config.expiresAt });
       } finally { this.busy = false; }
     }
     if (!this.config) return json({ error: 'UNAUTHORIZED' }, 401);
-    if (path.endsWith('/socket') || path.endsWith('/revoke')) {
+    if (path.endsWith('/socket') || path.endsWith('/revoke') || path.endsWith('/pause')) {
       if (await hash(bearer(request)) !== this.config.deviceHash) return json({ error: 'UNAUTHORIZED' }, 401);
+      if (path.endsWith('/pause')) {
+        if (request.method !== 'POST') return json({ error: 'METHOD' }, 405);
+        const body = await readJson(request);
+        if (typeof body.runId !== 'string' || !body.runId.length || body.runId.length > 96) return json({ error: 'BAD_RUN' }, 400);
+        // An old service's delayed cleanup cannot stop a new capture session.
+        if (body.runId !== this.config.lastRunId) return json({ ok: true, ignored: true });
+        await this.pauseRun(body.runId);
+        return json({ ok: true });
+      }
       if (path.endsWith('/revoke')) {
         if (request.method !== 'POST') return json({ error: 'METHOD' }, 405);
         const body = await readJson(request);
@@ -162,7 +174,17 @@ export class AiDevice {
     if (method !== 'tools/call') return rpcError(id, -32601, 'Method not found');
     const name = params?.name, args = params?.arguments ?? {};
     if (!validateArguments(name, args)) return rpcError(id, -32602, 'Invalid tool or arguments');
-    if (name === 'phone_status') return rpc(id, toolResult({ online: Boolean(this.readySocket()), sharing: Boolean(this.readySocket()), transport: 'fresh-screenshot-over-persistent-websocket', realtimeVideo: false, expiresAt: this.config.expiresAt }));
+    if (name === 'phone_status') {
+      const ready = this.readySocket();
+      const state = ready ? 'sharing' : this.sockets().some(ws => !ws.deserializeAttachment()?.ready) ? 'connecting'
+        : this.config.connectionState === 'stopped' ? 'stopped' : this.config.lastRunId ? 'disconnected' : 'setup_required';
+      const next = ready ? 'Use phone_observe to see the phone.'
+        : state === 'setup_required' ? 'The link exists, but phone setup has not finished. Open Aaris Remote, tap Connect Phone with AI, enable Accessibility, and approve full-screen sharing. Wait for AI connected before returning here.'
+        : state === 'stopped' ? 'The owner stopped sharing. Open Aaris Remote and tap Connect Phone with AI to resume with this same link.'
+        : 'The phone connection is recovering. Wi-Fi internet is sufficient; a SIM recharge is not required. Check the AI status in Aaris Remote. If sharing has ended, tap Connect Phone with AI and approve screen sharing again.';
+      return rpc(id, toolResult({ online: Boolean(ready), sharing: Boolean(ready), connectionState: state, next,
+        transport: 'fresh-screenshot-over-persistent-websocket', realtimeVideo: false, expiresAt: this.config.expiresAt }));
+    }
     return rpc(id, toolResult(await this.callPhone(name, args)));
   }
   async callPhone(name, args) {
@@ -207,14 +229,34 @@ export class AiDevice {
     if (!p) return;
     this.pending = null; clearTimeout(p.timer); p.resolve(failure(error, null));
   }
+  async pauseRun(runId) {
+    this.config.connectionState = 'stopped';
+    for (const ws of this.sockets()) {
+      const a = ws.deserializeAttachment();
+      if (a?.runId !== runId) continue;
+      ws.serializeAttachment({ ...a, ready: false });
+      if (this.pending?.ws === ws) this.cancelPending('STOPPED');
+      ws.close(4003, 'Stopped on phone');
+    }
+    await this.ctx.storage.put('config', this.config);
+  }
   async webSocketMessage(ws, raw) {
+    if (ws.readyState !== 1) return;
     if (typeof raw !== 'string' || raw.length > 1_500_000) { ws.close(1009, 'Invalid packet'); this.cancelPending('OUTCOME_UNKNOWN'); return; }
     let message; try { message = JSON.parse(raw); } catch { ws.close(1003, 'Invalid JSON'); return; }
     if (this.config?.revoked) { ws.close(4003, 'Revoked'); return; }
     const a = ws.deserializeAttachment();
     if (!a) return;
     if (message.type === 'ready' && typeof message.runId === 'string' && message.runId.length <= 96) {
-      ws.serializeAttachment({ ready: true, runId: message.runId, lastSeen: Date.now() }); ws.send(JSON.stringify({ type: 'ack' }));
+      if (!message.runId.length) { ws.close(1008, 'Invalid run'); return; }
+      ws.serializeAttachment({ ready: true, runId: message.runId, lastSeen: Date.now() });
+      if (this.config.lastRunId !== message.runId || this.config.connectionState !== 'sharing') {
+        this.config.lastRunId = message.runId; this.config.connectionState = 'sharing';
+        await this.ctx.storage.put('config', this.config);
+      }
+      ws.send(JSON.stringify({ type: 'ack' }));
+    } else if (message.type === 'stopped' && a.runId === message.runId && this.config.lastRunId === message.runId) {
+      await this.pauseRun(message.runId);
     } else if (message.type === 'heartbeat') {
       ws.serializeAttachment({ ...a, lastSeen: Date.now() }); ws.send(JSON.stringify({ type: 'ack' }));
     } else if (message.type === 'result' && this.pending?.ws === ws && this.pending.requestId === message.requestId) {

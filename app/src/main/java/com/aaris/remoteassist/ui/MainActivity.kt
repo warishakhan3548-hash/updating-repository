@@ -56,6 +56,7 @@ import com.aaris.remoteassist.webrtc.ControllerConnectionService
 import java.io.Closeable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -74,6 +75,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var shareButton: Button
     private lateinit var aiButton: Button
     private lateinit var aiLink: TextView
+    private lateinit var aiStatus: TextView
+    private var aiCredential: com.aaris.remoteassist.ai.AiCredential? = null
     private var aiSetupPending = false
     private var aiProjectionPending = false
     private var aiSetupJob: Job? = null
@@ -82,7 +85,7 @@ class MainActivity : ComponentActivity() {
         runOnUiThread {
             if (::aiButton.isInitialized) {
                 aiButton.text = if (state.active) "Stop AI Control" else "Connect Phone with AI"
-                if (state.active || state.message != "AI control is off") status.text = state.message
+                if (state.active || state.message != "AI control is off") setAiStatus(state.message)
                 refreshIdleUi()
             }
         }
@@ -93,8 +96,8 @@ class MainActivity : ComponentActivity() {
             runCatching {
                 startForegroundService(Intent(this, AiConnectorService::class.java).setAction(AiConnectorService.ACTION_START)
                     .putExtra(AiConnectorService.EXTRA_RESULT, result.resultCode).putExtra(AiConnectorService.EXTRA_DATA, result.data))
-            }.onFailure { status.text = "Could not start AI sharing. Connect again." }
-        } else status.text = "AI sharing cancelled. Tap Connect Phone with AI to retry."
+            }.onFailure { setAiStatus("Could not start AI sharing. Connect again and allow full-screen sharing.") }
+        } else setAiStatus("Link saved, but sharing is off. Tap Connect Phone with AI and allow screen sharing.")
         refreshIdleUi()
     }
 
@@ -175,9 +178,15 @@ class MainActivity : ComponentActivity() {
         aiSetupPending = savedInstanceState?.getBoolean("aiSetupPending") ?: false
         aiProjectionPending = savedInstanceState?.getBoolean("aiProjectionPending") ?: false
         aiLinkRegistered = savedInstanceState?.getBoolean("aiLinkRegistered") ?: false
+        // A registration coroutine does not survive Activity recreation. Do
+        // not restore a disabled Connect button with no job able to finish it.
+        if (!aiLinkRegistered && !aiProjectionPending) aiSetupPending = false
         setContentView(ScrollView(this).apply { isFillViewport = true; addView(buildUi()) })
         AiConnectorRuntime.addListener(aiStateListener)
-        if (AiConnectorRuntime.state.active || aiLinkRegistered) showAiLink(false)
+        scope.launch {
+            aiCredential = withContext(Dispatchers.IO) { runCatching { AiConnectorStore(this@MainActivity).load() }.getOrNull() }
+            showAiLink(false)
+        }
         ConnectionFlightRecorder.addListener(
             hostDiagnosticListener
         )
@@ -2125,8 +2134,21 @@ class MainActivity : ComponentActivity() {
             visibility = View.GONE
             contentDescription = "Private AI connection link. Tap to copy."
             setOnClickListener { showAiLink(true) }
+            setOnLongClickListener {
+                if (AiConnectorRuntime.state.active || aiSetupPending) toast("Stop AI control before replacing its private link.")
+                else AlertDialog.Builder(this@MainActivity).setTitle("Replace private AI link?")
+                    .setMessage("The old link will stop working. Add the new link in your AI app's connector settings.")
+                    .setNegativeButton("Cancel", null).setPositiveButton("Replace link") { _, _ -> requestAiConnection(rotate = true) }.show()
+                true
+            }
         }
         root.addView(aiLink, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        aiStatus = TextView(this).apply {
+            text = "Enable Accessibility and screen sharing to connect. Wi-Fi internet is enough."
+            textSize = 12f
+            setTextColor(AarisUi.TEXT_SECONDARY)
+        }
+        root.addView(aiStatus, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         val statusCard = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -2318,26 +2340,32 @@ class MainActivity : ComponentActivity() {
         super.onSaveInstanceState(outState)
     }
 
-    private fun requestAiConnection() {
+    private fun setAiStatus(message: String) { status.text = message; aiStatus.text = message }
+
+    private fun requestAiConnection(rotate: Boolean = false) {
         if (AiConnectorRuntime.state.active) { AiConnectorService.stop(this); return }
         if (!isIdleForNewSession()) { toast("End the current remote session first."); return }
         connectivityBlockMessage()?.let { status.text = it; return }
         aiSetupPending = true; aiLinkRegistered = false
-        status.text = "Creating this phone's AI link…"; setButtonsEnabled(false)
+        setAiStatus("Preparing this phone's AI link…"); setButtonsEnabled(false)
         aiSetupJob = scope.launch {
             val backend = AiConnectorBackend()
             try {
-                val value = AiConnectorStore(this@MainActivity).rotateLink()
+                val value = withContext(Dispatchers.IO) {
+                    val store = AiConnectorStore(this@MainActivity)
+                    if (rotate) store.rotateLink() else store.getOrCreate()
+                }
                 backend.register(value)
+                aiCredential = value
                 aiLinkRegistered = true
                 showAiLink(true)
                 if (!PermissionGate.isAccessibilityEnabled(this@MainActivity)) {
-                    status.text = "Link copied. Turn on Aaris Remote Accessibility, then return."
+                    setAiStatus("Link copied • setup unfinished. Turn on Aaris Remote Accessibility, then return here.")
                     PermissionGate.openAccessibilitySettings(this@MainActivity)
                 } else continueAiSetup()
             } catch (error: Exception) {
                 aiSetupPending = false
-                status.text = error.message ?: "Could not create AI link. Try again."
+                setAiStatus("Could not prepare the AI link. Check Wi-Fi or mobile internet and try again.")
                 refreshIdleUi()
             } finally { backend.close() }
         }
@@ -2351,27 +2379,27 @@ class MainActivity : ComponentActivity() {
             while (!AssistAccessibilityService.isConnected() && SystemClock.elapsedRealtime() < deadline) delay(100)
             if (!aiSetupPending || aiProjectionPending || isFinishing) return@launch
             if (!AssistAccessibilityService.isConnected()) {
-                aiSetupPending = false; status.text = "Accessibility is still starting. Tap Connect Phone with AI again."; refreshIdleUi(); return@launch
+                aiSetupPending = false; setAiStatus("Accessibility is still starting. Tap Connect Phone with AI again."); refreshIdleUi(); return@launch
             }
             aiProjectionPending = true
-            status.text = "Link copied. Allow full-screen sharing to enable AI control."
+            setAiStatus("Link copied • allow full-screen sharing, then wait for AI connected before opening your AI app.")
             val manager = getSystemService(MediaProjectionManager::class.java)
             val intent = if (Build.VERSION.SDK_INT >= 34) manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay()) else manager.createScreenCaptureIntent()
             runCatching { aiScreenLauncher.launch(intent) }.onFailure {
-                aiSetupPending = false; aiProjectionPending = false; status.text = "Could not open screen permission. Try again."; refreshIdleUi()
+                aiSetupPending = false; aiProjectionPending = false; setAiStatus("Could not open screen permission. Try again."); refreshIdleUi()
             }
         }
     }
 
     private fun showAiLink(copy: Boolean) {
-        val value = runCatching { AiConnectorStore(this).load() }.getOrNull() ?: return
+        val value = aiCredential ?: return
         aiLink.visibility = View.VISIBLE
-        aiLink.text = "Private MCP link • tap to copy\n${value.link}\nAdd this in your AI app's MCP/connector settings."
+        aiLink.text = "Private MCP link • tap to copy • hold to replace\n${value.link}"
         if (copy) {
             val clip = ClipData.newPlainText("Aaris Phone MCP", value.link)
             clip.description.extras = android.os.PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE", true) }
             getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
-            toast("AI link copied")
+            toast(if (AiConnectorRuntime.state.online) "AI link copied • phone connected" else "AI link copied • finish screen sharing setup")
         }
     }
 

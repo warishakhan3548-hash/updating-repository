@@ -1,4 +1,4 @@
-# AI phone control (v1.9.0)
+# AI phone control (v1.9.1)
 
 Tap **Connect Phone with AI** below Connect/Share. The app registers a random,
 device-specific MCP link, copies it automatically, and displays it below the
@@ -8,8 +8,18 @@ settings**. Pasting it into an ordinary chat is not sufficient. The client must
 support Streamable HTTP MCP and image tool results. No AI API key is built into
 the phone or Worker; the connected cloud AI performs planning.
 
+Wait for **AI connected** before leaving for the AI app. "Link copied" only means
+registration succeeded; Accessibility and Android screen-sharing consent still
+have to complete. The AI status stays visible below the link. Wi-Fi internet is
+sufficient; neither a SIM recharge nor mobile data is required.
+
 The visible notification and movable **STOP • AI** button end control locally
-immediately. Connect again rotates the link: the old link stops working. Treat
+immediately. Connect again reuses the saved link, so the AI client does not need
+to be configured again. STOP closes the current phone session while the MCP
+status tool remains authenticated and reports `stopped`. A run-scoped server
+pause prevents delayed cleanup from an old service stopping a newer one. To
+invalidate a shared link, stop control, hold the link and choose **Replace link**;
+only then does the old URL stop working. Treat
 the link like a password. It is a 256-bit capability, separate from the device's
 credential; both are encrypted with Android Keystore. The Worker stores hashes.
 Links expire after 30 days; every capture session still requires Android consent.
@@ -17,7 +27,8 @@ There is no boot receiver, hidden capture, unattended restart or permission bypa
 
 ## Control contract
 
-- `phone_status`: online/sharing state; no command is queued for an offline phone.
+- `phone_status`: online/sharing state and a setup, connecting, stopped or
+  disconnected explanation; no command is queued for an offline phone.
 - `phone_observe({quality: "standard" | "detail"})`: fresh screenshot, full display
   geometry, compact UI hints, `screenVersion` and single-use `observationId`.
 - `phone_action`: exactly one tap, long press, swipe, type, back, home or recents.
@@ -49,7 +60,12 @@ reconnection. Neither can reset or overwrite the other's lease. Both enter the
 same RemoteCommand → CommandGate → Accessibility queue. Stop, lock-screen,
 sensitive-field, replay, queue and timeout protections apply to both modes.
 Reconnection uses bounded exponential backoff with jitter and heartbeat-renewed
-leases; actions are never replayed automatically after reconnection.
+leases. Default-network changes reconnect the socket promptly, using Android's
+chosen Wi-Fi/mobile route; late callbacks from obsolete sockets are ignored.
+Actions are never replayed automatically after reconnection. Keystore/native
+initialization runs off the UI thread, after foreground-service promotion, and
+startup errors leave a visible retry instruction. This is startup hardening,
+not proof of the exact cause of a reported device crash without its crash log.
 
 ## Images, realtime and resource limits
 
@@ -69,6 +85,33 @@ principles here are bounded buffering, fresh frames, separate input traffic and
 adapting to measured congestion. This release does not invent intermediate UI
 frames or claim one-millisecond end-to-end latency. Native capture FPS is now
 explicitly enforced by the video source, including on static-screen requests.
+
+### Recovery rendering and responsiveness fixes
+
+- Recovery compositing uses explicit pixel rectangles and density-free bitmaps.
+  A native-graphics regression reproduces the old float-position Canvas overload
+  expanding patches on 320/440/560 dpi surfaces. JPEG dimensions are checked before
+  decoding; mismatches request a fresh anchor instead of stretching an image.
+- The controller service now forwards delta frames to the viewer. Previously its
+  listener inherited a no-op callback, so updates between JPEG anchors were lost.
+  Decode and posted UI work are bounded; a missing base requests a new full frame.
+- The MediaProjection surface remains at its initial device-appropriate ceiling.
+  FPS/network tiers adapt downstream through VideoSource; only actual display
+  size/orientation changes resize capture. This avoids repeated VirtualDisplay
+  surface rebinding during touch bursts and congestion recovery. Static texture
+  requests receive monotonic sample timestamps so native FPS adaptation can pass
+  the recovery sample. Real-device rotation/vendor scaling still needs validation.
+- Controller touches get immediate local markers. They acknowledge local touch,
+  not successful host input. The remote dock's **Stats** view reports command ACK
+  p50/p95 on the controller's clock, cumulative average jitter/codec delay, dropped
+  frames, freezes and ICE candidate types where the SDK exposes them. ACK time is
+  explicitly not input-to-photon latency; no frame causality is fabricated.
+
+Hardware codecs, 60 fps interaction tiers, network adaptation and split
+input channels already exist. Predictive scroll, forced zero jitter buffering,
+thermal-headroom tuning and unverified codec/SDP switches are not enabled by this fix. The current native
+SDK's public RtpReceiver API has no playout-delay setter. These changes target
+observed defects rather than promising an unmeasured latency improvement.
 
 AI uses a live 8 fps capture source but only copies/encodes/uploads frames when
 requested. There is one pending snapshot, one in-flight tool operation and no

@@ -122,3 +122,53 @@ test('notifications, GET, unsupported versions and malformed requests have proto
   assert.equal((await f.obj.fetch(f.request(`/mcp/${id}/${clientToken}`, {}, null, { 'MCP-Protocol-Version': '1900-01-01' }))).status, 400);
   assert.equal((await f.obj.fetch(f.request(`/mcp/${id}/${clientToken}`, []))).status, 400);
 });
+
+test('status distinguishes unfinished setup from an active phone without requiring mobile data', async () => {
+  const f = await fixture();
+  const setup = await result(await f.call('phone_status'));
+  assert.equal(setup.online, false); assert.equal(setup.connectionState, 'setup_required');
+  assert.match(setup.next, /full-screen sharing/);
+  f.connect(); await f.obj.webSocketMessage(f.ws, JSON.stringify({ type: 'ready', runId: 'run-first' }));
+  assert.equal((await result(await f.call('phone_status'))).connectionState, 'sharing');
+  f.ws.a.lastSeen = Date.now() - 60_000;
+  const lost = await result(await f.call('phone_status'));
+  assert.equal(lost.online, false); assert.equal(lost.connectionState, 'disconnected');
+  assert.match(lost.next, /Wi-Fi internet is sufficient/);
+});
+
+test('re-registering the same saved link keeps its authentication and live socket', async () => {
+  const f = await fixture(); f.connect();
+  await f.obj.webSocketMessage(f.ws, JSON.stringify({ type: 'ready', runId: 'run-first' }));
+  const response = await f.obj.fetch(f.request(`/v1/connectors/${id}/register`, { clientToken }, deviceToken));
+  assert.equal(response.status, 200); assert.equal(f.ws.readyState, 1);
+  assert.equal((await result(await f.call('phone_status'))).online, true);
+  assert.equal(f.obj.config.lastRunId, 'run-first');
+});
+
+test('STOP cancels pending input, but status remains authenticated and the same link can resume', async () => {
+  const f = await fixture(); f.connect();
+  await f.obj.webSocketMessage(f.ws, JSON.stringify({ type: 'ready', runId: 'run-first' }));
+  const pending = f.call('phone_action', args);
+  while (!f.obj.pending) await new Promise(resolve => setImmediate(resolve));
+  await f.obj.webSocketMessage(f.ws, JSON.stringify({ type: 'stopped', runId: 'run-first' }));
+  assert.equal((await result(await pending)).error, 'STOPPED');
+  assert.equal(f.ws.readyState, 3);
+  const stopped = await result(await f.call('phone_status'));
+  assert.equal(stopped.connectionState, 'stopped'); assert.equal(stopped.sharing, false);
+  const asleep = await fixture(f.ctx.storage);
+  assert.equal((await result(await asleep.call('phone_status'))).connectionState, 'stopped');
+  asleep.connect(); await asleep.obj.webSocketMessage(asleep.ws, JSON.stringify({ type: 'ready', runId: 'run-second' }));
+  assert.equal((await result(await asleep.call('phone_status'))).online, true);
+  assert.equal((await result(await asleep.call('phone_action', args))).replayed, true);
+});
+
+test('delayed pause from an old service cannot stop the new service, and pause requires device auth', async () => {
+  const f = await fixture(); f.connect();
+  await f.obj.webSocketMessage(f.ws, JSON.stringify({ type: 'ready', runId: 'run-second' }));
+  const path = `/v1/connectors/${id}/pause`;
+  assert.equal((await f.obj.fetch(f.request(path, { runId: 'run-second' }, clientToken))).status, 401);
+  assert.equal((await f.obj.fetch(f.request(path, { runId: 'run-first' }, deviceToken))).status, 200);
+  assert.equal((await result(await f.call('phone_status'))).online, true);
+  assert.equal((await f.obj.fetch(f.request(path, { runId: 'run-second' }, deviceToken))).status, 200);
+  assert.equal((await result(await f.call('phone_status'))).connectionState, 'stopped');
+});

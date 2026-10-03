@@ -24,6 +24,7 @@ class ScreenCaptureTrack(
     private val eglBase = WebRtcRuntime.eglBase(appContext)
     private val closed = AtomicBoolean(false)
     private val snapshotSinks = CopyOnWriteArraySet<VideoSink>()
+    private val sampleClock = CaptureSampleClock()
 
     private val capturer = ScreenCapturerAndroid(
         grant.data,
@@ -53,6 +54,7 @@ class ScreenCaptureTrack(
 
     @Volatile
     private var started = false
+    private var sourceGeometry: StableCaptureGeometry? = null
 
     init {
         capturer.initialize(
@@ -63,7 +65,12 @@ class ScreenCaptureTrack(
                 override fun onCapturerStopped() { videoSource.capturerObserver.onCapturerStopped() }
                 override fun onFrameCaptured(frame: VideoFrame) {
                     snapshotSinks.forEach { sink -> runCatching { sink.onFrame(frame) } }
-                    videoSource.capturerObserver.onFrameCaptured(frame)
+                    // forceFrame reuses the SurfaceTexture timestamp on a static
+                    // screen. Give that new sample a monotonic timestamp so the
+                    // native FPS adapter does not discard recovery requests.
+                    val sampled = VideoFrame(frame.buffer, frame.rotation,
+                        sampleClock.timestamp(frame.timestampNs, System.nanoTime()))
+                    videoSource.capturerObserver.onFrameCaptured(sampled)
                 }
             }
         )
@@ -73,6 +80,7 @@ class ScreenCaptureTrack(
     fun start(profile: CaptureProfile) {
         check(!closed.get())
         if (started) return
+        sourceGeometry = StableCaptureGeometry(profile)
         videoSource.adaptOutputFormat(profile.captureWidthPx, profile.captureHeightPx, profile.fps)
 
         capturer.startCapture(
@@ -87,11 +95,14 @@ class ScreenCaptureTrack(
         if (closed.get() || !started) return
         videoSource.adaptOutputFormat(profile.captureWidthPx, profile.captureHeightPx, profile.fps)
 
-        capturer.changeCaptureFormat(
-            profile.captureWidthPx,
-            profile.captureHeightPx,
-            profile.fps
-        )
+        val source = sourceGeometry ?: return
+        // ScreenCapturerAndroid ignores FPS and recreates/resizes the virtual
+        // display even for unchanged dimensions. Rebinding on every touch or
+        // bitrate tier change can corrupt OEM mirroring scale. Adapt the video
+        // source instead; only actual display rotation/resize touches capture.
+        if (source.updateDisplay(profile)) {
+            capturer.changeCaptureFormat(source.width, source.height, profile.fps)
+        }
     }
 
     fun addSnapshotSink(sink: VideoSink) { snapshotSinks += sink }

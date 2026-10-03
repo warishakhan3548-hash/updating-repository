@@ -24,6 +24,10 @@ class AiConnectorBackend {
     suspend fun revoke(value: AiCredential) = withContext(Dispatchers.IO) {
         client.newCall(request(value, "revoke").post(JSONObject().put("clientToken", value.clientToken).toString().toRequestBody(JSON)).build()).execute().close()
     }
+    suspend fun pause(value: AiCredential, runId: String) = withContext(Dispatchers.IO) {
+        val body = JSONObject().put("runId", runId).toString()
+        client.newCall(request(value, "pause").post(body.toRequestBody(JSON)).build()).execute().close()
+    }
     fun connect(value: AiCredential, listener: WebSocketListener): WebSocket =
         client.newWebSocket(request(value, "socket").build(), listener)
     private fun request(value: AiCredential, action: String) = Request.Builder()
