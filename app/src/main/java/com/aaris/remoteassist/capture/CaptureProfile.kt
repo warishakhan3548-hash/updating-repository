@@ -44,14 +44,20 @@ data class CaptureProfile(
         private const val BALANCED_CAPTURE_LONG_SIDE = 1200
 
         /*
-         * 2160 is a deliberate middle ground for the default 4 GB-class path:
-         * it preserves substantially more glyph/detail information from modern
-         * 1080x2400-ish phones than the old 1920 ceiling, while still leaving
-         * meaningful encoder headroom below HIGH. Hardware-first WebRTC and the
-         * adaptive governor can still step down immediately on CPU pressure.
+         * STANDARD is the normal 4 GB-class path. A 2160 ceiling forced a
+         * 1080x2400 host to 972x2160 and made the controller upscale every
+         * frame again, so even a perfect network could never look fully native.
+         * 2400 keeps the dominant modern phone geometry pixel-for-pixel while
+         * the governor can still step down immediately when the encoder or path
+         * is genuinely constrained.
+         *
+         * HIGH stays distinct without violating the compatibility-video safety
+         * contract. That gives capable >=6 GB devices extra detail on QHD-class
+         * panels while keeping black-screen recovery valid for every tier.
          */
-        private const val STANDARD_CAPTURE_LONG_SIDE = 2160
-        private const val HIGH_CAPTURE_LONG_SIDE = 2400
+        private const val STANDARD_CAPTURE_LONG_SIDE = 2400
+        private const val HIGH_CAPTURE_LONG_SIDE =
+            CaptureVideoContract.MAX_FALLBACK_SAFE_LONG_SIDE_PX
 
         private const val LOW_FPS = 15
         private const val BALANCED_FPS = 24
@@ -60,14 +66,14 @@ data class CaptureProfile(
 
         /*
          * These are encoder ceilings, not forced send rates. WebRTC congestion
-         * control still chooses the real bitrate from current path capacity.
-         * Standard gets enough additional headroom to make the higher capture
-         * ceiling useful for text-heavy screens; constrained links remain
-         * protected by CaptureQualityGovernor and WebRTC congestion control.
+         * control still chooses the actual bitrate from current path capacity.
+         * STANDARD gets enough headroom for native 1080x2400 text/UI detail;
+         * constrained links remain protected by CaptureQualityGovernor and the
+         * sender's own congestion control.
          */
         private const val LOW_BITRATE_BPS = 1_200_000
         private const val BALANCED_BITRATE_BPS = 3_000_000
-        private const val STANDARD_BITRATE_BPS = 6_800_000
+        private const val STANDARD_BITRATE_BPS = 7_200_000
         private const val HIGH_BITRATE_BPS = 8_000_000
 
         private const val LOW_MEMORY_BYTES = 3L * 1024L * 1024L * 1024L
@@ -76,10 +82,6 @@ data class CaptureProfile(
         fun recommendedTier(context: Context): CaptureTier {
             val manager =
                 context.getSystemService(ActivityManager::class.java)
-            if (manager?.isLowRamDevice == true) {
-                return CaptureTier.LOW
-            }
-
             val memoryInfo = ActivityManager.MemoryInfo()
             val totalMemory =
                 runCatching {
@@ -87,10 +89,31 @@ data class CaptureProfile(
                     memoryInfo.totalMem
                 }.getOrDefault(0L)
 
+            return recommendedTierForDevice(
+                isLowRamDevice = manager?.isLowRamDevice == true,
+                totalMemoryBytes = totalMemory
+            )
+        }
+
+        internal fun recommendedTierForDevice(
+            isLowRamDevice: Boolean,
+            totalMemoryBytes: Long
+        ): CaptureTier {
+            if (isLowRamDevice) {
+                return CaptureTier.LOW
+            }
+
             return when {
-                totalMemory in 1L..LOW_MEMORY_BYTES ->
+                /*
+                 * Unknown hardware must fail safe rather than accidentally
+                 * assuming a STANDARD encoder budget. BALANCED still delivers
+                 * usable 24 fps video while protecting unusual/vendor devices.
+                 */
+                totalMemoryBytes <= 0L ->
+                    CaptureTier.BALANCED
+                totalMemoryBytes <= LOW_MEMORY_BYTES ->
                     CaptureTier.LOW
-                totalMemory >= HIGH_MEMORY_BYTES ->
+                totalMemoryBytes >= HIGH_MEMORY_BYTES ->
                     CaptureTier.HIGH
                 else ->
                     CaptureTier.STANDARD

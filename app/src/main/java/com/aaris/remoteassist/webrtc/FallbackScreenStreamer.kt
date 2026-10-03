@@ -3,6 +3,7 @@ package com.aaris.remoteassist.webrtc
 import android.graphics.ImageFormat
 import android.graphics.Rect
 import android.graphics.YuvImage
+import com.aaris.remoteassist.capture.CaptureVideoContract
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.util.concurrent.Executors
@@ -121,34 +122,12 @@ class FallbackScreenStreamer(
             }
 
             val nv21 = toNv21(i420)
-            val output =
-                ByteArrayOutputStream(
-                    minOf(
-                        MAX_JPEG_ESTIMATE_BYTES,
-                        width * height / 2
-                    )
-                )
-
-            val encoded = YuvImage(
-                nv21,
-                ImageFormat.NV21,
-                width,
-                height,
-                null
-            ).compressToJpeg(
-                Rect(0, 0, width, height),
-                JPEG_QUALITY,
-                output
-            )
-            if (!encoded) return
-
-            val jpeg = output.toByteArray()
-            if (
-                jpeg.isEmpty() ||
-                jpeg.size > MAX_JPEG_BYTES
-            ) {
-                return
-            }
+            val jpeg =
+                compressWithinTransportBudget(
+                    nv21 = nv21,
+                    width = width,
+                    height = height
+                ) ?: return
 
             val id = frameSequence.incrementAndGet()
             val packets =
@@ -188,6 +167,58 @@ class FallbackScreenStreamer(
         } finally {
             i420.release()
         }
+    }
+
+    /**
+     * Compatibility video is a recovery lane, so a smaller fresh frame is more
+     * useful than a high-quality frame that cannot fit the DataChannel budget.
+     * Start at the established quality and only spend extra CPU on a retry when
+     * the encoded image is actually too large. The hard byte ceiling remains
+     * unchanged, preserving the backpressure contract in WebRtcPeer.
+     */
+    private fun compressWithinTransportBudget(
+        nv21: ByteArray,
+        width: Int,
+        height: Int
+    ): ByteArray? {
+        val image =
+            YuvImage(
+                nv21,
+                ImageFormat.NV21,
+                width,
+                height,
+                null
+            )
+        val rect = Rect(0, 0, width, height)
+        val initialCapacity =
+            minOf(
+                MAX_JPEG_ESTIMATE_BYTES,
+                width * height / 2
+            )
+
+        for (quality in JPEG_QUALITY_LADDER) {
+            val output =
+                ByteArrayOutputStream(initialCapacity)
+            val encoded =
+                image.compressToJpeg(
+                    rect,
+                    quality,
+                    output
+                )
+            if (!encoded) {
+                return null
+            }
+
+            val jpeg = output.toByteArray()
+            if (
+                jpeg.isNotEmpty() &&
+                jpeg.size <= MAX_JPEG_BYTES
+            ) {
+                return jpeg
+            }
+        }
+
+        return null
     }
 
     private fun toNv21(
@@ -271,13 +302,14 @@ class FallbackScreenStreamer(
 
     companion object {
         /*
-         * HIGH capture tops out at a 2400 px long side. Keep the fallback
-         * safety bound above that tier so a capable phone never loses its black
-         * screen recovery solely because the primary capture is high quality.
+         * Primary capture and compatibility recovery deliberately share this
+         * ceiling. Keeping one compiler-visible contract prevents a future
+         * quality increase from silently disabling black-screen recovery.
          */
-        private const val MAX_DIMENSION = 2560
+        private const val MAX_DIMENSION =
+            CaptureVideoContract.MAX_FALLBACK_SAFE_LONG_SIDE_PX
         private const val FRAME_INTERVAL_MS = 450L
-        private const val JPEG_QUALITY = 62
+        private val JPEG_QUALITY_LADDER = intArrayOf(62, 50, 38)
         private const val MAX_JPEG_BYTES = 720_000
         private const val MAX_JPEG_ESTIMATE_BYTES = 320_000
     }
