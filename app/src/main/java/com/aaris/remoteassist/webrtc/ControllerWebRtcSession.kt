@@ -590,23 +590,23 @@ class ControllerWebRtcSession(
         val recent = snapshot.recent
         if (lease != null && display != null && recent != null) {
             peer.sendControl(
-        bytes = ControlProtocol.encode(
-            ControlPacket.VideoFeedback(
-                lease,
-                display.generation,
-                feedbackSequence.incrementAndGet(),
-                recent.intervalMs,
-                recent.frames,
-                recent.processingMs?.toFloat() ?: -1f,
-                recent.jitterMs?.toFloat() ?: -1f,
-                recent.dropped ?: -1,
-                recent.freezes ?: -1
+                bytes = ControlProtocol.encode(
+                    ControlPacket.VideoFeedback(
+                        lease,
+                        display.generation,
+                        feedbackSequence.incrementAndGet(),
+                        recent.intervalMs,
+                        recent.frames,
+                        recent.processingMs?.toFloat() ?: -1f,
+                        recent.jitterMs?.toFloat() ?: -1f,
+                        recent.dropped ?: -1,
+                        recent.freezes ?: -1
+                    )
+                ),
+                // Decoder health is periodic freshness telemetry. Once the live lane
+                // exists, dropping an old sample beats head-of-line blocking input.
+                freshnessSensitive = true
             )
-        ),
-        // Decoder health is periodic freshness telemetry. Once the live lane
-        // exists, dropping an old sample beats head-of-line blocking input.
-        freshnessSensitive = true
-    )
         }
         val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastVideoLivenessMs < 3000) return
