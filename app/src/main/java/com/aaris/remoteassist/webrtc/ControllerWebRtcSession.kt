@@ -146,6 +146,24 @@ class ControllerWebRtcSession(
         return sent
     }
 
+    fun sendPresentationFeedback(window: PresentationCadenceWindow): Boolean {
+        if (closed.get()) return false
+        val lease = leaseSecret ?: return false
+        val display = geometry ?: return false
+        return peer.sendControl(
+            ControlProtocol.encode(
+                ControlPacket.PresentationFeedback(
+                    leaseSecret = lease,
+                    generation = display.generation,
+                    sequence = feedbackSequence.incrementAndGet(),
+                    intervalMs = window.intervalMs,
+                    renderedFrames = window.renderedFrames,
+                    maxGapMs = window.maxGapMs
+                )
+            )
+        )
+    }
+
     fun setInteractionActive(active: Boolean): Boolean {
         if (closed.get()) return false
         if (interactionActive == active) return true
@@ -196,8 +214,8 @@ class ControllerWebRtcSession(
         return peer.requestRemoteRecovery()
     }
 
-    private fun nextCommandSequence(): Long = sequence.incrementAndGet().also {
-        commandLatency.sent(it, SystemClock.elapsedRealtime())
+    private fun nextCommandSequence(trackAck: Boolean = true): Long = sequence.incrementAndGet().also {
+        if (trackAck) commandLatency.sent(it, SystemClock.elapsedRealtime())
     }
 
     fun sendTap(
@@ -332,7 +350,9 @@ class ControllerWebRtcSession(
             ControlPacket.GestureStream(
                 leaseSecret = lease,
                 generation = geometry.generation,
-                sequence = nextCommandSequence(),
+                sequence = nextCommandSequence(
+                    trackAck = phase != com.aaris.remoteassist.control.GestureStreamPhase.CONTINUE
+                ),
                 streamId = streamId,
                 phase = phase,
                 points = controlPoints,

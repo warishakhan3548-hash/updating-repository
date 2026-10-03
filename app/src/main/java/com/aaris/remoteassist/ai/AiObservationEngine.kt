@@ -107,11 +107,11 @@ class AiObservationEngine internal constructor(
         val geometry = display()
         if (geometry.displayWidthPx != width || geometry.displayHeightPx != height) return refused("CAPTURE_GEOMETRY_CHANGED")
         val action = args.getString("action")
-        val navigation = action in setOf("home", "back", "recents")
+        val navigation = action in setOf("home", "back", "recents", "open_app")
         val epoch = ledger.invalidationGeneration
         val ui = uiSnapshot() ?: return refused("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
         if (!navigation && (ui.sensitiveFocus || ui.packageName == ownPackage)) return refused("LOCAL_ONLY_SCREEN")
-        if (action != "home" && !sameWindow(observed, ui)) return refused("FOREGROUND_CHANGED")
+        if (action !in setOf("home", "open_app") && !sameWindow(observed, ui)) return refused("FOREGROUND_CHANGED")
         val scope = if (navigation) null else (actionScope(args, observed) ?: return refused("FOCUSED_FIELD_REQUIRED"))
         if (!navigation && !sameTarget(args, observed, ui)) return refused("TARGET_CHANGED")
         if (!navigation) {
@@ -132,7 +132,7 @@ class AiObservationEngine internal constructor(
             val currentDisplay = display()
             epoch == ledger.invalidationGeneration && now() <= deadline && current != null &&
                 currentDisplay.displayWidthPx == width && currentDisplay.displayHeightPx == height &&
-                (action == "home" || sameWindow(ui, current)) &&
+                (action in setOf("home", "open_app") || sameWindow(ui, current)) &&
                 (navigation || (!current.sensitiveFocus && current.packageName != ownPackage && sameTarget(args, ui, current)))
         }
         return if (check()) AiActionValidation(stillValid = check) else refused("TARGET_CHANGED")

@@ -30,6 +30,7 @@ import com.aaris.remoteassist.webrtc.FallbackDeltaFrame
 import com.aaris.remoteassist.webrtc.FallbackDeltaPatch
 import com.aaris.remoteassist.webrtc.FallbackVideoFrame
 import com.aaris.remoteassist.webrtc.RemoteGeometry
+import com.aaris.remoteassist.webrtc.PresentationCadenceTracker
 import com.aaris.remoteassist.webrtc.WebRtcRuntime
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -115,6 +116,7 @@ class InlineRemoteControllerView(
     private val gesturePoints =
         ArrayList<LocalTouchPoint>(MAX_LOCAL_GESTURE_POINTS)
     private val gestureStreamPacer = GestureStreamPacer()
+    private val presentationCadence = PresentationCadenceTracker()
 
     private var downX = 0f
     private var downY = 0f
@@ -330,6 +332,7 @@ class InlineRemoteControllerView(
                         track.setEnabled(true)
                         rawFrameSeen.set(false)
                         renderedFrameSeen.set(false)
+                        presentationCadence.reset()
                         frameWidth = 0
                         frameHeight = 0
                         latestObservedFrameWidth = 0
@@ -366,6 +369,7 @@ class InlineRemoteControllerView(
             override fun onPrimaryVideoRecoveryStarted() {
                 recoveryGeneration.incrementAndGet()
                 renderedFrameSeen.set(false)
+                presentationCadence.reset()
                 mainHandler.post {
                     if (attached) {
                         mainHandler.removeCallbacks(mediaWatchdog)
@@ -1178,6 +1182,19 @@ class InlineRemoteControllerView(
             // after every real EGL swap, so recovery can be confirmed repeatedly.
             renderer.addRenderListener {
                 val generation = recoveryGeneration.get()
+                presentationCadence
+                    .onPresented(android.os.SystemClock.elapsedRealtime())
+                    ?.let { window ->
+                        mainHandler.post {
+                            if (
+                                attached &&
+                                eglRenderer === renderer &&
+                                generation == recoveryGeneration.get()
+                            ) {
+                                session()?.sendPresentationFeedback(window)
+                            }
+                        }
+                    }
                 if (eglRenderer === renderer && renderedFrameSeen.compareAndSet(false, true)) {
                     activity.runOnUiThread {
                         if (attached && eglRenderer === renderer && generation == recoveryGeneration.get()) {

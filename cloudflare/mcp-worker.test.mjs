@@ -36,6 +36,9 @@ test('strict arguments reject nonfinite, missing and out of range coordinates, u
   assert.ok(validateArguments('phone_action', args));
   for (const bad of [{ ...args, x: NaN }, { ...args, x: 1.001 }, { ...args, y: undefined }, { ...args, x: '0.4' }, { ...args, shell: 'anything' }, { ...args, screenVersion: -1 }, { ...args, action: 'swipe' }, { ...args, action: 'type', text: 'a'.repeat(1001) }]) assert.equal(validateArguments('phone_action', bad), false);
   assert.ok(validateArguments('phone_action', { ...args, action: 'type', text: 'Hello' }));
+  assert.ok(validateArguments('phone_action', { ...args, action: 'open_app', app: 'ChatGPT' }));
+  assert.equal(validateArguments('phone_action', { ...args, action: 'open_app' }), false);
+  assert.equal(validateArguments('phone_action', { ...args, action: 'open_app', app: '   ' }), false);
   assert.equal(validateArguments('phone_observe', { quality: 'invalid' }), false);
 });
 test('MCP initialization negotiates a supported version and images are first-class content', async () => {
