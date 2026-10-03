@@ -43,6 +43,20 @@ object AiActionTranslator {
             )
             "swipe" -> ControlPacket.Swipe(secret, generation, sequence, unit("x"), unit("y"), unit("toX"), unit("toY"), duration)
             "drag" -> ControlPacket.GesturePath(secret, generation, sequence, dragPoints(), duration)
+            "two_finger" -> ControlPacket.TwoFinger(
+                leaseSecret = secret,
+                generation = generation,
+                sequence = sequence,
+                firstFromNx = unit("x"),
+                firstFromNy = unit("y"),
+                firstToNx = unit("toX"),
+                firstToNy = unit("toY"),
+                secondFromNx = unit("secondX"),
+                secondFromNy = unit("secondY"),
+                secondToNx = unit("secondToX"),
+                secondToNy = unit("secondToY"),
+                durationMs = duration
+            )
             "back" -> ControlPacket.Back(secret, generation, sequence)
             "home" -> ControlPacket.Home(secret, generation, sequence)
             "recents" -> ControlPacket.Recents(secret, generation, sequence)
