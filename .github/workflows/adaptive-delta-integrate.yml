@@ -25,750 +25,145 @@ jobs:
       - run: sdkmanager "platforms;android-36"
       - uses: gradle/actions/setup-gradle@v6
 
-      - name: Integrate adaptive delta transport
+      - name: Patch control capability protocol
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
-          def replace_once(path, old, new):
-              p = Path(path)
-              text = p.read_text()
-              if old not in text:
-                  raise SystemExit(f"missing patch anchor in {path}: {old[:80]!r}")
-              text = text.replace(old, new, 1)
-              p.write_text(text)
-
-          # Control protocol capability negotiation. Unknown type 18 is ignored
-          # by older hosts, so mixed-version sessions remain on legacy JPEG.
-          p = 'app/src/main/java/com/aaris/remoteassist/control/ControlProtocol.kt'
-          replace_once(p,
-          '''    data class InteractionState(
-              val leaseSecret: Long,
-              val active: Boolean
-          ) : ControlPacket
-
-          data object Disconnect : ControlPacket
-          ''',
-          '''    data class InteractionState(
-              val leaseSecret: Long,
-              val active: Boolean
-          ) : ControlPacket
-
-          data class FallbackDeltaReady(
-              val leaseSecret: Long
-          ) : ControlPacket
-
-          data object Disconnect : ControlPacket
-          ''')
-          replace_once(p,
-          '''    private const val GESTURE_STREAM: Byte = 17
-          ''',
-          '''    private const val GESTURE_STREAM: Byte = 17
-              private const val FALLBACK_DELTA_READY: Byte = 18
-          ''')
-          replace_once(p,
-          '''            is ControlPacket.VideoRecoveryRequest,
-              is ControlPacket.PrimaryVideoReady -> 2 + 8
-              is ControlPacket.InteractionState -> 2 + 8 + 1
-          ''',
-          '''            is ControlPacket.VideoRecoveryRequest,
-              is ControlPacket.PrimaryVideoReady,
-              is ControlPacket.FallbackDeltaReady -> 2 + 8
-              is ControlPacket.InteractionState -> 2 + 8 + 1
-          ''')
-          replace_once(p,
-          '''            is ControlPacket.InteractionState -> {
-                  buffer.putLong(packet.leaseSecret)
-                  buffer.put((if (packet.active) 1 else 0).toByte())
-              }
-
-              ControlPacket.Disconnect -> Unit
-          ''',
-          '''            is ControlPacket.InteractionState -> {
-                  buffer.putLong(packet.leaseSecret)
-                  buffer.put((if (packet.active) 1 else 0).toByte())
-              }
-
-              is ControlPacket.FallbackDeltaReady -> {
-                  buffer.putLong(packet.leaseSecret)
-              }
-
-              ControlPacket.Disconnect -> Unit
-          ''')
-          replace_once(p,
-          '''                INTERACTION_STATE -> {
-                  require(buffer.remaining() == 9)
-                  val leaseSecret = buffer.long
-                  val active = when (buffer.get().toInt()) {
-                      0 -> false
-                      1 -> true
-                      else -> error("Invalid interaction state")
-                  }
-                  ControlPacket.InteractionState(
-                      leaseSecret = leaseSecret,
-                      active = active
-                  )
-              }
-
-              DISCONNECT -> {
-          ''',
-          '''                INTERACTION_STATE -> {
-                  require(buffer.remaining() == 9)
-                  val leaseSecret = buffer.long
-                  val active = when (buffer.get().toInt()) {
-                      0 -> false
-                      1 -> true
-                      else -> error("Invalid interaction state")
-                  }
-                  ControlPacket.InteractionState(
-                      leaseSecret = leaseSecret,
-                      active = active
-                  )
-              }
-
-              FALLBACK_DELTA_READY -> {
-                  require(buffer.remaining() == 8)
-                  ControlPacket.FallbackDeltaReady(
-                      leaseSecret = buffer.long
-                  )
-              }
-
-              DISCONNECT -> {
-          ''')
-          replace_once(p,
-          '''            is ControlPacket.PrimaryVideoReady,
-              is ControlPacket.InteractionState,
-              ControlPacket.Disconnect -> null
-          ''',
-          '''            is ControlPacket.PrimaryVideoReady,
-              is ControlPacket.InteractionState,
-              is ControlPacket.FallbackDeltaReady,
-              ControlPacket.Disconnect -> null
-          ''')
-          replace_once(p,
-          '''        is ControlPacket.InteractionState ->
-              INTERACTION_STATE
-          ControlPacket.Disconnect -> DISCONNECT
-          ''',
-          '''        is ControlPacket.InteractionState ->
-              INTERACTION_STATE
-          is ControlPacket.FallbackDeltaReady ->
-              FALLBACK_DELTA_READY
-          ControlPacket.Disconnect -> DISCONNECT
-          ''')
-
-          # Controller advertises v2 delta support only after authenticated HELLO.
-          p = 'app/src/main/java/com/aaris/remoteassist/webrtc/ControllerWebRtcSession.kt'
-          replace_once(p,
-          '''        fun onFallbackVideoFrame(frame: FallbackVideoFrame) = Unit
-              fun onCommandResult(sequence: Long, applied: Boolean)
-          ''',
-          '''        fun onFallbackVideoFrame(frame: FallbackVideoFrame) = Unit
-              fun onFallbackDeltaFrame(frame: FallbackDeltaFrame) = Unit
-              fun onCommandResult(sequence: Long, applied: Boolean)
-          ''')
-          replace_once(p,
-          '''                listener.onLive(geometry)
-              }
-          ''',
-          '''                listener.onLive(geometry)
-                  peer.sendControl(
-                      ControlProtocol.encode(
-                          ControlPacket.FallbackDeltaReady(
-                              leaseSecret = packet.leaseSecret
-                          )
-                      )
-                  )
-              }
-          ''')
-          replace_once(p,
-          '''    override fun onFallbackVideoFrame(
-              frame: FallbackVideoFrame
-          ) {
-              listener.onFallbackVideoFrame(frame)
-          }
-
-          override fun onVideoHealth(
-          ''',
-          '''    override fun onFallbackVideoFrame(
-              frame: FallbackVideoFrame
-          ) {
-              listener.onFallbackVideoFrame(frame)
-          }
-
-          override fun onFallbackDeltaFrame(
-              frame: FallbackDeltaFrame
-          ) {
-              listener.onFallbackDeltaFrame(frame)
-          }
-
-          override fun onVideoHealth(
-          ''')
-
-          # Host enables deltas only after capability proof and forwards touch
-          # activity to the adaptive fallback cadence.
-          p = 'app/src/main/java/com/aaris/remoteassist/webrtc/HostWebRtcSession.kt'
-          replace_once(p,
-          '''        if (!closed.get() && interactionActive) {
-                  interactionActive = false
-                  applyVideoPolicy(profile)
-          ''',
-          '''        if (!closed.get() && interactionActive) {
-                  interactionActive = false
-                  fallbackStreamer.setInteractionActive(false)
-                  applyVideoPolicy(profile)
-          ''')
-          replace_once(p,
-          '''            is ControlPacket.InteractionState -> {
-                  val currentLease = lease ?: return
-                  if (
-                      packet.leaseSecret !=
-                      currentLease.leaseSecret
-                  ) {
-                      return
-                  }
-                  updateInteractionPriority(packet.active)
-              }
-
-              is ControlPacket.CommandResult,
-          ''',
-          '''            is ControlPacket.InteractionState -> {
-                  val currentLease = lease ?: return
-                  if (
-                      packet.leaseSecret !=
-                      currentLease.leaseSecret
-                  ) {
-                      return
-                  }
-                  updateInteractionPriority(packet.active)
-              }
-
-              is ControlPacket.FallbackDeltaReady -> {
-                  val currentLease = lease ?: return
-                  if (
-                      packet.leaseSecret !=
-                      currentLease.leaseSecret
-                  ) {
-                      return
-                  }
-                  fallbackStreamer.setDeltaCapable(true)
-                  listener.onDiagnostic(
-                      "Controller supports adaptive delta recovery transport"
-                  )
-              }
-
-              is ControlPacket.CommandResult,
-          ''')
-          replace_once(p,
-          '''    private fun updateInteractionPriority(active: Boolean) {
-              displayHandler.removeCallbacks(interactionPriorityTimeout)
-
-              if (interactionActive != active) {
-          ''',
-          '''    private fun updateInteractionPriority(active: Boolean) {
-              displayHandler.removeCallbacks(interactionPriorityTimeout)
-              fallbackStreamer.setInteractionActive(active)
-
-              if (interactionActive != active) {
-          ''')
-
-          # WebRTC fallback lane: one retransmission helps weak networks while
-          # unordered delivery preserves freshness. Delta packets get a much
-          # smaller backlog budget than full compatibility keyframes.
-          p = 'app/src/main/java/com/aaris/remoteassist/webrtc/WebRtcPeer.kt'
-          replace_once(p,
-          '''import java.nio.ByteBuffer
-          ''',
-          '''import java.nio.ByteBuffer
-          import java.nio.ByteOrder
-          ''')
-          replace_once(p,
-          '''        fun onFallbackVideoFrame(frame: FallbackVideoFrame) = Unit
-              fun onRemoteMediaRecoveryRequested() = Unit
-          ''',
-          '''        fun onFallbackVideoFrame(frame: FallbackVideoFrame) = Unit
-              fun onFallbackDeltaFrame(frame: FallbackDeltaFrame) = Unit
-              fun onRemoteMediaRecoveryRequested() = Unit
-          ''')
-          replace_once(p,
-          '''    private val fallbackReassembler =
-              FallbackVideoProtocol.Reassembler()
-          ''',
-          '''    private val fallbackReassembler =
-              FallbackVideoProtocol.Reassembler()
-              private val fallbackDeltaReassembler =
-              FallbackDeltaProtocol.Reassembler()
-          ''')
-          replace_once(p,
-          '''                    DataChannel.Init().apply {
-                          ordered = false
-                          maxRetransmits = 0
-                      }
-                  )
-              )
-              check(
-          ''',
-          '''                    DataChannel.Init().apply {
-                          ordered = false
-                          maxRetransmits = 1
-                      }
-                  )
-              )
-              check(
-          ''')
-          replace_once(p,
-          '''        if (
-              channel.bufferedAmount() >
-              MAX_FALLBACK_BUFFERED_BYTES
-          ) {
-              return false
-          }
-
-          return sendBinary(channel, bytes)
-          ''',
-          '''        val bufferedLimit =
-              if (isDeltaFallbackPacket(bytes)) {
-                  MAX_FRESH_FALLBACK_BUFFERED_BYTES
-              } else {
-                  MAX_FALLBACK_BUFFERED_BYTES
-              }
-          if (channel.bufferedAmount() > bufferedLimit) {
-              return false
-          }
-
-          return sendBinary(channel, bytes)
-          ''')
-          replace_once(p,
-          '''        fallbackVideoChannel = null
-              fallbackReassembler.reset()
-
-              publishedRemoteVideoTrack = null
-          ''',
-          '''        fallbackVideoChannel = null
-              fallbackReassembler.reset()
-              fallbackDeltaReassembler.reset()
-
-              publishedRemoteVideoTrack = null
-          ''')
-          replace_once(p,
-          '''                    val bytes = ByteArray(size)
-                      source.get(bytes)
-
-                      fallbackReassembler
-          ''',
-          '''                    val bytes = ByteArray(size)
-                      source.get(bytes)
-
-                      fallbackDeltaReassembler
-                          .offer(bytes)
-                          ?.let { frame ->
-                              listener.onDiagnostic(
-                                  "Adaptive compatibility delta received • patches=" +
-                                      frame.patches.size
-                              )
-                              listener.onFallbackDeltaFrame(frame)
-                              return
-                          }
-
-                      fallbackReassembler
-          ''')
-          replace_once(p,
-          '''    private fun monotonicNowMs(): Long =
-              System.nanoTime() / 1_000_000L
-          ''',
-          '''    private fun isDeltaFallbackPacket(bytes: ByteArray): Boolean {
-              if (bytes.size < 4) return false
-              return ByteBuffer.wrap(bytes, 0, 4)
-                  .order(ByteOrder.BIG_ENDIAN)
-                  .int == FALLBACK_DELTA_MAGIC
-          }
-
-              private fun monotonicNowMs(): Long =
-              System.nanoTime() / 1_000_000L
-          ''')
-          replace_once(p,
-          '''        private const val MAX_FALLBACK_BUFFERED_BYTES = 900_000L
-              private const val CONTROL_CHANNEL = "control-v1"
-          ''',
-          '''        private const val MAX_FALLBACK_BUFFERED_BYTES = 900_000L
-              private const val MAX_FRESH_FALLBACK_BUFFERED_BYTES = 180_000L
-              private const val FALLBACK_DELTA_MAGIC = 0x41524432
-              private const val CONTROL_CHANNEL = "control-v1"
-          ''')
-
-          # Controller UI composites delta patches atomically on the UI thread.
-          p = 'app/src/main/java/com/aaris/remoteassist/ui/InlineRemoteControllerView.kt'
-          replace_once(p,
-          '''import android.graphics.BitmapFactory
-          import android.graphics.Color
-          ''',
-          '''import android.graphics.BitmapFactory
-          import android.graphics.Canvas
-          import android.graphics.Color
-          ''')
-          replace_once(p,
-          '''import com.aaris.remoteassist.webrtc.FallbackVideoFrame
-          import com.aaris.remoteassist.webrtc.RemoteGeometry
-          ''',
-          '''import com.aaris.remoteassist.webrtc.FallbackDeltaFrame
-          import com.aaris.remoteassist.webrtc.FallbackDeltaPatch
-          import com.aaris.remoteassist.webrtc.FallbackVideoFrame
-          import com.aaris.remoteassist.webrtc.RemoteGeometry
-          ''')
-          replace_once(p,
-          '''    private data class LocalTouchPoint(
-              val x: Float,
-              val y: Float,
-              val atMs: Long
-          )
-          ''',
-          '''    private data class LocalTouchPoint(
-              val x: Float,
-              val y: Float,
-              val atMs: Long
-          )
-
-              private data class DecodedDeltaPatch(
-              val x: Int,
-              val y: Int,
-              val bitmap: Bitmap
-          )
-          ''')
-          replace_once(p,
-          '''    private var fallbackBitmap: Bitmap? = null
-              private var mediaRecoveryAttempts = 0
-          ''',
-          '''    private var fallbackBitmap: Bitmap? = null
-              private var fallbackScratchBitmap: Bitmap? = null
-              @Volatile
-              private var fallbackCompositeFrameId = -1L
-              private var mediaRecoveryAttempts = 0
-          ''')
-          replace_once(p,
-          '''            override fun onFallbackVideoFrame(
-                  frame: FallbackVideoFrame
-              ) {
-                  decodeFallbackFrame(frame)
-              }
-
-              override fun onCommandResult(
-          ''',
-          '''            override fun onFallbackVideoFrame(
-                  frame: FallbackVideoFrame
-              ) {
-                  decodeFallbackFrame(frame)
-              }
-
-              override fun onFallbackDeltaFrame(
-                  frame: FallbackDeltaFrame
-              ) {
-                  decodeFallbackDeltaFrame(frame)
-              }
-
-              override fun onCommandResult(
-          ''')
-          replace_once(p,
-          '''            fallbackBitmap?.recycle()
-                  fallbackBitmap = null
-              }
-          ''',
-          '''            fallbackBitmap?.recycle()
-                  fallbackBitmap = null
-                  fallbackScratchBitmap?.recycle()
-                  fallbackScratchBitmap = null
-                  fallbackCompositeFrameId = -1L
-              }
-          ''')
-          # Same cleanup exists when primary rendering becomes healthy.
-          replace_once(p,
-          '''                                fallbackBitmap?.recycle()
-                                      fallbackBitmap = null
-                                      status.visibility = View.GONE
-          ''',
-          '''                                fallbackBitmap?.recycle()
-                                      fallbackBitmap = null
-                                      fallbackScratchBitmap?.recycle()
-                                      fallbackScratchBitmap = null
-                                      fallbackCompositeFrameId = -1L
-                                      status.visibility = View.GONE
-          ''')
-          # Prevent an older periodic keyframe from replacing a newer applied delta.
-          replace_once(p,
-          '''            fallbackActive = true
-              frameWidth = oriented.width
-          ''',
-          '''            if (frame.frameId <= fallbackCompositeFrameId) {
-                  oriented.recycle()
-                  return@runOnUiThread
-              }
-
-              fallbackActive = true
-              fallbackCompositeFrameId = frame.frameId
-              frameWidth = oriented.width
-          ''')
-          replace_once(p,
-          '''            val previous = fallbackBitmap
-              fallbackBitmap = oriented
-          ''',
-          '''            val previous = fallbackBitmap
-              fallbackBitmap = oriented
-              if (
-                  fallbackScratchBitmap != null &&
-                  (
-                      fallbackScratchBitmap?.width != oriented.width ||
-                      fallbackScratchBitmap?.height != oriented.height
-                  )
-              ) {
-                  fallbackScratchBitmap?.recycle()
-                  fallbackScratchBitmap = null
-              }
-          ''')
-
-          marker = '''    private fun addButton(
-          '''
-          text = Path(p).read_text()
-          if marker not in text:
-              raise SystemExit('missing InlineRemoteControllerView addButton marker')
-          delta_methods = r'''    private fun decodeFallbackDeltaFrame(
-              frame: FallbackDeltaFrame
-          ) {
-              if (
-                  !attached ||
-                  renderedFrameSeen.get() ||
-                  frame.frameId <= 0L
-              ) {
-                  return
-              }
-
-              runCatching {
-                  fallbackDecoder.execute {
-                      decodeFallbackDeltaFrameNow(frame)
-                  }
-              }
-          }
-
-              private fun decodeFallbackDeltaFrameNow(
-              frame: FallbackDeltaFrame
-          ) {
-              if (
-                  renderedFrameSeen.get() ||
-                  frame.baseFrameId != fallbackCompositeFrameId
-              ) {
-                  return
-              }
-
-              val decoded = ArrayList<DecodedDeltaPatch>(frame.patches.size)
-              for (patch in frame.patches) {
-                  val item = decodeOrientedDeltaPatch(frame, patch)
-                  if (item == null) {
-                      decoded.forEach { it.bitmap.recycle() }
-                      return
-                  }
-                  decoded += item
-              }
-
-              activity.runOnUiThread {
-                  if (
-                      !attached ||
-                      renderedFrameSeen.get() ||
-                      frame.baseFrameId != fallbackCompositeFrameId
-                  ) {
-                      decoded.forEach { it.bitmap.recycle() }
-                      return@runOnUiThread
-                  }
-
-                  val current = fallbackBitmap
-                  if (current == null || current.isRecycled) {
-                      decoded.forEach { it.bitmap.recycle() }
-                      return@runOnUiThread
-                  }
-
-                  val orientedWidth =
-                      if (frame.rotation == 90 || frame.rotation == 270) {
-                          frame.height
-                      } else {
-                          frame.width
-                      }
-                  val orientedHeight =
-                      if (frame.rotation == 90 || frame.rotation == 270) {
-                          frame.width
-                      } else {
-                          frame.height
-                      }
-                  if (
-                      current.width != orientedWidth ||
-                      current.height != orientedHeight
-                  ) {
-                      decoded.forEach { it.bitmap.recycle() }
-                      return@runOnUiThread
-                  }
-
-                  val (shiftX, shiftY) = orientedShift(
-                      frame.shiftX,
-                      frame.shiftY,
-                      frame.rotation
-                  )
-
-                  var target = current
-                  if (shiftX != 0 || shiftY != 0) {
-                      var scratch = fallbackScratchBitmap
-                      if (
-                          scratch == null ||
-                          scratch.isRecycled ||
-                          scratch.width != current.width ||
-                          scratch.height != current.height ||
-                          !scratch.isMutable
-                      ) {
-                          scratch?.takeIf { !it.isRecycled }?.recycle()
-                          scratch = Bitmap.createBitmap(
-                              current.width,
-                              current.height,
-                              Bitmap.Config.ARGB_8888
-                          )
-                      }
-                      scratch.eraseColor(Color.BLACK)
-                      Canvas(scratch).drawBitmap(
-                          current,
-                          shiftX.toFloat(),
-                          shiftY.toFloat(),
-                          null
-                      )
-                      target = scratch
-                  } else if (!target.isMutable) {
-                      val mutable =
-                          target.copy(Bitmap.Config.ARGB_8888, true)
-                      if (mutable == null) {
-                          decoded.forEach { it.bitmap.recycle() }
-                          return@runOnUiThread
-                      }
-                      target = mutable
-                  }
-
-                  val canvas = Canvas(target)
-                  decoded.forEach { patch ->
-                      canvas.drawBitmap(
-                          patch.bitmap,
-                          patch.x.toFloat(),
-                          patch.y.toFloat(),
-                          null
-                      )
-                  }
-
-                  if (target !== current) {
-                      val previousScratch = fallbackScratchBitmap
-                      fallbackBitmap = target
-                      fallbackScratchBitmap = current
-                      fallbackImageView.setImageBitmap(target)
-                      if (
-                          previousScratch != null &&
-                          previousScratch !== target &&
-                          previousScratch !== current &&
-                          !previousScratch.isRecycled
-                      ) {
-                          previousScratch.recycle()
-                      }
-                  } else {
-                      fallbackImageView.invalidate()
-                  }
-
-                  fallbackCompositeFrameId = frame.frameId
-                  fallbackActive = true
-                  latestObservedFrameWidth = orientedWidth
-                  latestObservedFrameHeight = orientedHeight
-                  frameWidth = orientedWidth
-                  frameHeight = orientedHeight
-                  updateVideoViewport()
-                  fallbackImageView.visibility = View.VISIBLE
-                  textureView.alpha = 0f
-                  status.visibility = View.VISIBLE
-                  status.text =
-                      "Adaptive recovery video • primary stream recovering…"
-
-                  decoded.forEach { patch ->
-                      if (!patch.bitmap.isRecycled) {
-                          patch.bitmap.recycle()
-                      }
-                  }
-              }
-          }
-
-              private fun decodeOrientedDeltaPatch(
-              frame: FallbackDeltaFrame,
-              patch: FallbackDeltaPatch
-          ): DecodedDeltaPatch? {
-              val decoded = BitmapFactory.decodeByteArray(
-                  patch.jpeg,
-                  0,
-                  patch.jpeg.size
-              ) ?: return null
-
-              val oriented =
-                  if (frame.rotation == 0) {
-                      decoded
-                  } else {
-                      runCatching {
-                          val matrix = Matrix().apply {
-                              postRotate(frame.rotation.toFloat())
-                          }
-                          Bitmap.createBitmap(
-                              decoded,
-                              0,
-                              0,
-                              decoded.width,
-                              decoded.height,
-                              matrix,
-                              true
-                          )
-                      }.getOrNull()?.also {
-                          if (it !== decoded) decoded.recycle()
-                      } ?: decoded
-                  }
-
-              val coordinates =
-                  when (frame.rotation) {
-                      90 ->
-                          (frame.height - patch.y - patch.height) to patch.x
-                      180 ->
-                          (frame.width - patch.x - patch.width) to
-                              (frame.height - patch.y - patch.height)
-                      270 ->
-                          patch.y to
-                              (frame.width - patch.x - patch.width)
-                      else -> patch.x to patch.y
-                  }
-
-              return DecodedDeltaPatch(
-                  x = coordinates.first,
-                  y = coordinates.second,
-                  bitmap = oriented
-              )
-          }
-
-              private fun orientedShift(
-              shiftX: Int,
-              shiftY: Int,
-              rotation: Int
-          ): Pair<Int, Int> =
-              when (rotation) {
-                  90 -> -shiftY to shiftX
-                  180 -> -shiftX to -shiftY
-                  270 -> shiftY to -shiftX
-                  else -> shiftX to shiftY
-              }
-
-          '''
-          Path(p).write_text(text.replace(marker, delta_methods + marker, 1))
-
-          # Version bump.
-          p = 'app/build.gradle.kts'
-          replace_once(p, 'versionCode = 86', 'versionCode = 87')
-          replace_once(p, 'versionName = "1.8.38"', 'versionName = "1.8.39"')
+          p = Path('app/src/main/java/com/aaris/remoteassist/control/ControlProtocol.kt')
+          s = p.read_text()
+          def r(old, new):
+              global s
+              if old not in s: raise SystemExit('ControlProtocol anchor missing: '+repr(old[:80]))
+              s = s.replace(old, new, 1)
+          r('''    data class InteractionState(\n        val leaseSecret: Long,\n        val active: Boolean\n    ) : ControlPacket\n\n    data object Disconnect : ControlPacket\n''', '''    data class InteractionState(\n        val leaseSecret: Long,\n        val active: Boolean\n    ) : ControlPacket\n\n    data class FallbackDeltaReady(\n        val leaseSecret: Long\n    ) : ControlPacket\n\n    data object Disconnect : ControlPacket\n''')
+          r('''    private const val GESTURE_STREAM: Byte = 17\n''', '''    private const val GESTURE_STREAM: Byte = 17\n    private const val FALLBACK_DELTA_READY: Byte = 18\n''')
+          r('''            is ControlPacket.VideoRecoveryRequest,\n            is ControlPacket.PrimaryVideoReady -> 2 + 8\n            is ControlPacket.InteractionState -> 2 + 8 + 1\n''', '''            is ControlPacket.VideoRecoveryRequest,\n            is ControlPacket.PrimaryVideoReady,\n            is ControlPacket.FallbackDeltaReady -> 2 + 8\n            is ControlPacket.InteractionState -> 2 + 8 + 1\n''')
+          r('''            is ControlPacket.InteractionState -> {\n                buffer.putLong(packet.leaseSecret)\n                buffer.put((if (packet.active) 1 else 0).toByte())\n            }\n\n            ControlPacket.Disconnect -> Unit\n''', '''            is ControlPacket.InteractionState -> {\n                buffer.putLong(packet.leaseSecret)\n                buffer.put((if (packet.active) 1 else 0).toByte())\n            }\n\n            is ControlPacket.FallbackDeltaReady -> {\n                buffer.putLong(packet.leaseSecret)\n            }\n\n            ControlPacket.Disconnect -> Unit\n''')
+          r('''                DISCONNECT -> {\n                    require(buffer.remaining() == 0)\n''', '''                FALLBACK_DELTA_READY -> {\n                    require(buffer.remaining() == 8)\n                    ControlPacket.FallbackDeltaReady(\n                        leaseSecret = buffer.long\n                    )\n                }\n\n                DISCONNECT -> {\n                    require(buffer.remaining() == 0)\n''')
+          r('''            is ControlPacket.PrimaryVideoReady,\n            is ControlPacket.InteractionState,\n            ControlPacket.Disconnect -> null\n''', '''            is ControlPacket.PrimaryVideoReady,\n            is ControlPacket.InteractionState,\n            is ControlPacket.FallbackDeltaReady,\n            ControlPacket.Disconnect -> null\n''')
+          r('''        is ControlPacket.InteractionState ->\n            INTERACTION_STATE\n        ControlPacket.Disconnect -> DISCONNECT\n''', '''        is ControlPacket.InteractionState ->\n            INTERACTION_STATE\n        is ControlPacket.FallbackDeltaReady ->\n            FALLBACK_DELTA_READY\n        ControlPacket.Disconnect -> DISCONNECT\n''')
+          p.write_text(s)
           PY
 
-      - name: Add capability regression test
+      - name: Patch controller capability advertisement
         shell: bash
         run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/com/aaris/remoteassist/webrtc/ControllerWebRtcSession.kt')
+          s = p.read_text()
+          def r(old,new):
+              global s
+              if old not in s: raise SystemExit('Controller anchor missing: '+repr(old[:80]))
+              s=s.replace(old,new,1)
+          r('''        fun onFallbackVideoFrame(frame: FallbackVideoFrame) = Unit\n        fun onCommandResult(sequence: Long, applied: Boolean)\n''','''        fun onFallbackVideoFrame(frame: FallbackVideoFrame) = Unit\n        fun onFallbackDeltaFrame(frame: FallbackDeltaFrame) = Unit\n        fun onCommandResult(sequence: Long, applied: Boolean)\n''')
+          r('''                listener.onLive(geometry)\n            }\n\n            is ControlPacket.CommandResult ->\n''','''                listener.onLive(geometry)\n                peer.sendControl(\n                    ControlProtocol.encode(\n                        ControlPacket.FallbackDeltaReady(\n                            leaseSecret = packet.leaseSecret\n                        )\n                    )\n                )\n            }\n\n            is ControlPacket.CommandResult ->\n''')
+          r('''    override fun onFallbackVideoFrame(\n        frame: FallbackVideoFrame\n    ) {\n        listener.onFallbackVideoFrame(frame)\n    }\n\n    override fun onVideoHealth(\n''','''    override fun onFallbackVideoFrame(\n        frame: FallbackVideoFrame\n    ) {\n        listener.onFallbackVideoFrame(frame)\n    }\n\n    override fun onFallbackDeltaFrame(\n        frame: FallbackDeltaFrame\n    ) {\n        listener.onFallbackDeltaFrame(frame)\n    }\n\n    override fun onVideoHealth(\n''')
+          p.write_text(s)
+          PY
+
+      - name: Patch host adaptive recovery policy
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app/src/main/java/com/aaris/remoteassist/webrtc/HostWebRtcSession.kt')
+          s=p.read_text()
+          def r(old,new):
+              global s
+              if old not in s: raise SystemExit('Host anchor missing: '+repr(old[:80]))
+              s=s.replace(old,new,1)
+          r('''        if (!closed.get() && interactionActive) {\n            interactionActive = false\n            applyVideoPolicy(profile)\n''','''        if (!closed.get() && interactionActive) {\n            interactionActive = false\n            fallbackStreamer.setInteractionActive(false)\n            applyVideoPolicy(profile)\n''')
+          r('''            is ControlPacket.InteractionState -> {\n                val currentLease = lease ?: return\n                if (\n                    packet.leaseSecret !=\n                    currentLease.leaseSecret\n                ) {\n                    return\n                }\n                updateInteractionPriority(packet.active)\n            }\n\n            is ControlPacket.CommandResult,\n''','''            is ControlPacket.InteractionState -> {\n                val currentLease = lease ?: return\n                if (\n                    packet.leaseSecret !=\n                    currentLease.leaseSecret\n                ) {\n                    return\n                }\n                updateInteractionPriority(packet.active)\n            }\n\n            is ControlPacket.FallbackDeltaReady -> {\n                val currentLease = lease ?: return\n                if (\n                    packet.leaseSecret !=\n                    currentLease.leaseSecret\n                ) {\n                    return\n                }\n                fallbackStreamer.setDeltaCapable(true)\n                listener.onDiagnostic(\n                    "Controller supports adaptive delta recovery transport"\n                )\n            }\n\n            is ControlPacket.CommandResult,\n''')
+          r('''    private fun updateInteractionPriority(active: Boolean) {\n        displayHandler.removeCallbacks(interactionPriorityTimeout)\n\n        if (interactionActive != active) {\n''','''    private fun updateInteractionPriority(active: Boolean) {\n        displayHandler.removeCallbacks(interactionPriorityTimeout)\n        fallbackStreamer.setInteractionActive(active)\n\n        if (interactionActive != active) {\n''')
+          p.write_text(s)
+          PY
+
+      - name: Patch fallback WebRTC transport
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app/src/main/java/com/aaris/remoteassist/webrtc/WebRtcPeer.kt')
+          s=p.read_text()
+          def r(old,new):
+              global s
+              if old not in s: raise SystemExit('WebRtcPeer anchor missing: '+repr(old[:80]))
+              s=s.replace(old,new,1)
+          r('''import java.nio.ByteBuffer\n''','''import java.nio.ByteBuffer\nimport java.nio.ByteOrder\n''')
+          r('''        fun onFallbackVideoFrame(frame: FallbackVideoFrame) = Unit\n        fun onRemoteMediaRecoveryRequested() = Unit\n''','''        fun onFallbackVideoFrame(frame: FallbackVideoFrame) = Unit\n        fun onFallbackDeltaFrame(frame: FallbackDeltaFrame) = Unit\n        fun onRemoteMediaRecoveryRequested() = Unit\n''')
+          r('''    private val fallbackReassembler =\n        FallbackVideoProtocol.Reassembler()\n''','''    private val fallbackReassembler =\n        FallbackVideoProtocol.Reassembler()\n    private val fallbackDeltaReassembler =\n        FallbackDeltaProtocol.Reassembler()\n''')
+          r('''                    DataChannel.Init().apply {\n                        ordered = false\n                        maxRetransmits = 0\n                    }\n                )\n            )\n            check(\n''','''                    DataChannel.Init().apply {\n                        ordered = false\n                        maxRetransmits = 1\n                    }\n                )\n            )\n            check(\n''')
+          r('''        if (\n            channel.bufferedAmount() >\n            MAX_FALLBACK_BUFFERED_BYTES\n        ) {\n            return false\n        }\n\n        return sendBinary(channel, bytes)\n''','''        val bufferedLimit =\n            if (isDeltaFallbackPacket(bytes)) {\n                MAX_FRESH_FALLBACK_BUFFERED_BYTES\n            } else {\n                MAX_FALLBACK_BUFFERED_BYTES\n            }\n        if (channel.bufferedAmount() > bufferedLimit) {\n            return false\n        }\n\n        return sendBinary(channel, bytes)\n''')
+          r('''        fallbackVideoChannel?.let(::disposeDataChannel)\n        fallbackVideoChannel = null\n        fallbackReassembler.reset()\n''','''        fallbackVideoChannel?.let(::disposeDataChannel)\n        fallbackVideoChannel = null\n        fallbackReassembler.reset()\n        fallbackDeltaReassembler.reset()\n''')
+          r('''                    val bytes = ByteArray(size)\n                    source.get(bytes)\n\n                    fallbackReassembler\n''','''                    val bytes = ByteArray(size)\n                    source.get(bytes)\n\n                    fallbackDeltaReassembler\n                        .offer(bytes)\n                        ?.let { frame ->\n                            listener.onFallbackDeltaFrame(frame)\n                            return\n                        }\n\n                    fallbackReassembler\n''')
+          r('''    private fun monotonicNowMs(): Long =\n        System.nanoTime() / 1_000_000L\n''','''    private fun isDeltaFallbackPacket(bytes: ByteArray): Boolean {\n        if (bytes.size < 4) return false\n        return ByteBuffer.wrap(bytes, 0, 4)\n            .order(ByteOrder.BIG_ENDIAN)\n            .int == FALLBACK_DELTA_MAGIC\n    }\n\n    private fun monotonicNowMs(): Long =\n        System.nanoTime() / 1_000_000L\n''')
+          r('''        private const val MAX_FALLBACK_BUFFERED_BYTES = 900_000L\n        private const val CONTROL_CHANNEL = "control-v1"\n''','''        private const val MAX_FALLBACK_BUFFERED_BYTES = 900_000L\n        private const val MAX_FRESH_FALLBACK_BUFFERED_BYTES = 64_000L\n        private const val FALLBACK_DELTA_MAGIC = 0x41524432\n        private const val CONTROL_CHANNEL = "control-v1"\n''')
+          p.write_text(s)
+          PY
+
+      - name: Harden authoritative fallback reference model
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app/src/main/java/com/aaris/remoteassist/webrtc/FallbackScreenStreamer.kt')
+          s=p.read_text()
+          def r(old,new):
+              global s
+              if old not in s: raise SystemExit('Fallback streamer anchor missing: '+repr(old[:80]))
+              s=s.replace(old,new,1)
+          r('''        if (plan.regions.isEmpty() && !plan.forceKeyframe) {\n            // Tiny sub-threshold capture noise does not deserve network bytes.\n            // Keep the controller's authoritative base id while following the\n            // latest raw pixels for the next change comparison.\n            referenceFrame = reference.copy(luma = packedLuma)\n            return true\n        }\n''','''        if (plan.regions.isEmpty() && !plan.forceKeyframe) {\n            // Do not advance the host reference for pixels that were never sent.\n            // This keeps host/controller bases identical across many tiny changes.\n            return true\n        }\n''')
+          r('''                    luma = packedLuma\n                )\n            if (firstDeltaReported.compareAndSet(false, true)) {\n''','''                    luma = advanceReferenceLuma(\n                        previous = reference.luma,\n                        current = packedLuma,\n                        width = width,\n                        height = height,\n                        shiftY = plan.shiftY,\n                        regions = plan.regions\n                    )\n                )\n            if (firstDeltaReported.compareAndSet(false, true)) {\n''')
+          marker='''    private fun sendLegacyKeyframe(\n'''
+          if marker not in s: raise SystemExit('Fallback streamer method marker missing')
+          helper='''    private fun advanceReferenceLuma(\n        previous: ByteArray,\n        current: ByteArray,\n        width: Int,\n        height: Int,\n        shiftY: Int,\n        regions: List<DeltaRegion>\n    ): ByteArray {\n        val result = ByteArray(width * height)\n\n        for (y in 0 until height) {\n            val sourceY = y - shiftY\n            if (sourceY !in 0 until height) continue\n            previous.copyInto(\n                destination = result,\n                destinationOffset = y * width,\n                startIndex = sourceY * width,\n                endIndex = (sourceY + 1) * width\n            )\n        }\n\n        regions.forEach { region ->\n            for (y in region.y until region.y + region.height) {\n                val start = y * width + region.x\n                current.copyInto(\n                    destination = result,\n                    destinationOffset = start,\n                    startIndex = start,\n                    endIndex = start + region.width\n                )\n            }\n        }\n        return result\n    }\n\n'''
+          s=s.replace(marker,helper+marker,1)
+          r('''        private val ADAPTIVE_KEYFRAME_QUALITY_LADDER =\n            intArrayOf(46, 36, 28, 22)\n        private val PATCH_JPEG_QUALITY_LADDER =\n            intArrayOf(58, 48, 38, 30)\n\n        private const val MAX_LEGACY_JPEG_BYTES = 720_000\n        private const val MAX_ADAPTIVE_KEYFRAME_BYTES = 380_000\n        private const val MAX_PATCH_JPEG_BYTES = 150_000\n        private const val MAX_DELTA_JPEG_BYTES = 300_000\n''','''        private val ADAPTIVE_KEYFRAME_QUALITY_LADDER =\n            intArrayOf(44, 34, 26, 20, 16)\n        private val PATCH_JPEG_QUALITY_LADDER =\n            intArrayOf(56, 46, 36, 28, 22)\n\n        private const val MAX_LEGACY_JPEG_BYTES = 720_000\n        private const val MAX_ADAPTIVE_KEYFRAME_BYTES = 240_000\n        private const val MAX_PATCH_JPEG_BYTES = 56_000\n        private const val MAX_DELTA_JPEG_BYTES = 56_000\n''')
+          p.write_text(s)
+          PY
+
+      - name: Patch controller atomic delta compositor
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app/src/main/java/com/aaris/remoteassist/ui/InlineRemoteControllerView.kt')
+          s=p.read_text()
+          def r(old,new):
+              global s
+              if old not in s: raise SystemExit('Controller UI anchor missing: '+repr(old[:80]))
+              s=s.replace(old,new,1)
+          r('''import android.graphics.BitmapFactory\nimport android.graphics.Color\n''','''import android.graphics.BitmapFactory\nimport android.graphics.Canvas\nimport android.graphics.Color\n''')
+          r('''import com.aaris.remoteassist.webrtc.ControllerWebRtcSession\nimport com.aaris.remoteassist.webrtc.FallbackVideoFrame\n''','''import com.aaris.remoteassist.webrtc.ControllerWebRtcSession\nimport com.aaris.remoteassist.webrtc.FallbackDeltaFrame\nimport com.aaris.remoteassist.webrtc.FallbackDeltaPatch\nimport com.aaris.remoteassist.webrtc.FallbackVideoFrame\n''')
+          r('''    private data class LocalTouchPoint(\n        val x: Float,\n        val y: Float,\n        val atMs: Long\n    )\n''','''    private data class LocalTouchPoint(\n        val x: Float,\n        val y: Float,\n        val atMs: Long\n    )\n\n    private data class DecodedDeltaPatch(\n        val x: Int,\n        val y: Int,\n        val bitmap: Bitmap\n    )\n''')
+          r('''    private val fallbackDecodeScheduled = AtomicBoolean(false)\n    private var fallbackBitmap: Bitmap? = null\n    private var mediaRecoveryAttempts = 0\n''','''    private val fallbackDecodeScheduled = AtomicBoolean(false)\n    private var fallbackBitmap: Bitmap? = null\n    private var fallbackScratchBitmap: Bitmap? = null\n    @Volatile\n    private var fallbackCompositeFrameId = -1L\n    private var mediaRecoveryAttempts = 0\n''')
+          r('''            override fun onFallbackVideoFrame(\n                frame: FallbackVideoFrame\n            ) {\n                decodeFallbackFrame(frame)\n            }\n\n            override fun onCommandResult(\n''','''            override fun onFallbackVideoFrame(\n                frame: FallbackVideoFrame\n            ) {\n                decodeFallbackFrame(frame)\n            }\n\n            override fun onFallbackDeltaFrame(\n                frame: FallbackDeltaFrame\n            ) {\n                decodeFallbackDeltaFrame(frame)\n            }\n\n            override fun onCommandResult(\n''')
+          r('''            fallbackBitmap?.recycle()\n            fallbackBitmap = null\n        }\n\n        remoteTrack = null\n''','''            fallbackBitmap?.recycle()\n            fallbackBitmap = null\n            fallbackScratchBitmap?.recycle()\n            fallbackScratchBitmap = null\n            fallbackCompositeFrameId = -1L\n        }\n\n        remoteTrack = null\n''')
+          r('''                                fallbackBitmap?.recycle()\n                                fallbackBitmap = null\n                                status.visibility = View.GONE\n''','''                                fallbackBitmap?.recycle()\n                                fallbackBitmap = null\n                                fallbackScratchBitmap?.recycle()\n                                fallbackScratchBitmap = null\n                                fallbackCompositeFrameId = -1L\n                                status.visibility = View.GONE\n''')
+          r('''            fallbackActive = true\n            frameWidth = oriented.width\n            frameHeight = oriented.height\n            updateVideoViewport()\n\n            val previous = fallbackBitmap\n            fallbackBitmap = oriented\n            fallbackImageView.setImageBitmap(oriented)\n''','''            if (frame.frameId <= fallbackCompositeFrameId) {\n                oriented.recycle()\n                return@runOnUiThread\n            }\n\n            fallbackActive = true\n            fallbackCompositeFrameId = frame.frameId\n            frameWidth = oriented.width\n            frameHeight = oriented.height\n            updateVideoViewport()\n\n            val previous = fallbackBitmap\n            val previousScratch = fallbackScratchBitmap\n            fallbackBitmap = oriented\n            fallbackScratchBitmap = null\n            fallbackImageView.setImageBitmap(oriented)\n''')
+          r('''            if (\n                previous != null &&\n                previous !== oriented &&\n                !previous.isRecycled\n            ) {\n                previous.recycle()\n            }\n\n            status.visibility = View.VISIBLE\n''','''            if (\n                previous != null &&\n                previous !== oriented &&\n                !previous.isRecycled\n            ) {\n                previous.recycle()\n            }\n            if (\n                previousScratch != null &&\n                previousScratch !== oriented &&\n                previousScratch !== previous &&\n                !previousScratch.isRecycled\n            ) {\n                previousScratch.recycle()\n            }\n\n            status.visibility = View.VISIBLE\n''')
+          marker='''    private fun addButton(\n'''
+          if marker not in s: raise SystemExit('Controller UI addButton marker missing')
+          methods=r'''    private fun decodeFallbackDeltaFrame(\n        frame: FallbackDeltaFrame\n    ) {\n        if (!attached || renderedFrameSeen.get()) return\n        runCatching {\n            fallbackDecoder.execute {\n                decodeFallbackDeltaFrameNow(frame)\n            }\n        }\n    }\n\n    private fun decodeFallbackDeltaFrameNow(\n        frame: FallbackDeltaFrame\n    ) {\n        if (\n            renderedFrameSeen.get() ||\n            frame.baseFrameId != fallbackCompositeFrameId\n        ) {\n            return\n        }\n\n        val decoded = ArrayList<DecodedDeltaPatch>(frame.patches.size)\n        for (patch in frame.patches) {\n            val item = decodeOrientedDeltaPatch(frame, patch)\n            if (item == null) {\n                decoded.forEach { it.bitmap.recycle() }\n                return\n            }\n            decoded += item\n        }\n\n        activity.runOnUiThread {\n            if (\n                !attached ||\n                renderedFrameSeen.get() ||\n                frame.baseFrameId != fallbackCompositeFrameId\n            ) {\n                decoded.forEach { it.bitmap.recycle() }\n                return@runOnUiThread\n            }\n\n            val current = fallbackBitmap\n            if (current == null || current.isRecycled) {\n                decoded.forEach { it.bitmap.recycle() }\n                return@runOnUiThread\n            }\n\n            val orientedWidth =\n                if (frame.rotation == 90 || frame.rotation == 270) {\n                    frame.height\n                } else {\n                    frame.width\n                }\n            val orientedHeight =\n                if (frame.rotation == 90 || frame.rotation == 270) {\n                    frame.width\n                } else {\n                    frame.height\n                }\n            val currentGeometry = geometry\n            if (\n                current.width != orientedWidth ||\n                current.height != orientedHeight ||\n                (\n                    currentGeometry != null &&\n                    !RemoteViewportMapper.frameMatchesRemote(\n                        remoteWidth = currentGeometry.widthPx,\n                        remoteHeight = currentGeometry.heightPx,\n                        frameWidth = orientedWidth,\n                        frameHeight = orientedHeight\n                    )\n                )\n            ) {\n                decoded.forEach { it.bitmap.recycle() }\n                return@runOnUiThread\n            }\n\n            var scratch = fallbackScratchBitmap\n            if (\n                scratch == null ||\n                scratch.isRecycled ||\n                !scratch.isMutable ||\n                scratch.width != orientedWidth ||\n                scratch.height != orientedHeight\n            ) {\n                scratch?.takeIf { !it.isRecycled && it !== current }?.recycle()\n                scratch = Bitmap.createBitmap(\n                    orientedWidth,\n                    orientedHeight,\n                    Bitmap.Config.ARGB_8888\n                )\n            }\n\n            scratch.eraseColor(Color.BLACK)\n            val canvas = Canvas(scratch)\n            val (shiftX, shiftY) = orientedShift(\n                frame.shiftX,\n                frame.shiftY,\n                frame.rotation\n            )\n            canvas.drawBitmap(\n                current,\n                shiftX.toFloat(),\n                shiftY.toFloat(),\n                null\n            )\n            decoded.forEach { patch ->\n                canvas.drawBitmap(\n                    patch.bitmap,\n                    patch.x.toFloat(),\n                    patch.y.toFloat(),\n                    null\n                )\n            }\n\n            fallbackImageView.setImageBitmap(scratch)\n            fallbackBitmap = scratch\n            fallbackScratchBitmap =\n                if (current.isMutable && !current.isRecycled) {\n                    current\n                } else {\n                    if (!current.isRecycled) current.recycle()\n                    null\n                }\n            fallbackCompositeFrameId = frame.frameId\n            fallbackActive = true\n            latestObservedFrameWidth = orientedWidth\n            latestObservedFrameHeight = orientedHeight\n            frameWidth = orientedWidth\n            frameHeight = orientedHeight\n            updateVideoViewport()\n            fallbackImageView.visibility = View.VISIBLE\n            textureView.alpha = 0f\n            status.visibility = View.VISIBLE\n            status.text =\n                "Adaptive recovery video • primary stream recovering…"\n\n            decoded.forEach { patch ->\n                if (!patch.bitmap.isRecycled) patch.bitmap.recycle()\n            }\n        }\n    }\n\n    private fun decodeOrientedDeltaPatch(\n        frame: FallbackDeltaFrame,\n        patch: FallbackDeltaPatch\n    ): DecodedDeltaPatch? {\n        val decoded = BitmapFactory.decodeByteArray(\n            patch.jpeg,\n            0,\n            patch.jpeg.size\n        ) ?: return null\n\n        val oriented =\n            if (frame.rotation == 0) {\n                decoded\n            } else {\n                runCatching {\n                    val matrix = Matrix().apply {\n                        postRotate(frame.rotation.toFloat())\n                    }\n                    Bitmap.createBitmap(\n                        decoded,\n                        0,\n                        0,\n                        decoded.width,\n                        decoded.height,\n                        matrix,\n                        true\n                    )\n                }.getOrNull()?.also {\n                    if (it !== decoded) decoded.recycle()\n                } ?: decoded\n            }\n\n        val coordinates = when (frame.rotation) {\n            90 ->\n                (frame.height - patch.y - patch.height) to patch.x\n            180 ->\n                (frame.width - patch.x - patch.width) to\n                    (frame.height - patch.y - patch.height)\n            270 ->\n                patch.y to\n                    (frame.width - patch.x - patch.width)\n            else -> patch.x to patch.y\n        }\n\n        return DecodedDeltaPatch(\n            x = coordinates.first,\n            y = coordinates.second,\n            bitmap = oriented\n        )\n    }\n\n    private fun orientedShift(\n        shiftX: Int,\n        shiftY: Int,\n        rotation: Int\n    ): Pair<Int, Int> = when (rotation) {\n        90 -> -shiftY to shiftX\n        180 -> -shiftX to -shiftY\n        270 -> shiftY to -shiftX\n        else -> shiftX to shiftY\n    }\n\n'''.replace('\\n','\n')
+          s=s.replace(marker,methods+marker,1)
+          p.write_text(s)
+          PY
+
+      - name: Bump version and add capability regression test
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app/build.gradle.kts')
+          s=p.read_text()
+          if 'versionCode = 86' not in s or 'versionName = "1.8.38"' not in s:
+              raise SystemExit('version anchor missing')
+          s=s.replace('versionCode = 86','versionCode = 87',1)
+          s=s.replace('versionName = "1.8.38"','versionName = "1.8.39"',1)
+          p.write_text(s)
+          PY
           cat > app/src/test/java/com/aaris/remoteassist/control/FallbackDeltaCapabilityTest.kt <<'EOF'
           package com.aaris.remoteassist.control
 
@@ -777,10 +172,12 @@ jobs:
 
           class FallbackDeltaCapabilityTest {
               @Test
-              fun deltaCapabilityRoundTripsWithoutChangingProtocolVersion() {
-                  val packet = ControlPacket.FallbackDeltaReady(leaseSecret = 998877L)
-                  val decoded = ControlProtocol.decode(ControlProtocol.encode(packet))
-                  assertEquals(packet, decoded)
+              fun deltaCapabilityRoundTripsWithoutProtocolVersionChange() {
+                  val packet = ControlPacket.FallbackDeltaReady(998877L)
+                  assertEquals(
+                      packet,
+                      ControlProtocol.decode(ControlProtocol.encode(packet))
+                  )
               }
           }
           EOF
