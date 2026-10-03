@@ -39,7 +39,7 @@ object AiActionTranslator {
                 sequence,
                 unit("x"),
                 unit("y"),
-                args.optInt("durationMs", 650).also { require(it in 450..1500) }
+                args.optInt("durationMs", 650).coerceIn(450, 1500)
             )
             "swipe" -> ControlPacket.Swipe(secret, generation, sequence, unit("x"), unit("y"), unit("toX"), unit("toY"), duration)
             "drag" -> ControlPacket.GesturePath(secret, generation, sequence, dragPoints(), duration)
