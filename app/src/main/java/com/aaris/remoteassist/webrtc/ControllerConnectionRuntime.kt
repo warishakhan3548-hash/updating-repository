@@ -162,7 +162,7 @@ object ControllerConnectionRuntime {
         }
     }
 
-    private val runtimeListener =
+    internal val runtimeListener =
         object : ControllerWebRtcSession.Listener {
             override fun onLive(geometry: RemoteGeometry) {
                 this@ControllerConnectionRuntime.geometry = geometry
@@ -190,6 +190,11 @@ object ControllerConnectionRuntime {
                 fallbackFrame = frame
                 ownerListener?.onFallbackVideoFrame(frame)
                 uiListener?.onFallbackVideoFrame(frame)
+            }
+
+            override fun onFallbackDeltaFrame(frame: FallbackDeltaFrame) {
+                ownerListener?.onFallbackDeltaFrame(frame)
+                uiListener?.onFallbackDeltaFrame(frame)
             }
 
             override fun onCommandResult(

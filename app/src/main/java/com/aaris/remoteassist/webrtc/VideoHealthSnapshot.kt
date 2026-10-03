@@ -15,7 +15,13 @@ data class VideoHealthSnapshot(
     val frameHeight: Int,
     val qualityLimitationReason: String?,
     val roundTripTimeMs: Int?,
-    val packetLossRatio: Double?
+    val packetLossRatio: Double?,
+    val jitterBufferAverageMs: Double? = null,
+    val processingAverageMs: Double? = null,
+    val framesDropped: Long? = null,
+    val freezeCount: Long? = null,
+    val candidatePath: String? = null,
+    val codecImplementation: String? = null
 ) {
     fun compact(): String {
         val primary =
@@ -60,6 +66,12 @@ data class VideoHealthSnapshot(
                 append(it)
                 append("ms")
             }
+            jitterBufferAverageMs?.let { append(" jitterAvg=${it.roundToInt()}ms") }
+            processingAverageMs?.let { append(" codecAvg=${it.roundToInt()}ms") }
+            framesDropped?.let { append(" dropped=$it") }
+            freezeCount?.let { append(" freezes=$it") }
+            candidatePath?.let { append(" path=$it") }
+            codecImplementation?.let { append(" implementation=$it") }
             packetLossRatio?.let {
                 append(" loss=")
                 append(
@@ -144,11 +156,26 @@ data class VideoHealthSnapshot(
                     null
                 }
 
+            val transport = members["transportId"]?.toString()?.let(stats::get)
+            val pair = transport?.members?.get("selectedCandidatePairId")?.toString()?.let(stats::get)
+                ?: stats.values.firstOrNull { it.type == "candidate-pair" &&
+                    it.members["state"] == "succeeded" &&
+                    (it.members["selected"] == true || it.members["nominated"] == true) }
+            val localCandidate = pair?.members?.get("localCandidateId")?.toString()?.let(stats::get)
+            val remoteCandidate = pair?.members?.get("remoteCandidateId")?.toString()?.let(stats::get)
+            val candidatePath = localCandidate?.let {
+                "${it.members["candidateType"] ?: "?"}/${remoteCandidate?.members?.get("candidateType") ?: "?"} ${it.members["protocol"] ?: "?"}"
+            }
+            fun meanMs(total: String, count: String): Double? {
+                val seconds = decimal(members[total]) ?: return null
+                val n = decimal(members[count]) ?: return null
+                return if (seconds.isFinite() && seconds >= 0 && n.isFinite() && n > 0) seconds * 1000 / n else null
+            }
             val roundTripTimeMs =
                 decimal(
                     remoteInbound
                         ?.members
-                        ?.get("roundTripTime")
+                        ?.get("roundTripTime") ?: pair?.members?.get("currentRoundTripTime")
                 )
                     ?.takeIf { it.isFinite() && it >= 0.0 }
                     ?.times(1_000.0)
@@ -181,7 +208,10 @@ data class VideoHealthSnapshot(
                         members["qualityLimitationReason"]
                             ?.toString(),
                     roundTripTimeMs = roundTripTimeMs,
-                    packetLossRatio = packetLossRatio
+                    packetLossRatio = packetLossRatio,
+                    processingAverageMs = meanMs("totalEncodeTime", "framesEncoded"),
+                    candidatePath = candidatePath,
+                    codecImplementation = members["encoderImplementation"]?.toString()
                 )
             } else {
                 VideoHealthSnapshot(
@@ -199,8 +229,14 @@ data class VideoHealthSnapshot(
                     frameHeight =
                         number(members["frameHeight"]).toInt(),
                     qualityLimitationReason = null,
-                    roundTripTimeMs = null,
-                    packetLossRatio = null
+                    roundTripTimeMs = roundTripTimeMs,
+                    packetLossRatio = null,
+                    jitterBufferAverageMs = meanMs("jitterBufferDelay", "jitterBufferEmittedCount"),
+                    processingAverageMs = meanMs("totalDecodeTime", "framesDecoded"),
+                    framesDropped = members["framesDropped"]?.let(::number),
+                    freezeCount = members["freezeCount"]?.let(::number),
+                    candidatePath = candidatePath,
+                    codecImplementation = members["decoderImplementation"]?.toString()
                 )
             }
         }

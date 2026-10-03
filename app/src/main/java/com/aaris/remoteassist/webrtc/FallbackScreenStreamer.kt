@@ -47,6 +47,7 @@ class FallbackScreenStreamer(
     private val adaptiveIntervalMs = AtomicLong(ADAPTIVE_INITIAL_INTERVAL_MS)
     private val frameSequence = AtomicLong(0L)
     private val firstDeltaReported = AtomicBoolean(false)
+    private val forceKeyframe = AtomicBoolean(true)
     private val clarity = FallbackClarityPolicy()
     private val worker =
         Executors.newSingleThreadExecutor { runnable ->
@@ -128,6 +129,13 @@ class FallbackScreenStreamer(
 
     fun setInteractionActive(active: Boolean) {
         interactionActive.set(active)
+    }
+
+    fun requestKeyframe() {
+        forceKeyframe.set(true)
+        referenceFrame = null
+        lastKeyframeAtMs = 0L
+        lastFrameAtMs.set(0L)
     }
 
     fun enable() {
@@ -247,6 +255,7 @@ class FallbackScreenStreamer(
             }
 
         if (
+            forceKeyframe.getAndSet(false) ||
             reference == null ||
             reference.width != width ||
             reference.height != height ||

@@ -1,11 +1,10 @@
 package com.aaris.remoteassist.ui
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.graphics.Typeface
 import android.os.Build
@@ -35,6 +34,7 @@ import com.aaris.remoteassist.webrtc.WebRtcRuntime
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.hypot
 import kotlin.math.roundToInt
@@ -77,6 +77,9 @@ class InlineRemoteControllerView(
     private val rendererContainer = FrameLayout(activity)
     private val fallbackImageView = ImageView(activity)
     private val textureView = TextureView(activity)
+    private val touchFeedback = RemoteTouchFeedback(activity)
+    @Volatile private var videoStats = "Video stats: waiting for transport"
+    @Volatile private var inputStats = "Command ACK: waiting for applied input"
     private val mainHandler = Handler(Looper.getMainLooper())
     private val fallbackDecoder =
         Executors.newSingleThreadExecutor { runnable ->
@@ -158,6 +161,8 @@ class InlineRemoteControllerView(
     private val pendingFallbackFrame =
         AtomicReference<FallbackVideoFrame?>(null)
     private val fallbackDecodeScheduled = AtomicBoolean(false)
+    private val deltaFramesInFlight = AtomicInteger(0)
+    private var lastAnchorRequestMs = 0L
     private var fallbackBitmap: Bitmap? = null
     private var fallbackScratchBitmap: Bitmap? = null
     @Volatile
@@ -391,7 +396,10 @@ class InlineRemoteControllerView(
                 }
             }
 
-            override fun onDiagnostic(message: String) = Unit
+            override fun onDiagnostic(message: String) {
+                if (message.startsWith("video ")) videoStats = message
+                if (message.startsWith("Command ACK")) inputStats = message
+            }
 
             override fun onRecoverableError(
                 error: Throwable
@@ -576,6 +584,8 @@ class InlineRemoteControllerView(
             }
 
         rendererContainer.setBackgroundColor(Color.BLACK)
+        rendererContainer.addView(touchFeedback, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         rendererContainer.setOnTouchListener { _, event ->
             handleTouch(event)
         }
@@ -614,6 +624,7 @@ class InlineRemoteControllerView(
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
         )
+        touchFeedback.bringToFront()
 
         status.apply {
             text = "Connected • waiting for screen video…"
@@ -674,6 +685,11 @@ class InlineRemoteControllerView(
             elevation = dp(8).toFloat()
         }
 
+        addButton("Stats") {
+            AlertDialog.Builder(activity).setTitle("Connection stats")
+                .setMessage("$videoStats\n\n$inputStats\n\nDisplayed frame: ${frameWidth}x${frameHeight}\nRecovery video: $fallbackActive\nCommand ACK measures execution acknowledgement, not pixels reaching the display.")
+                .setPositiveButton("OK", null).show()
+        }
         addButton("Back", autoHide = true) {
             session()?.sendBack()
         }
@@ -1432,35 +1448,9 @@ class InlineRemoteControllerView(
     private fun decodeFallbackFrameNow(
         frame: FallbackVideoFrame
     ) {
-        val decoded = BitmapFactory.decodeByteArray(
-            frame.jpeg,
-            0,
-            frame.jpeg.size
-        ) ?: return
-
-        val oriented =
-            if (frame.rotation == 0) {
-                decoded
-            } else {
-                runCatching {
-                    val matrix = Matrix().apply {
-                        postRotate(frame.rotation.toFloat())
-                    }
-                    Bitmap.createBitmap(
-                        decoded,
-                        0,
-                        0,
-                        decoded.width,
-                        decoded.height,
-                        matrix,
-                        true
-                    )
-                }.getOrNull()?.also {
-                    if (it !== decoded) {
-                        decoded.recycle()
-                    }
-                } ?: decoded
-            }
+        val oriented = RecoveryBitmapRenderer.decode(
+            frame.jpeg, frame.width, frame.height, frame.rotation
+        ) ?: run { requestRecoveryAnchor(); return }
 
         /*
          * If a newer fallback frame arrived while this JPEG was decoding,
@@ -1542,180 +1532,169 @@ class InlineRemoteControllerView(
         }
     }
 
-    private fun decodeFallbackDeltaFrame(
-        frame: FallbackDeltaFrame
-    ) {
-        if (!attached || renderedFrameSeen.get()) return
-        runCatching {
-            fallbackDecoder.execute {
-                decodeFallbackDeltaFrameNow(frame)
+    private fun requestRecoveryAnchor() {
+        mainHandler.post {
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (attached && !renderedFrameSeen.get() && now - lastAnchorRequestMs >= 1000L) {
+                lastAnchorRequestMs = now
+                session()?.requestMediaRecovery()
             }
         }
     }
 
-    private fun decodeFallbackDeltaFrameNow(
-        frame: FallbackDeltaFrame
-    ) {
+    private fun decodeFallbackDeltaFrame(frame: FallbackDeltaFrame) {
+        if (!attached || renderedFrameSeen.get()) return
+        // Bound decoding AND already-posted UI work. Dropping a dependent delta
+        // requires a full anchor, rather than applying it over the wrong base.
+        if (deltaFramesInFlight.incrementAndGet() > 3) {
+            deltaFramesInFlight.decrementAndGet()
+            requestRecoveryAnchor()
+            return
+        }
+        try {
+            fallbackDecoder.execute { decodeFallbackDeltaFrameNow(frame) }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            deltaFramesInFlight.decrementAndGet()
+        }
+    }
+
+    private fun decodeFallbackDeltaFrameNow(frame: FallbackDeltaFrame) {
+        val decoded = ArrayList<DecodedDeltaPatch>(frame.patches.size)
+        var posted = false
+        try {
+            if (!attached || renderedFrameSeen.get()) return
+            if (frame.patches.sumOf { it.width.toLong() * it.height } > frame.width.toLong() * frame.height) {
+                requestRecoveryAnchor(); return
+            }
+            for (patch in frame.patches) {
+                val item = decodeOrientedDeltaPatch(frame, patch)
+                if (item == null) { requestRecoveryAnchor(); return }
+                decoded += item
+            }
+            // Check baseFrameId on the UI thread, after earlier UI commits.
+            // Checking it while decoding could discard a valid next delta while
+            // its predecessor was still waiting to be presented.
+            posted = mainHandler.post {
+                try { applyFallbackDeltaFrame(frame, decoded) }
+                finally {
+                    decoded.forEach { if (!it.bitmap.isRecycled) it.bitmap.recycle() }
+                    deltaFramesInFlight.decrementAndGet()
+                }
+            }
+        } finally {
+            if (!posted) {
+                decoded.forEach { if (!it.bitmap.isRecycled) it.bitmap.recycle() }
+                deltaFramesInFlight.decrementAndGet()
+            }
+        }
+    }
+
+    private fun applyFallbackDeltaFrame(frame: FallbackDeltaFrame, decoded: List<DecodedDeltaPatch>) {
         if (
+            !attached ||
             renderedFrameSeen.get() ||
             frame.baseFrameId != fallbackCompositeFrameId
         ) {
+            if (frame.frameId > fallbackCompositeFrameId) requestRecoveryAnchor()
             return
         }
 
-        val decoded = ArrayList<DecodedDeltaPatch>(frame.patches.size)
-        for (patch in frame.patches) {
-            val item = decodeOrientedDeltaPatch(frame, patch)
-            if (item == null) {
-                decoded.forEach { it.bitmap.recycle() }
-                return
-            }
-            decoded += item
+        val current = fallbackBitmap
+        if (current == null || current.isRecycled) {
+            requestRecoveryAnchor()
+            return
         }
 
-        activity.runOnUiThread {
-            if (
-                !attached ||
-                renderedFrameSeen.get() ||
-                frame.baseFrameId != fallbackCompositeFrameId
-            ) {
-                decoded.forEach { it.bitmap.recycle() }
-                return@runOnUiThread
+        val orientedWidth =
+            if (frame.rotation == 90 || frame.rotation == 270) {
+                frame.height
+            } else {
+                frame.width
             }
-
-            val current = fallbackBitmap
-            if (current == null || current.isRecycled) {
-                decoded.forEach { it.bitmap.recycle() }
-                return@runOnUiThread
+        val orientedHeight =
+            if (frame.rotation == 90 || frame.rotation == 270) {
+                frame.width
+            } else {
+                frame.height
             }
-
-            val orientedWidth =
-                if (frame.rotation == 90 || frame.rotation == 270) {
-                    frame.height
-                } else {
-                    frame.width
-                }
-            val orientedHeight =
-                if (frame.rotation == 90 || frame.rotation == 270) {
-                    frame.width
-                } else {
-                    frame.height
-                }
-            val currentGeometry = geometry
-            if (
-                current.width != orientedWidth ||
-                current.height != orientedHeight ||
-                (
-                    currentGeometry != null &&
-                    !RemoteViewportMapper.frameMatchesRemote(
-                        remoteWidth = currentGeometry.widthPx,
-                        remoteHeight = currentGeometry.heightPx,
-                        frameWidth = orientedWidth,
-                        frameHeight = orientedHeight
-                    )
+        val currentGeometry = geometry
+        if (
+            current.width != orientedWidth ||
+            current.height != orientedHeight ||
+            (
+                currentGeometry != null &&
+                !RemoteViewportMapper.frameMatchesRemote(
+                    remoteWidth = currentGeometry.widthPx,
+                    remoteHeight = currentGeometry.heightPx,
+                    frameWidth = orientedWidth,
+                    frameHeight = orientedHeight
                 )
-            ) {
-                decoded.forEach { it.bitmap.recycle() }
-                return@runOnUiThread
-            }
-
-            var scratch = fallbackScratchBitmap
-            if (
-                scratch == null ||
-                scratch.isRecycled ||
-                !scratch.isMutable ||
-                scratch.width != orientedWidth ||
-                scratch.height != orientedHeight
-            ) {
-                scratch?.takeIf { !it.isRecycled && it !== current }?.recycle()
-                scratch = Bitmap.createBitmap(
-                    orientedWidth,
-                    orientedHeight,
-                    Bitmap.Config.ARGB_8888
-                )
-            }
-
-            scratch.eraseColor(Color.BLACK)
-            val canvas = Canvas(scratch)
-            val (shiftX, shiftY) = orientedShift(
-                frame.shiftX,
-                frame.shiftY,
-                frame.rotation
             )
-            canvas.drawBitmap(
-                current,
-                shiftX.toFloat(),
-                shiftY.toFloat(),
+        ) {
+            requestRecoveryAnchor()
+            return
+        }
+
+        var scratch = fallbackScratchBitmap
+        if (
+            scratch == null ||
+            scratch.isRecycled ||
+            !scratch.isMutable ||
+            scratch.width != orientedWidth ||
+            scratch.height != orientedHeight
+        ) {
+            scratch?.takeIf { !it.isRecycled && it !== current }?.recycle()
+            scratch = Bitmap.createBitmap(
+                orientedWidth,
+                orientedHeight,
+                Bitmap.Config.ARGB_8888
+            )
+        }
+
+        scratch.density = Bitmap.DENSITY_NONE
+        scratch.eraseColor(Color.BLACK)
+        val canvas = Canvas(scratch)
+        val (shiftX, shiftY) = orientedShift(
+            frame.shiftX,
+            frame.shiftY,
+            frame.rotation
+        )
+        RecoveryBitmapRenderer.drawPixels(canvas, current, shiftX, shiftY)
+        decoded.forEach { patch ->
+            RecoveryBitmapRenderer.drawPixels(canvas, patch.bitmap, patch.x, patch.y)
+        }
+
+        fallbackImageView.setImageBitmap(scratch)
+        fallbackBitmap = scratch
+        fallbackScratchBitmap =
+            if (current.isMutable && !current.isRecycled) {
+                current
+            } else {
+                if (!current.isRecycled) current.recycle()
                 null
-            )
-            decoded.forEach { patch ->
-                canvas.drawBitmap(
-                    patch.bitmap,
-                    patch.x.toFloat(),
-                    patch.y.toFloat(),
-                    null
-                )
             }
+        fallbackCompositeFrameId = frame.frameId
+        fallbackActive = true
+        latestObservedFrameWidth = orientedWidth
+        latestObservedFrameHeight = orientedHeight
+        frameWidth = orientedWidth
+        frameHeight = orientedHeight
+        updateVideoViewport()
+        fallbackImageView.visibility = View.VISIBLE
+        textureView.alpha = 0f
+        status.visibility = View.VISIBLE
+        status.text =
+            "Adaptive recovery video • primary stream recovering…"
 
-            fallbackImageView.setImageBitmap(scratch)
-            fallbackBitmap = scratch
-            fallbackScratchBitmap =
-                if (current.isMutable && !current.isRecycled) {
-                    current
-                } else {
-                    if (!current.isRecycled) current.recycle()
-                    null
-                }
-            fallbackCompositeFrameId = frame.frameId
-            fallbackActive = true
-            latestObservedFrameWidth = orientedWidth
-            latestObservedFrameHeight = orientedHeight
-            frameWidth = orientedWidth
-            frameHeight = orientedHeight
-            updateVideoViewport()
-            fallbackImageView.visibility = View.VISIBLE
-            textureView.alpha = 0f
-            status.visibility = View.VISIBLE
-            status.text =
-                "Adaptive recovery video • primary stream recovering…"
-
-            decoded.forEach { patch ->
-                if (!patch.bitmap.isRecycled) patch.bitmap.recycle()
-            }
-        }
     }
 
     private fun decodeOrientedDeltaPatch(
         frame: FallbackDeltaFrame,
         patch: FallbackDeltaPatch
     ): DecodedDeltaPatch? {
-        val decoded = BitmapFactory.decodeByteArray(
-            patch.jpeg,
-            0,
-            patch.jpeg.size
+        val oriented = RecoveryBitmapRenderer.decode(
+            patch.jpeg, patch.width, patch.height, frame.rotation
         ) ?: return null
-
-        val oriented =
-            if (frame.rotation == 0) {
-                decoded
-            } else {
-                runCatching {
-                    val matrix = Matrix().apply {
-                        postRotate(frame.rotation.toFloat())
-                    }
-                    Bitmap.createBitmap(
-                        decoded,
-                        0,
-                        0,
-                        decoded.width,
-                        decoded.height,
-                        matrix,
-                        true
-                    )
-                }.getOrNull()?.also {
-                    if (it !== decoded) decoded.recycle()
-                } ?: decoded
-            }
 
         val coordinates = when (frame.rotation) {
             90 ->
@@ -1790,6 +1769,7 @@ class InlineRemoteControllerView(
     private fun handleTouch(event: MotionEvent): Boolean {
         val g = geometry ?: return true
         val s = session() ?: return true
+        touchFeedback.track(event)
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {

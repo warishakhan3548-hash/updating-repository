@@ -25,6 +25,7 @@ import com.aaris.remoteassist.session.LiveLease
 import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionRuntime
 import com.aaris.remoteassist.ui.MainActivity
+import com.aaris.remoteassist.webrtc.WebRtcRuntime
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -37,6 +38,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
@@ -60,18 +62,30 @@ class AiConnectorService : Service() {
     private var lastAckMs = 0L
     private var sequence = 0L
     private var registeredNetworkCallback = false
+    private var defaultNetwork: Network? = null
+    private var starting = false
     private val runId = UUID.randomUUID().toString()
     private val ownerId = "ai:$runId"
     private val outcomes = LinkedHashMap<String, JSONObject>()
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) { scope.launch { if (socket == null && credential != null && !stopping) scheduleReconnect(true) } }
+        override fun onAvailable(network: Network) { scope.launch {
+            if (stopping || capture == null) return@launch
+            if (defaultNetwork != network) socket?.let(::disconnected)
+            defaultNetwork = network
+            if (socket == null && credential != null) scheduleReconnect(true)
+        } }
+        override fun onLost(network: Network) { scope.launch {
+            if (defaultNetwork != network || stopping) return@launch
+            defaultNetwork = null
+            socket?.let(::disconnected)
+        } }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (stopping) { stopSelf(); return START_NOT_STICKY }
         if (intent?.action == ACTION_STOP) { stopNow(); return START_NOT_STICKY }
-        if (intent?.action != ACTION_START || capture != null) return START_NOT_STICKY
+        if (intent?.action != ACTION_START || capture != null || starting) return START_NOT_STICKY
         try {
             check(AssistAccessibilityService.isConnected()) { "Turn on Accessibility and try again" }
             check(SessionCoordinator.reserveAi(ownerId)) { "End the current remote session first" }
@@ -79,21 +93,48 @@ class AiConnectorService : Service() {
                 @Suppress("DEPRECATION") intent.getParcelableExtra<Intent>(EXTRA_DATA)
             }
             check(intent.getIntExtra(EXTRA_RESULT, 0) == Activity.RESULT_OK && data != null) { "Screen sharing permission is required" }
-            credential = checkNotNull(AiConnectorStore(this).load()) { "Create an AI link first" }
+            // Promote immediately after consent, before Keystore/native startup.
+            // These can be slow on the very first run of an older phone.
             foreground()
-            capture = ScreenCaptureTrack(this, ProjectionGrant(ownerId, Activity.RESULT_OK, data)) {
-                scope.launch { stopNow("Screen sharing stopped") }
+            starting = true
+            AiConnectorRuntime.update(AiConnectorState(true, false, "Starting screen sharing…"))
+            scope.launch {
+                try {
+                    credential = withContext(Dispatchers.IO) {
+                        val saved = checkNotNull(AiConnectorStore(this@AiConnectorService).load()) { "Create an AI link first" }
+                        WebRtcRuntime.initialize(applicationContext)
+                        saved
+                    }
+                    if (stopping) return@launch
+                    capture = ScreenCaptureTrack(this@AiConnectorService, ProjectionGrant(ownerId, Activity.RESULT_OK, data)) {
+                        scope.launch { stopNow("Screen sharing stopped. Tap Connect Phone with AI to resume.") }
+                    }
+                    snapshots = AiSnapshotProvider(checkNotNull(capture))
+                    observations = AiObservationEngine(this@AiConnectorService, checkNotNull(snapshots))
+                    AiObservationSignals.changed = { observations?.changed() }
+                    capture?.start(profile())
+                    AiConnectorRuntime.update(AiConnectorState(true, false, "Screen sharing started • connecting AI…"))
+                    val networkManager = getSystemService(ConnectivityManager::class.java)
+                    defaultNetwork = networkManager.activeNetwork
+                    networkManager.registerDefaultNetworkCallback(networkCallback)
+                    registeredNetworkCallback = true
+                    openSocket()
+                } catch (error: CancellationException) { throw error }
+                catch (error: Exception) { startFailed(error) }
+                catch (error: LinkageError) { startFailed(error) }
+                finally { starting = false }
             }
-            snapshots = AiSnapshotProvider(checkNotNull(capture))
-            observations = AiObservationEngine(this, checkNotNull(snapshots))
-            AiObservationSignals.changed = { observations?.changed() }
-            capture?.start(profile())
-            AiConnectorRuntime.update(AiConnectorState(true, false, "Connecting AI…"))
-            getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkCallback)
-            registeredNetworkCallback = true
-            openSocket()
-        } catch (error: Exception) { stopNow(error.message ?: "Could not start AI sharing") }
+        } catch (error: Exception) { startFailed(error) }
         return START_NOT_STICKY
+    }
+
+    private fun startFailed(error: Throwable) {
+        val hint = when (error) {
+            is SecurityException -> "Screen sharing permission was not accepted. Connect again and allow full-screen sharing."
+            is LinkageError -> "Screen capture could not load. Install the latest Aaris Remote build."
+            else -> "AI sharing could not start (${error.javaClass.simpleName}). Tap Connect Phone with AI to retry."
+        }
+        stopNow(hint)
     }
 
     private fun profile(): CaptureProfile {
@@ -140,9 +181,11 @@ class AiConnectorService : Service() {
                 }
             } }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { scope.launch {
+                if (socket !== webSocket || stopping) return@launch
                 if (response?.code in listOf(401, 403)) stopNow("AI link expired. Connect again.") else disconnected(webSocket)
             } }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { scope.launch {
+                if (socket !== webSocket || stopping) return@launch
                 if (code == 4003) stopNow("AI link stopped or expired") else disconnected(webSocket)
             } }
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, null) }
@@ -155,7 +198,7 @@ class AiConnectorService : Service() {
         if (socket !== ws || stopping) return
         socket = null; ws.cancel(); heartbeatJob?.cancel(); lease = null
         SessionCoordinator.suspendAi(ownerId); observations?.invalidate()
-        AiConnectorRuntime.update(AiConnectorState(true, false, "AI reconnecting…"))
+        AiConnectorRuntime.update(AiConnectorState(true, false, "AI reconnecting over Wi-Fi or mobile internet…"))
         scheduleReconnect(false)
     }
     private fun scheduleReconnect(immediate: Boolean) {
@@ -239,20 +282,25 @@ class AiConnectorService : Service() {
         if (Build.VERSION.SDK_INT >= 29) startForeground(7201, notice, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
         else startForeground(7201, notice)
     }
-    private fun stopNow(message: String = "AI control stopped") {
+    private fun stopNow(message: String = "AI control stopped • your saved link can be reused") {
         if (stopping) return
         stopping = true
         SessionCoordinator.suspendAi(ownerId) // Invalidate queued gestures immediately, before network cleanup.
         AiConnectorRuntime.update(AiConnectorState(message = message))
-        socket?.cancel(); socket = null
+        socket?.let { ws ->
+            ws.send(JSONObject().put("type", "stopped").put("runId", runId).toString())
+            ws.close(1000, "Stopped on phone")
+        }
+        socket = null
         credential?.let { value ->
             // Bounded cleanup outlives the service, while local capture/control stop immediately.
             CoroutineScope(Dispatchers.IO).launch {
                 val cleanup = AiConnectorBackend()
-                try { runCatching { cleanup.revoke(value) } } finally { cleanup.close() }
+                try { runCatching { cleanup.pause(value, runId) } } finally { cleanup.close() }
             }
         }
-        // Network revoke is best effort; local stop never waits for it.
+        // The run-scoped pause cannot disable a newer service. Keep the MCP
+        // credential so clients can report stopped instead of authentication failure.
         releaseCapture()
         stopSelf()
     }

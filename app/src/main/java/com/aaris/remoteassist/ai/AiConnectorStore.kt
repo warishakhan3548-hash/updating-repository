@@ -39,6 +39,7 @@ class AiConnectorStore(context: Context) {
         val previous = load()
         return AiCredential(previous?.connectorId ?: token(), previous?.deviceToken ?: token(), token()).also(::save)
     }
+    fun getOrCreate(): AiCredential = load() ?: rotateLink()
     private fun save(value: AiCredential) {
         val json = JSONObject().put("id", value.connectorId).put("device", value.deviceToken).put("client", value.clientToken)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
