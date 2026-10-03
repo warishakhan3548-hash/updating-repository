@@ -8,17 +8,47 @@ import org.junit.Test
 class InteractiveVideoPolicyTest {
     @Test
     fun idleStrongTiersPreserveResolution() {
-        listOf(CaptureTier.STANDARD, CaptureTier.HIGH).forEach { tier ->
-            val policy = InteractiveVideoPolicy.forState(tier, false)
+        listOf(
+            CaptureTier.STANDARD,
+            CaptureTier.HIGH
+        ).forEach { tier ->
+            val policy = InteractiveVideoPolicy.forState(
+                tier = tier,
+                interactionActive = false
+            )
+
             assertTrue(policy.preserveResolution)
             assertFalse(policy.motionPriority)
         }
     }
 
     @Test
-    fun everyActiveTierPrioritizesFreshFrames() {
-        CaptureTier.entries.forEach { tier ->
-            val policy = InteractiveVideoPolicy.forState(tier, true)
+    fun activeStrongTiersPrioritizeFreshMotionFrames() {
+        listOf(
+            CaptureTier.STANDARD,
+            CaptureTier.HIGH
+        ).forEach { tier ->
+            val policy = InteractiveVideoPolicy.forState(
+                tier = tier,
+                interactionActive = true
+            )
+
+            assertFalse(policy.preserveResolution)
+            assertTrue(policy.motionPriority)
+        }
+    }
+
+    @Test
+    fun activeConstrainedTiersProtectFrameFreshness() {
+        listOf(
+            CaptureTier.LOW,
+            CaptureTier.BALANCED
+        ).forEach { tier ->
+            val policy = InteractiveVideoPolicy.forState(
+                tier = tier,
+                interactionActive = true
+            )
+
             assertFalse(policy.preserveResolution)
             assertTrue(policy.motionPriority)
         }
@@ -26,10 +56,29 @@ class InteractiveVideoPolicyTest {
 
     @Test
     fun idleConstrainedTiersStayBalanced() {
-        listOf(CaptureTier.LOW, CaptureTier.BALANCED).forEach { tier ->
-            val policy = InteractiveVideoPolicy.forState(tier, false)
+        listOf(
+            CaptureTier.LOW,
+            CaptureTier.BALANCED
+        ).forEach { tier ->
+            val policy = InteractiveVideoPolicy.forState(
+                tier = tier,
+                interactionActive = false
+            )
+
             assertFalse(policy.preserveResolution)
             assertFalse(policy.motionPriority)
+        }
+    }
+
+    @Test
+    fun everyActiveTierUsesMotionPriority() {
+        CaptureTier.entries.forEach { tier ->
+            val policy = InteractiveVideoPolicy.forState(
+                tier = tier,
+                interactionActive = true
+            )
+
+            assertTrue(policy.motionPriority)
         }
     }
 }
