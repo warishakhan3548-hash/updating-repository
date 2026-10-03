@@ -4,8 +4,8 @@ import android.graphics.ImageFormat
 import android.graphics.Rect
 import android.graphics.YuvImage
 import com.aaris.remoteassist.capture.CaptureVideoContract
+import com.aaris.remoteassist.capture.CpuFrameCopy
 import com.aaris.remoteassist.capture.FrameImageEncoder
-import com.aaris.remoteassist.capture.RetainedFrameCopy
 import com.aaris.remoteassist.capture.ScreenCaptureTrack
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
@@ -94,22 +94,48 @@ class FallbackScreenStreamer(
             return@VideoSink
         }
 
-        frame.retain()
-        try { worker.execute {
-            try {
-                val sent = RetainedFrameCopy.use(frame, if (interactionActive.get()) 1600 else MAX_DIMENSION) { cpu, rotation ->
-                    encodeAndSend(cpu, normalizeRotation(rotation))
-                } ?: false
-                if (deltaCapable.get()) {
-                    adjustCadence(sent)
+        /*
+         * Never carry a SurfaceTexture producer reference into the fallback
+         * worker queue. Primary RTP has already received this frame; complete
+         * the bounded GPU->CPU ownership handoff now, then let JPEG/delta/network
+         * work run asynchronously on the independent I420 buffer. This keeps a
+         * slow recovery encoder from withholding the next primary capture frame.
+         */
+        val cpu = try {
+            CpuFrameCopy.capture(
+                frame,
+                if (interactionActive.get()) 1600 else MAX_DIMENSION
+            )
+        } catch (error: Exception) {
+            encoding.set(false)
+            onDiagnostic("Compatibility frame copy failed (${error.javaClass.simpleName})")
+            return@VideoSink
+        }
+        if (cpu == null) {
+            encoding.set(false)
+            return@VideoSink
+        }
+
+        try {
+            worker.execute {
+                try {
+                    val sent =
+                        encodeAndSend(
+                            cpu.buffer,
+                            normalizeRotation(cpu.rotation)
+                        )
+                    if (deltaCapable.get()) {
+                        adjustCadence(sent)
+                    }
+                } catch (error: Exception) {
+                    onDiagnostic("Compatibility image failed (${error.javaClass.simpleName})")
+                } finally {
+                    cpu.close()
+                    encoding.set(false)
                 }
-            } catch (error: Exception) {
-                onDiagnostic("Compatibility image failed (${error.javaClass.simpleName})")
-            } finally {
-                encoding.set(false)
             }
-        } } catch (_: java.util.concurrent.RejectedExecutionException) {
-            frame.release()
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            cpu.close()
             encoding.set(false)
         }
     }
@@ -677,7 +703,8 @@ class FallbackScreenStreamer(
         refreshTask?.cancel(false); refreshTask = null
         referenceFrame = null
         runCatching { capture.removeSnapshotSink(sink) }
-        // An accepted frame owns a retain; let the bounded worker run its finally block.
+        // Accepted fallback work owns only a CPU buffer. Let its finally block
+        // close that copy without keeping the capture SurfaceTexture alive.
         worker.shutdown()
     }
 
