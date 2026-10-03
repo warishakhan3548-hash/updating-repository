@@ -10,7 +10,6 @@ import android.graphics.Typeface
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.TextureView
@@ -1636,7 +1635,7 @@ class InlineRemoteControllerView(
                 if (multiTouchActive) {
                     updateMultiTouch(event)
                     if (g.generation == gestureGeneration) {
-                        sendMultiTouchGesture(s, g)
+                        sendMultiTouchGesture(s, g, event.eventTime)
                     }
                     resetMultiTouch()
                     suppressSingleGestureUntilUp = true
@@ -1649,7 +1648,7 @@ class InlineRemoteControllerView(
                 if (multiTouchActive) {
                     updateMultiTouch(event)
                     if (g.generation == gestureGeneration) {
-                        sendMultiTouchGesture(s, g)
+                        sendMultiTouchGesture(s, g, event.eventTime)
                     }
                     resetMultiTouch()
                     resetLiveGestureStream()
@@ -1693,7 +1692,8 @@ class InlineRemoteControllerView(
                         session = s,
                         geometry = g,
                         upX = event.x,
-                        upY = event.y
+                        upY = event.y,
+                        upEventTimeMs = event.eventTime
                     )
                 }
 
@@ -1954,13 +1954,16 @@ class InlineRemoteControllerView(
         session: ControllerWebRtcSession,
         geometry: RemoteGeometry,
         upX: Float,
-        upY: Float
+        upY: Float,
+        upEventTimeMs: Long
     ) {
         val rawDuration =
-            (
-                SystemClock.elapsedRealtime() - downAt
-                ).toInt()
-                .coerceIn(1, 2_500)
+            RemoteGestureTiming.durationMs(
+                startEventTimeMs = downAt,
+                endEventTimeMs = upEventTimeMs,
+                minMs = 1,
+                maxMs = 2_500
+            )
         val dx = upX - downX
         val dy = upY - downY
         val distance = hypot(dx, dy)
@@ -2114,7 +2117,8 @@ class InlineRemoteControllerView(
 
     private fun sendMultiTouchGesture(
         session: ControllerWebRtcSession,
-        geometry: RemoteGeometry
+        geometry: RemoteGeometry,
+        eventTimeMs: Long
     ) {
         val firstStart =
             normalize(
@@ -2146,10 +2150,12 @@ class InlineRemoteControllerView(
             ) ?: return
 
         val rawDuration =
-            (
-                SystemClock.elapsedRealtime() - multiDownAt
-                ).toInt()
-                .coerceIn(80, 2_500)
+            RemoteGestureTiming.durationMs(
+                startEventTimeMs = multiDownAt,
+                endEventTimeMs = eventTimeMs,
+                minMs = 80,
+                maxMs = 2_500
+            )
 
         session.sendTwoFingerGesture(
             firstFromNx = firstStart.x,
