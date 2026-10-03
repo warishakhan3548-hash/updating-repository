@@ -157,6 +157,24 @@ class VideoCadenceGovernor(private val maxFps: Int) {
                             renderGapMs >= renderGapPressureMs * URGENT_FRESHNESS_MULTIPLIER)
                     )
 
+        /*
+         * Full-cadence remoting has the smallest frame budget. At 60 fps an
+         * ordinary, measured queue/jitter/render-pressure crossing already means
+         * multiple old frames can sit between the user's finger and the pixels
+         * they see. Waiting for a second one-second stats window makes a fast
+         * swipe feel sticky even when the control command was applied promptly.
+         *
+         * Allow exactly one early soft 60 -> 45 relief step. Requiring both the
+         * current cap and requested cadence to remain at 60 prevents this signal
+         * from cascading below 45; lower rungs retain the established two-window
+         * hysteresis unless pressure is urgent or severe.
+         */
+        val highCadenceFreshnessPressure =
+            !severePressure &&
+                cap >= HIGH_CADENCE_FAST_RELIEF_FPS &&
+                requestedFps >= HIGH_CADENCE_FAST_RELIEF_FPS &&
+                (queuePressure || receiverDelay || pipelineResidencePressure || presentationPressure)
+
         val cpuPressure = outbound.qualityLimitationReason == "cpu"
 
         val overloaded =
@@ -165,11 +183,17 @@ class VideoCadenceGovernor(private val maxFps: Int) {
 
         if (overloaded) {
             healthy = 0
-            val pressureWeight = if (severePressure || urgentFreshnessPressure) 2 else 1
+            val pressureWeight =
+                if (
+                    severePressure ||
+                    urgentFreshnessPressure ||
+                    highCadenceFreshnessPressure
+                ) 2 else 1
             pressure = (pressure + pressureWeight).coerceAtMost(PRESSURE_SAMPLES_TO_REDUCE)
             val changeInterval = when {
                 severePressure -> SEVERE_CHANGE_INTERVAL_MS
                 urgentFreshnessPressure -> URGENT_FRESHNESS_CHANGE_INTERVAL_MS
+                highCadenceFreshnessPressure -> HIGH_CADENCE_FAST_RELIEF_CHANGE_INTERVAL_MS
                 else -> MIN_CHANGE_INTERVAL_MS
             }
             if (pressure < PRESSURE_SAMPLES_TO_REDUCE || nowMs - changedAt < changeInterval) return false
@@ -306,6 +330,8 @@ class VideoCadenceGovernor(private val maxFps: Int) {
 
         const val URGENT_FRESHNESS_MULTIPLIER = 2.0
         const val URGENT_FRESHNESS_CHANGE_INTERVAL_MS = 1_500L
+        const val HIGH_CADENCE_FAST_RELIEF_FPS = 60
+        const val HIGH_CADENCE_FAST_RELIEF_CHANGE_INTERVAL_MS = 1_500L
 
         const val HEALTHY_RTT_MS = 300
         const val HEALTHY_JITTER_MS = 45.0
