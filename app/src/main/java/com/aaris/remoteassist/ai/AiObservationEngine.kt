@@ -45,8 +45,16 @@ class AiObservationEngine internal constructor(
 
     private suspend fun settle() {
         val start = now()
-        pause(80)
-        while (now() - start < 320 && now() - ledger.changedAtMs < 100) pause(40)
+        while (true) {
+            val current = now()
+            val elapsed = current - start
+            val quietFor = current - ledger.changedAtMs
+            if (quietFor >= 100L || elapsed >= 320L) return
+
+            val remainingQuiet = (100L - quietFor).coerceAtLeast(1L)
+            val remainingBudget = (320L - elapsed).coerceAtLeast(1L)
+            pause(minOf(40L, remainingQuiet, remainingBudget))
+        }
     }
 
     suspend fun observe(detail: Boolean = false): JSONObject {
@@ -107,6 +115,7 @@ class AiObservationEngine internal constructor(
         val geometry = display()
         if (geometry.displayWidthPx != width || geometry.displayHeightPx != height) return refused("CAPTURE_GEOMETRY_CHANGED")
         val action = args.getString("action")
+        if (action == "tap") snapTapToClickableTarget(args, observed)
         val navigation = action in setOf("home", "back", "recents", "open_app")
         val epoch = ledger.invalidationGeneration
         val ui = uiSnapshot() ?: return refused("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
@@ -136,6 +145,27 @@ class AiObservationEngine internal constructor(
                 (navigation || (!current.sensitiveFocus && current.packageName != ownPackage && sameTarget(args, ui, current)))
         }
         return if (check()) AiActionValidation(stillValid = check) else refused("TARGET_CHANGED")
+    }
+
+    private fun snapTapToClickableTarget(args: JSONObject, ui: AiUiSnapshot) {
+        val x = args.optDouble("x", Double.NaN)
+        val y = args.optDouble("y", Double.NaN)
+        if (!x.isFinite() || !y.isFinite() || x !in 0.0..1.0 || y !in 0.0..1.0) return
+        if (width <= 0 || height <= 0) return
+
+        // Keep raw coordinate taps as the universal fallback for canvases and
+        // custom views. If Accessibility exposes a stable clickable target,
+        // center the request inside the smallest enabled target to avoid edges.
+        val target = ui.nodes.asSequence()
+            .filter { node ->
+                node.enabled && node.clickable && node.area > 0L &&
+                    node.contains(x * width, y * height)
+            }
+            .minByOrNull { it.area }
+            ?: return
+
+        args.put("x", ((target.left + target.right) / 2.0 / width).coerceIn(0.0, 1.0))
+        args.put("y", ((target.top + target.bottom) / 2.0 / height).coerceIn(0.0, 1.0))
     }
 
     private fun actionScope(args: JSONObject, ui: AiUiSnapshot): AiActionScope? {
