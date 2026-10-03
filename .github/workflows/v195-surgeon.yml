@@ -1,0 +1,52 @@
+name: v1.9.5 Surgeon
+
+on:
+  push:
+    branches: [ perf/presentation-ai-v195 ]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Apply exact source upgrade
+        run: python3 tools/v195_patch.py
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: MCP protocol regression tests
+        run: node cloudflare/mcp-worker.test.mjs
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v4
+      - run: sdkmanager "platforms;android-36"
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "9.6.0"
+
+      - name: Android unit, lint and build regression gate
+        run: gradle :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease --stacktrace
+
+      - name: Commit only tested production changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f tools/v195_patch.py .github/workflows/v195-surgeon.yml
+          rmdir tools 2>/dev/null || true
+          git add -A
+          git diff --cached --check
+          git config user.name "aaris-upgrade-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git commit -m "v1.9.5: presentation-aware realtime and smarter AI hands"
+          git push origin HEAD:perf/presentation-ai-v195
