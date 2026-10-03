@@ -3,6 +3,7 @@ package com.aaris.remoteassist.webrtc
 import android.graphics.ImageFormat
 import android.graphics.Rect
 import android.graphics.YuvImage
+import com.aaris.remoteassist.capture.CaptureVideoContract
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.util.concurrent.Executors
@@ -271,11 +272,12 @@ class FallbackScreenStreamer(
 
     companion object {
         /*
-         * HIGH capture tops out at a 2400 px long side. Keep the fallback
-         * safety bound above that tier so a capable phone never loses its black
-         * screen recovery solely because the primary capture is high quality.
+         * Primary capture and compatibility recovery deliberately share this
+         * ceiling. Keeping one compiler-visible contract prevents a future
+         * quality increase from silently disabling black-screen recovery.
          */
-        private const val MAX_DIMENSION = 2560
+        private const val MAX_DIMENSION =
+            CaptureVideoContract.MAX_FALLBACK_SAFE_LONG_SIDE_PX
         private const val FRAME_INTERVAL_MS = 450L
         private const val JPEG_QUALITY = 62
         private const val MAX_JPEG_BYTES = 720_000
