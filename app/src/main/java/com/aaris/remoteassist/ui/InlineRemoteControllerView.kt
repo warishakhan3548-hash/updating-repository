@@ -3,6 +3,7 @@ package com.aaris.remoteassist.ui
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.SurfaceTexture
@@ -26,6 +27,8 @@ import android.widget.TextView
 import com.aaris.remoteassist.control.GestureStreamPhase
 import com.aaris.remoteassist.webrtc.ControllerConnectionRuntime
 import com.aaris.remoteassist.webrtc.ControllerWebRtcSession
+import com.aaris.remoteassist.webrtc.FallbackDeltaFrame
+import com.aaris.remoteassist.webrtc.FallbackDeltaPatch
 import com.aaris.remoteassist.webrtc.FallbackVideoFrame
 import com.aaris.remoteassist.webrtc.RemoteGeometry
 import com.aaris.remoteassist.webrtc.WebRtcRuntime
@@ -59,6 +62,12 @@ class InlineRemoteControllerView(
         val x: Float,
         val y: Float,
         val atMs: Long
+    )
+
+    private data class DecodedDeltaPatch(
+        val x: Int,
+        val y: Int,
+        val bitmap: Bitmap
     )
 
     private val root = FrameLayout(activity)
@@ -150,6 +159,9 @@ class InlineRemoteControllerView(
         AtomicReference<FallbackVideoFrame?>(null)
     private val fallbackDecodeScheduled = AtomicBoolean(false)
     private var fallbackBitmap: Bitmap? = null
+    private var fallbackScratchBitmap: Bitmap? = null
+    @Volatile
+    private var fallbackCompositeFrameId = -1L
     private var mediaRecoveryAttempts = 0
     private var rendererRecoveryAttempts = 0
     private val rawFrameSeen = AtomicBoolean(false)
@@ -360,6 +372,12 @@ class InlineRemoteControllerView(
                 decodeFallbackFrame(frame)
             }
 
+            override fun onFallbackDeltaFrame(
+                frame: FallbackDeltaFrame
+            ) {
+                decodeFallbackDeltaFrame(frame)
+            }
+
             override fun onCommandResult(
                 sequence: Long,
                 applied: Boolean
@@ -447,6 +465,9 @@ class InlineRemoteControllerView(
             fallbackImageView.setImageDrawable(null)
             fallbackBitmap?.recycle()
             fallbackBitmap = null
+            fallbackScratchBitmap?.recycle()
+            fallbackScratchBitmap = null
+            fallbackCompositeFrameId = -1L
         }
 
         remoteTrack = null
@@ -1166,6 +1187,9 @@ class InlineRemoteControllerView(
                                 fallbackImageView.setImageDrawable(null)
                                 fallbackBitmap?.recycle()
                                 fallbackBitmap = null
+                                fallbackScratchBitmap?.recycle()
+                                fallbackScratchBitmap = null
+                                fallbackCompositeFrameId = -1L
                                 status.visibility = View.GONE
                                 session()
                                     ?.confirmPrimaryVideoRendered()
@@ -1477,13 +1501,21 @@ class InlineRemoteControllerView(
                 return@runOnUiThread
             }
 
+            if (frame.frameId <= fallbackCompositeFrameId) {
+                oriented.recycle()
+                return@runOnUiThread
+            }
+
             fallbackActive = true
+            fallbackCompositeFrameId = frame.frameId
             frameWidth = oriented.width
             frameHeight = oriented.height
             updateVideoViewport()
 
             val previous = fallbackBitmap
+            val previousScratch = fallbackScratchBitmap
             fallbackBitmap = oriented
+            fallbackScratchBitmap = null
             fallbackImageView.setImageBitmap(oriented)
             fallbackImageView.visibility = View.VISIBLE
             textureView.alpha = 0f
@@ -1495,11 +1527,224 @@ class InlineRemoteControllerView(
             ) {
                 previous.recycle()
             }
+            if (
+                previousScratch != null &&
+                previousScratch !== oriented &&
+                previousScratch !== previous &&
+                !previousScratch.isRecycled
+            ) {
+                previousScratch.recycle()
+            }
 
             status.visibility = View.VISIBLE
             status.text =
                 "Compatibility video active • primary stream recovering…"
         }
+    }
+
+    private fun decodeFallbackDeltaFrame(
+        frame: FallbackDeltaFrame
+    ) {
+        if (!attached || renderedFrameSeen.get()) return
+        runCatching {
+            fallbackDecoder.execute {
+                decodeFallbackDeltaFrameNow(frame)
+            }
+        }
+    }
+
+    private fun decodeFallbackDeltaFrameNow(
+        frame: FallbackDeltaFrame
+    ) {
+        if (
+            renderedFrameSeen.get() ||
+            frame.baseFrameId != fallbackCompositeFrameId
+        ) {
+            return
+        }
+
+        val decoded = ArrayList<DecodedDeltaPatch>(frame.patches.size)
+        for (patch in frame.patches) {
+            val item = decodeOrientedDeltaPatch(frame, patch)
+            if (item == null) {
+                decoded.forEach { it.bitmap.recycle() }
+                return
+            }
+            decoded += item
+        }
+
+        activity.runOnUiThread {
+            if (
+                !attached ||
+                renderedFrameSeen.get() ||
+                frame.baseFrameId != fallbackCompositeFrameId
+            ) {
+                decoded.forEach { it.bitmap.recycle() }
+                return@runOnUiThread
+            }
+
+            val current = fallbackBitmap
+            if (current == null || current.isRecycled) {
+                decoded.forEach { it.bitmap.recycle() }
+                return@runOnUiThread
+            }
+
+            val orientedWidth =
+                if (frame.rotation == 90 || frame.rotation == 270) {
+                    frame.height
+                } else {
+                    frame.width
+                }
+            val orientedHeight =
+                if (frame.rotation == 90 || frame.rotation == 270) {
+                    frame.width
+                } else {
+                    frame.height
+                }
+            val currentGeometry = geometry
+            if (
+                current.width != orientedWidth ||
+                current.height != orientedHeight ||
+                (
+                    currentGeometry != null &&
+                    !RemoteViewportMapper.frameMatchesRemote(
+                        remoteWidth = currentGeometry.widthPx,
+                        remoteHeight = currentGeometry.heightPx,
+                        frameWidth = orientedWidth,
+                        frameHeight = orientedHeight
+                    )
+                )
+            ) {
+                decoded.forEach { it.bitmap.recycle() }
+                return@runOnUiThread
+            }
+
+            var scratch = fallbackScratchBitmap
+            if (
+                scratch == null ||
+                scratch.isRecycled ||
+                !scratch.isMutable ||
+                scratch.width != orientedWidth ||
+                scratch.height != orientedHeight
+            ) {
+                scratch?.takeIf { !it.isRecycled && it !== current }?.recycle()
+                scratch = Bitmap.createBitmap(
+                    orientedWidth,
+                    orientedHeight,
+                    Bitmap.Config.ARGB_8888
+                )
+            }
+
+            scratch.eraseColor(Color.BLACK)
+            val canvas = Canvas(scratch)
+            val (shiftX, shiftY) = orientedShift(
+                frame.shiftX,
+                frame.shiftY,
+                frame.rotation
+            )
+            canvas.drawBitmap(
+                current,
+                shiftX.toFloat(),
+                shiftY.toFloat(),
+                null
+            )
+            decoded.forEach { patch ->
+                canvas.drawBitmap(
+                    patch.bitmap,
+                    patch.x.toFloat(),
+                    patch.y.toFloat(),
+                    null
+                )
+            }
+
+            fallbackImageView.setImageBitmap(scratch)
+            fallbackBitmap = scratch
+            fallbackScratchBitmap =
+                if (current.isMutable && !current.isRecycled) {
+                    current
+                } else {
+                    if (!current.isRecycled) current.recycle()
+                    null
+                }
+            fallbackCompositeFrameId = frame.frameId
+            fallbackActive = true
+            latestObservedFrameWidth = orientedWidth
+            latestObservedFrameHeight = orientedHeight
+            frameWidth = orientedWidth
+            frameHeight = orientedHeight
+            updateVideoViewport()
+            fallbackImageView.visibility = View.VISIBLE
+            textureView.alpha = 0f
+            status.visibility = View.VISIBLE
+            status.text =
+                "Adaptive recovery video • primary stream recovering…"
+
+            decoded.forEach { patch ->
+                if (!patch.bitmap.isRecycled) patch.bitmap.recycle()
+            }
+        }
+    }
+
+    private fun decodeOrientedDeltaPatch(
+        frame: FallbackDeltaFrame,
+        patch: FallbackDeltaPatch
+    ): DecodedDeltaPatch? {
+        val decoded = BitmapFactory.decodeByteArray(
+            patch.jpeg,
+            0,
+            patch.jpeg.size
+        ) ?: return null
+
+        val oriented =
+            if (frame.rotation == 0) {
+                decoded
+            } else {
+                runCatching {
+                    val matrix = Matrix().apply {
+                        postRotate(frame.rotation.toFloat())
+                    }
+                    Bitmap.createBitmap(
+                        decoded,
+                        0,
+                        0,
+                        decoded.width,
+                        decoded.height,
+                        matrix,
+                        true
+                    )
+                }.getOrNull()?.also {
+                    if (it !== decoded) decoded.recycle()
+                } ?: decoded
+            }
+
+        val coordinates = when (frame.rotation) {
+            90 ->
+                (frame.height - patch.y - patch.height) to patch.x
+            180 ->
+                (frame.width - patch.x - patch.width) to
+                    (frame.height - patch.y - patch.height)
+            270 ->
+                patch.y to
+                    (frame.width - patch.x - patch.width)
+            else -> patch.x to patch.y
+        }
+
+        return DecodedDeltaPatch(
+            x = coordinates.first,
+            y = coordinates.second,
+            bitmap = oriented
+        )
+    }
+
+    private fun orientedShift(
+        shiftX: Int,
+        shiftY: Int,
+        rotation: Int
+    ): Pair<Int, Int> = when (rotation) {
+        90 -> -shiftY to shiftX
+        180 -> -shiftX to -shiftY
+        270 -> shiftY to -shiftX
+        else -> shiftX to shiftY
     }
 
     private fun addButton(

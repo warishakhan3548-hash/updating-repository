@@ -18,6 +18,7 @@ import org.webrtc.RtpTransceiver
 import org.webrtc.SessionDescription
 import org.webrtc.VideoTrack
 import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
@@ -41,6 +42,7 @@ class WebRtcPeer(
         fun onControlMessage(bytes: ByteArray)
         fun onRemoteVideoTrack(track: VideoTrack)
         fun onFallbackVideoFrame(frame: FallbackVideoFrame) = Unit
+        fun onFallbackDeltaFrame(frame: FallbackDeltaFrame) = Unit
         fun onRemoteMediaRecoveryRequested() = Unit
         fun onVideoHealth(snapshot: VideoHealthSnapshot) = Unit
         fun onDiagnostic(message: String) = Unit
@@ -253,6 +255,8 @@ class WebRtcPeer(
 
     private val fallbackReassembler =
         FallbackVideoProtocol.Reassembler()
+    private val fallbackDeltaReassembler =
+        FallbackDeltaProtocol.Reassembler()
 
     @Volatile
     private var localScreenTransceiver: RtpTransceiver? = null
@@ -445,7 +449,7 @@ class WebRtcPeer(
                     FALLBACK_VIDEO_CHANNEL,
                     DataChannel.Init().apply {
                         ordered = false
-                        maxRetransmits = 0
+                        maxRetransmits = 1
                     }
                 )
             )
@@ -786,10 +790,13 @@ class WebRtcPeer(
             return false
         }
 
-        if (
-            channel.bufferedAmount() >
-            MAX_FALLBACK_BUFFERED_BYTES
-        ) {
+        val bufferedLimit =
+            if (isDeltaFallbackPacket(bytes)) {
+                MAX_FRESH_FALLBACK_BUFFERED_BYTES
+            } else {
+                MAX_FALLBACK_BUFFERED_BYTES
+            }
+        if (channel.bufferedAmount() > bufferedLimit) {
             return false
         }
 
@@ -1160,6 +1167,7 @@ class WebRtcPeer(
         fallbackVideoChannel?.let(::disposeDataChannel)
         fallbackVideoChannel = null
         fallbackReassembler.reset()
+        fallbackDeltaReassembler.reset()
 
         publishedRemoteVideoTrack = null
         controllerVideoTransceiver = null
@@ -1485,6 +1493,13 @@ class WebRtcPeer(
                     val bytes = ByteArray(size)
                     source.get(bytes)
 
+                    fallbackDeltaReassembler
+                        .offer(bytes)
+                        ?.let { frame ->
+                            listener.onFallbackDeltaFrame(frame)
+                            return
+                        }
+
                     fallbackReassembler
                         .offer(bytes)
                         ?.let { frame ->
@@ -1640,6 +1655,13 @@ class WebRtcPeer(
         }
     }
 
+    private fun isDeltaFallbackPacket(bytes: ByteArray): Boolean {
+        if (bytes.size < 4) return false
+        return ByteBuffer.wrap(bytes, 0, 4)
+            .order(ByteOrder.BIG_ENDIAN)
+            .int == FALLBACK_DELTA_MAGIC
+    }
+
     private fun monotonicNowMs(): Long =
         System.nanoTime() / 1_000_000L
 
@@ -1667,6 +1689,8 @@ class WebRtcPeer(
         private const val MAX_FRESH_CONTROL_BUFFERED_BYTES = 512L
         private const val MAX_FALLBACK_PACKET_BYTES = 12_500
         private const val MAX_FALLBACK_BUFFERED_BYTES = 900_000L
+        private const val MAX_FRESH_FALLBACK_BUFFERED_BYTES = 64_000L
+        private const val FALLBACK_DELTA_MAGIC = 0x41524432
         private const val CONTROL_CHANNEL = "control-v1"
         private const val LIVE_CONTROL_CHANNEL = "control-live-v1"
         private const val FALLBACK_VIDEO_CHANNEL = "fallback-video-v1"

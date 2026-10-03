@@ -124,6 +124,10 @@ sealed interface ControlPacket {
         val active: Boolean
     ) : ControlPacket
 
+    data class FallbackDeltaReady(
+        val leaseSecret: Long
+    ) : ControlPacket
+
     data object Disconnect : ControlPacket
 }
 
@@ -147,6 +151,7 @@ object ControlProtocol {
     private const val PRIMARY_VIDEO_READY: Byte = 15
     private const val INTERACTION_STATE: Byte = 16
     private const val GESTURE_STREAM: Byte = 17
+    private const val FALLBACK_DELTA_READY: Byte = 18
 
     private const val MAX_TEXT_BYTES = 2048
     private const val MAX_GESTURE_PATH_POINTS = 96
@@ -203,7 +208,8 @@ object ControlProtocol {
             is ControlPacket.Text -> 2 + 8 + 4 + 8 + 2 + checkNotNull(textBytes).size
             is ControlPacket.CommandResult -> 2 + 8 + 1
             is ControlPacket.VideoRecoveryRequest,
-            is ControlPacket.PrimaryVideoReady -> 2 + 8
+            is ControlPacket.PrimaryVideoReady,
+            is ControlPacket.FallbackDeltaReady -> 2 + 8
             is ControlPacket.InteractionState -> 2 + 8 + 1
             ControlPacket.Disconnect -> 2
         }
@@ -372,6 +378,10 @@ object ControlProtocol {
             is ControlPacket.InteractionState -> {
                 buffer.putLong(packet.leaseSecret)
                 buffer.put((if (packet.active) 1 else 0).toByte())
+            }
+
+            is ControlPacket.FallbackDeltaReady -> {
+                buffer.putLong(packet.leaseSecret)
             }
 
             ControlPacket.Disconnect -> Unit
@@ -599,6 +609,13 @@ object ControlProtocol {
                     )
                 }
 
+                FALLBACK_DELTA_READY -> {
+                    require(buffer.remaining() == 8)
+                    ControlPacket.FallbackDeltaReady(
+                        leaseSecret = buffer.long
+                    )
+                }
+
                 DISCONNECT -> {
                     require(buffer.remaining() == 0)
                     ControlPacket.Disconnect
@@ -739,6 +756,7 @@ object ControlProtocol {
             is ControlPacket.VideoRecoveryRequest,
             is ControlPacket.PrimaryVideoReady,
             is ControlPacket.InteractionState,
+            is ControlPacket.FallbackDeltaReady,
             ControlPacket.Disconnect -> null
         }
     }
@@ -797,6 +815,8 @@ object ControlProtocol {
             PRIMARY_VIDEO_READY
         is ControlPacket.InteractionState ->
             INTERACTION_STATE
+        is ControlPacket.FallbackDeltaReady ->
+            FALLBACK_DELTA_READY
         ControlPacket.Disconnect -> DISCONNECT
     }
 }

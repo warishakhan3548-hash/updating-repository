@@ -271,10 +271,8 @@ class FallbackScreenStreamer(
         }
 
         if (plan.regions.isEmpty() && !plan.forceKeyframe) {
-            // Tiny sub-threshold capture noise does not deserve network bytes.
-            // Keep the controller's authoritative base id while following the
-            // latest raw pixels for the next change comparison.
-            referenceFrame = reference.copy(luma = packedLuma)
+            // Do not advance the host reference for pixels that were never sent.
+            // This keeps host/controller bases identical across many tiny changes.
             return true
         }
 
@@ -373,7 +371,14 @@ class FallbackScreenStreamer(
                     width = width,
                     height = height,
                     rotation = rotation,
-                    luma = packedLuma
+                    luma = advanceReferenceLuma(
+                        previous = reference.luma,
+                        current = packedLuma,
+                        width = width,
+                        height = height,
+                        shiftY = plan.shiftY,
+                        regions = plan.regions
+                    )
                 )
             if (firstDeltaReported.compareAndSet(false, true)) {
                 onDiagnostic(
@@ -387,6 +392,41 @@ class FallbackScreenStreamer(
             }
         }
         return allSent
+    }
+
+    private fun advanceReferenceLuma(
+        previous: ByteArray,
+        current: ByteArray,
+        width: Int,
+        height: Int,
+        shiftY: Int,
+        regions: List<DeltaRegion>
+    ): ByteArray {
+        val result = ByteArray(width * height)
+
+        for (y in 0 until height) {
+            val sourceY = y - shiftY
+            if (sourceY !in 0 until height) continue
+            previous.copyInto(
+                destination = result,
+                destinationOffset = y * width,
+                startIndex = sourceY * width,
+                endIndex = (sourceY + 1) * width
+            )
+        }
+
+        regions.forEach { region ->
+            for (y in region.y until region.y + region.height) {
+                val start = y * width + region.x
+                current.copyInto(
+                    destination = result,
+                    destinationOffset = start,
+                    startIndex = start,
+                    endIndex = start + region.width
+                )
+            }
+        }
+        return result
     }
 
     private fun sendLegacyKeyframe(
@@ -645,14 +685,14 @@ class FallbackScreenStreamer(
         private val LEGACY_JPEG_QUALITY_LADDER =
             intArrayOf(62, 50, 38)
         private val ADAPTIVE_KEYFRAME_QUALITY_LADDER =
-            intArrayOf(46, 36, 28, 22)
+            intArrayOf(44, 34, 26, 20, 16)
         private val PATCH_JPEG_QUALITY_LADDER =
-            intArrayOf(58, 48, 38, 30)
+            intArrayOf(56, 46, 36, 28, 22)
 
         private const val MAX_LEGACY_JPEG_BYTES = 720_000
-        private const val MAX_ADAPTIVE_KEYFRAME_BYTES = 380_000
-        private const val MAX_PATCH_JPEG_BYTES = 150_000
-        private const val MAX_DELTA_JPEG_BYTES = 300_000
+        private const val MAX_ADAPTIVE_KEYFRAME_BYTES = 240_000
+        private const val MAX_PATCH_JPEG_BYTES = 56_000
+        private const val MAX_DELTA_JPEG_BYTES = 56_000
         private const val MAX_JPEG_ESTIMATE_BYTES = 320_000
         private const val MAX_PATCH_ESTIMATE_BYTES = 96_000
     }

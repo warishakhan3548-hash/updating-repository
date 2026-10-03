@@ -27,6 +27,7 @@ class ControllerWebRtcSession(
         fun onConnectivityChanged(connected: Boolean)
         fun onRemoteVideoTrack(track: VideoTrack)
         fun onFallbackVideoFrame(frame: FallbackVideoFrame) = Unit
+        fun onFallbackDeltaFrame(frame: FallbackDeltaFrame) = Unit
         fun onCommandResult(sequence: Long, applied: Boolean)
         fun onDiagnostic(message: String) = Unit
         fun onRecoverableError(error: Throwable)
@@ -490,6 +491,13 @@ class ControllerWebRtcSession(
                 handler.post(heartbeat)
 
                 listener.onLive(geometry)
+                peer.sendControl(
+                    ControlProtocol.encode(
+                        ControlPacket.FallbackDeltaReady(
+                            leaseSecret = packet.leaseSecret
+                        )
+                    )
+                )
             }
 
             is ControlPacket.CommandResult ->
@@ -511,6 +519,12 @@ class ControllerWebRtcSession(
         frame: FallbackVideoFrame
     ) {
         listener.onFallbackVideoFrame(frame)
+    }
+
+    override fun onFallbackDeltaFrame(
+        frame: FallbackDeltaFrame
+    ) {
+        listener.onFallbackDeltaFrame(frame)
     }
 
     override fun onVideoHealth(
