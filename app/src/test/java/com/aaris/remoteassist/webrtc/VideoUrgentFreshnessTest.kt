@@ -50,12 +50,20 @@ class VideoUrgentFreshnessTest {
     }
 
     @Test
-    fun ordinaryQueueStillRequiresSustainedPressure() {
+    fun ordinaryFullCadenceQueueGetsOneFreshnessStep() {
         val governor = VideoCadenceGovernor(60)
 
-        assertFalse(governor.observe(outbound(queueMs = 70.0), receiver(), 60, 1_000))
         assertTrue(governor.observe(outbound(queueMs = 70.0), receiver(), 60, 2_000))
         assertEquals(45, governor.cap)
+    }
+
+    @Test
+    fun lowerCadenceOrdinaryQueueStillRequiresSustainedPressure() {
+        val governor = VideoCadenceGovernor(30)
+
+        assertFalse(governor.observe(outbound(queueMs = 80.0), receiver(), 30, 1_000))
+        assertTrue(governor.observe(outbound(queueMs = 80.0), receiver(), 30, 2_000))
+        assertEquals(24, governor.cap)
     }
 
     @Test
