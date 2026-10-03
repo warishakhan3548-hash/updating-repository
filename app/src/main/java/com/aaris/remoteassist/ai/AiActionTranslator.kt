@@ -10,6 +10,27 @@ import org.json.JSONObject
 object AiActionTranslator {
     private const val MAX_AI_DRAG_POINTS = 24
 
+    /**
+     * Actions executed through the shared Android control path. The connector
+     * advertises this exact list to Cloudflare so server-side tools never get
+     * ahead of the APK that is actually connected.
+     *
+     * open_app is added by AiConnectorService because it intentionally bypasses
+     * RemoteCommand and uses Android's launcher API after the same freshness and
+     * authorization checks.
+     */
+    val supportedActions: List<String> = listOf(
+        "tap",
+        "long_press",
+        "swipe",
+        "drag",
+        "two_finger",
+        "type",
+        "back",
+        "home",
+        "recents"
+    )
+
     fun translate(args: JSONObject, lease: LiveLease, sequence: Long, width: Int, height: Int): RemoteCommand {
         fun unit(value: Any): Float {
             require(value is Number)
