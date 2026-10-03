@@ -88,7 +88,7 @@ data class AiActionScope(
         fun fromPaths(paths: List<List<Pair<Double, Double>>>): AiActionScope {
             require(paths.isNotEmpty() && paths.all { it.size >= 2 })
             val first = fromPath(paths.first())
-            return first.copy(additionalPaths = paths.drop(1).map(List<Pair<Double, Double>>::toList))
+            return first.copy(additionalPaths = paths.drop(1).map { it.toList() })
         }
     }
 }
