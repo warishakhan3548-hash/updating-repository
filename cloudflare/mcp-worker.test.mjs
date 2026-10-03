@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { AiDevice, canonical, validateArguments, TOOLS, toolResult } from './mcp-worker.js';
+import worker, { AiDevice, canonical, normalizeDeviceActions, toolsForDevice, validateArguments, TOOLS, toolResult } from './mcp-worker.js';
 
 const id = '1'.repeat(64), deviceToken = '2'.repeat(64), clientToken = '3'.repeat(64);
 const base = 'https://aaris-phone-mcp.example';
@@ -31,6 +31,8 @@ async function fixture(storage = new Storage()) {
   return { obj, ctx, request, call, sent, ws, connect, complete };
 }
 const result = async response => JSON.parse((await response.json()).result.content[0].text);
+const listTools = async f => (await (await f.obj.fetch(f.request(`/mcp/${id}/${clientToken}`, { jsonrpc: '2.0', id: 2, method: 'tools/list' }))).json()).result.tools;
+const actionEnum = tools => tools.find(tool => tool.name === 'phone_action').inputSchema.properties.action.enum;
 
 test('strict arguments reject nonfinite, missing and out of range coordinates, unknown fields and oversized text', () => {
   assert.ok(validateArguments('phone_action', args));
@@ -65,6 +67,46 @@ test('MCP initialization negotiates a supported version and images are first-cla
   assert.equal(toolResult({ image: { mimeType: 'image/jpeg', data: 'aaa' }, screenVersion: 1 }).content[1].type, 'image');
   assert.equal(TOOLS.length, 3);
 });
+
+test('capability negotiation defaults old APKs to legacy actions and ignores unknown future actions', () => {
+  const legacy = normalizeDeviceActions(undefined);
+  assert.equal(legacy.includes('two_finger'), false);
+  assert.equal(actionEnum(toolsForDevice(undefined)).includes('two_finger'), false);
+
+  const current = normalizeDeviceActions([...legacy, 'two_finger', 'future_action']);
+  assert.equal(current.includes('two_finger'), true);
+  assert.equal(current.includes('future_action'), false);
+  assert.equal(actionEnum(toolsForDevice(current)).includes('two_finger'), true);
+  assert.equal(normalizeDeviceActions('not-an-array'), null);
+});
+
+test('connected APK capabilities gate tools and stale cached actions before device dispatch', async () => {
+  const f = await fixture(); f.connect();
+  await f.obj.webSocketMessage(f.ws, JSON.stringify({ type: 'ready', runId: 'legacy-run' }));
+  assert.equal(actionEnum(await listTools(f)).includes('two_finger'), false);
+
+  const twoFinger = {
+    ...args,
+    actionId: 'step-two-finger-1',
+    action: 'two_finger',
+    x: 0.2, y: 0.7, toX: 0.3, toY: 0.5,
+    secondX: 0.8, secondY: 0.7, secondToX: 0.7, secondToY: 0.5,
+    durationMs: 240
+  };
+  const refused = await result(await f.call('phone_action', twoFinger));
+  assert.equal(refused.error, 'UNSUPPORTED_DEVICE_ACTION');
+  assert.equal(f.sent.filter(message => message.type === 'request').length, 0);
+  assert.equal(f.ctx.storage.values.has(`action:${twoFinger.actionId}`), false);
+
+  const upgraded = [...normalizeDeviceActions(undefined), 'two_finger'];
+  await f.obj.webSocketMessage(f.ws, JSON.stringify({ type: 'ready', runId: 'new-run', actions: upgraded }));
+  assert.equal(actionEnum(await listTools(f)).includes('two_finger'), true);
+  assert.equal(f.obj.config.controlActions.includes('two_finger'), true);
+
+  const restarted = await fixture(f.ctx.storage);
+  assert.equal(actionEnum(await listTools(restarted)).includes('two_finger'), true);
+});
+
 test('unauthorized links and credential replacement cannot reach a phone', async () => {
   const f = await fixture(); f.connect();
   const response = await f.obj.fetch(f.request(`/mcp/${id}/${'0'.repeat(64)}`, {})); assert.equal(response.status, 401);
@@ -148,6 +190,7 @@ test('status distinguishes unfinished setup from an active phone without requiri
   const setup = await result(await f.call('phone_status'));
   assert.equal(setup.online, false); assert.equal(setup.connectionState, 'setup_required');
   assert.match(setup.next, /full-screen sharing/);
+  assert.equal(setup.supportedActions.includes('two_finger'), false);
   f.connect(); await f.obj.webSocketMessage(f.ws, JSON.stringify({ type: 'ready', runId: 'run-first' }));
   assert.equal((await result(await f.call('phone_status'))).connectionState, 'sharing');
   f.ws.a.lastSeen = Date.now() - 60_000;
