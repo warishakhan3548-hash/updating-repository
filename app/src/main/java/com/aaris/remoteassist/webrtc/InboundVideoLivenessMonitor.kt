@@ -29,6 +29,7 @@ class InboundVideoLivenessMonitor(
     private var stagnantScore = 0
     private var recoveryPending = false
 
+    @Synchronized
     fun observe(
         framesReceived: Long,
         framesDecoded: Long
@@ -89,6 +90,7 @@ class InboundVideoLivenessMonitor(
         return InboundVideoLivenessAction.REQUEST_RECOVERY
     }
 
+    @Synchronized
     fun markRecoveryRequestFailed() {
         if (!recoveryPending) return
         recoveryPending = false
@@ -97,11 +99,13 @@ class InboundVideoLivenessMonitor(
                 .coerceAtLeast(0)
     }
 
+    @Synchronized
     fun markPrimaryRecoveredConfirmed() {
         recoveryPending = false
         stagnantScore = 0
     }
 
+    @Synchronized
     fun reset() {
         lastFramesReceived = -1L
         lastFramesDecoded = -1L

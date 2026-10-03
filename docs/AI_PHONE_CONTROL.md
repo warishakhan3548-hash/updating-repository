@@ -1,4 +1,4 @@
-# AI phone control (v1.9.1)
+# AI phone control (v1.9.2)
 
 Tap **Connect Phone with AI** below Connect/Share. The app registers a random,
 device-specific MCP link, copies it automatically, and displays it below the
@@ -64,16 +64,29 @@ leases. Default-network changes reconnect the socket promptly, using Android's
 chosen Wi-Fi/mobile route; late callbacks from obsolete sockets are ignored.
 Actions are never replayed automatically after reconnection. Keystore/native
 initialization runs off the UI thread, after foreground-service promotion, and
-startup errors leave a visible retry instruction. This is startup hardening,
-not proof of the exact cause of a reported device crash without its crash log.
+startup errors leave a visible retry instruction. The supplied v1.9.1 recording
+identified a separate `NetworkOnMainThreadException` during `AiConnectorBackend.close()`:
+OkHttp pool eviction closes TLS sockets and can write `close_notify`. v1.9.2 runs
+all backend cancellation, pool eviction and executor shutdown on a process-owned
+IO scope, including Activity `finally` and service destruction. Cleanup is
+idempotent and outlives a cancelled UI scope. A real keep-alive socket regression
+fails with the old synchronous close and passes with this implementation. This
+fix allows setup to continue through capture consent; link registration alone
+still does not mean the phone is online.
 
 ## Images, realtime and resource limits
 
 Human phone-to-phone viewing continues through WebRTC with congestion control,
 TURN and the existing adaptive capture governor. When primary video stalls,
-compatibility transport sends JPEG anchors and tile/scroll deltas. It now waits
-for the DataChannel backlog before starting another encode, uses higher JPEG
-quality floors and refines a settled screen once with a sharper frame. Existing
+compatibility transport sends JPEG anchors and tile/scroll deltas. It waits
+for the DataChannel backlog before starting another encode and refines a settled
+screen once with a sharper frame. v1.9.2 samples the capture source before RTP
+resolution adaptation, releases the GPU texture before JPEG/delta encoding and
+network work, and requests a current sample every 500 ms during recovery so a
+static screen can finish refinement. Motion is bounded to a 1600-pixel long edge;
+settled recovery can use up to the source resolution, capped at 2560 pixels.
+Dependent delta packets use ordered delivery with bounded retransmission;
+missing packets still require a new anchor. Existing
 gesture coalescing and separate input lanes remain in place. Very weak links
 still require a frame-rate/resolution tradeoff; lossless native quality at every
 bandwidth is not promised.
@@ -107,11 +120,26 @@ explicitly enforced by the video source, including on static-screen requests.
   frames, freezes and ICE candidate types where the SDK exposes them. ACK time is
   explicitly not input-to-photon latency; no frame causality is fabricated.
 
+The viewer keeps bounded primary-video recovery active while compatibility
+images are visible. Recovery requests no longer disable the host video track.
+Only a real EGL swap confirms primary-video recovery; decoded RTP counters do
+not. The SDK's persistent render callback replaces its one-shot screenshot
+callback, so later stalls can recover too. Hardware baseline H264 is preferred
+when the SDK reports support; VP8 remains negotiable. After repeated requests,
+one supported alternate-codec offer is allowed in the existing peer without
+restarting ICE, control or capture. The alternate must appear in both peers'
+capabilities. High-profile H264 is not forced. These SDK calls compile against
+`io.github.webrtc-sdk:android:150.7871.01`; codec/vendor behavior still requires
+physical phone testing.
+
+Recovery progress never covers a visible remote screen. It is available through
+**Stats**; before the first image, a centered waiting placeholder is shown.
+
 Hardware codecs, 60 fps interaction tiers, network adaptation and split
-input channels already exist. Predictive scroll, forced zero jitter buffering,
-thermal-headroom tuning and unverified codec/SDP switches are not enabled by this fix. The current native
-SDK's public RtpReceiver API has no playout-delay setter. These changes target
-observed defects rather than promising an unmeasured latency improvement.
+input channels are retained. Predictive scroll, forced zero jitter buffering and
+thermal-headroom tuning are not added. The current native SDK's public
+RtpReceiver API has no playout-delay setter. These changes target observed
+defects rather than promising an unmeasured latency improvement.
 
 AI uses a live 8 fps capture source but only copies/encodes/uploads frames when
 requested. There is one pending snapshot, one in-flight tool operation and no

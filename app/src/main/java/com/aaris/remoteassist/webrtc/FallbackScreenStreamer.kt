@@ -5,14 +5,17 @@ import android.graphics.Rect
 import android.graphics.YuvImage
 import com.aaris.remoteassist.capture.CaptureVideoContract
 import com.aaris.remoteassist.capture.FrameImageEncoder
+import com.aaris.remoteassist.capture.RetainedFrameCopy
+import com.aaris.remoteassist.capture.ScreenCaptureTrack
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import org.webrtc.VideoFrame
 import org.webrtc.VideoSink
-import org.webrtc.VideoTrack
 
 /**
  * Compatibility screen transport used only while primary RTP video is black or
@@ -25,10 +28,11 @@ import org.webrtc.VideoTrack
  * not the controller, decides what changed by comparing raw capture luma.
  */
 class FallbackScreenStreamer(
-    private val track: VideoTrack,
+    private val capture: ScreenCaptureTrack,
     private val sendPacket: (ByteArray) -> Boolean,
     private val onDiagnostic: (String) -> Unit,
-    private val canStartFrame: () -> Boolean = { true }
+    private val canStartFrame: () -> Boolean = { true },
+    private val requestFreshFrame: () -> Unit = {}
 ) : AutoCloseable {
     private data class ReferenceFrame(
         val frameId: Long,
@@ -50,7 +54,7 @@ class FallbackScreenStreamer(
     private val forceKeyframe = AtomicBoolean(true)
     private val clarity = FallbackClarityPolicy()
     private val worker =
-        Executors.newSingleThreadExecutor { runnable ->
+        Executors.newSingleThreadScheduledExecutor { runnable ->
             Thread(
                 runnable,
                 "AarisFallbackVideo"
@@ -58,6 +62,7 @@ class FallbackScreenStreamer(
                 priority = Thread.NORM_PRIORITY - 1
             }
         }
+    private var refreshTask: ScheduledFuture<*>? = null
 
     @Volatile
     private var referenceFrame: ReferenceFrame? = null
@@ -92,12 +97,15 @@ class FallbackScreenStreamer(
         frame.retain()
         try { worker.execute {
             try {
-                val sent = encodeAndSend(frame)
+                val sent = RetainedFrameCopy.use(frame, if (interactionActive.get()) 1600 else MAX_DIMENSION) { cpu, rotation ->
+                    encodeAndSend(cpu, normalizeRotation(rotation))
+                } ?: false
                 if (deltaCapable.get()) {
                     adjustCadence(sent)
                 }
+            } catch (error: Exception) {
+                onDiagnostic("Compatibility image failed (${error.javaClass.simpleName})")
             } finally {
-                frame.release()
                 encoding.set(false)
             }
         } } catch (_: java.util.concurrent.RejectedExecutionException) {
@@ -107,7 +115,9 @@ class FallbackScreenStreamer(
     }
 
     init {
-        track.addSink(sink)
+        // Use the capture source before RTP's CPU/network downscaling. A failed
+        // RTP encoder must not permanently reduce a settled recovery image.
+        capture.addSnapshotSink(sink)
     }
 
     fun setDeltaCapable(capable: Boolean) {
@@ -138,7 +148,7 @@ class FallbackScreenStreamer(
         lastFrameAtMs.set(0L)
     }
 
-    fun enable() {
+    @Synchronized fun enable() {
         if (closed.get() || !enabled.compareAndSet(false, true)) {
             return
         }
@@ -148,6 +158,13 @@ class FallbackScreenStreamer(
         lastKeyframeAtMs = 0L
         adaptiveIntervalMs.set(ADAPTIVE_INITIAL_INTERVAL_MS)
         firstDeltaReported.set(false)
+        // Static Android screens may emit no final frame after motion stops.
+        // Request a current sample so clarity refinement/backpressure recovery
+        // can finish. Never retain an old SurfaceTexture as a snapshot cache.
+        refreshTask?.cancel(false)
+        refreshTask = worker.scheduleWithFixedDelay({
+            if (!closed.get() && enabled.get() && canStartFrame()) runCatching(requestFreshFrame)
+        }, 500, 500, TimeUnit.MILLISECONDS)
 
         onDiagnostic(
             if (deltaCapable.get()) {
@@ -158,8 +175,9 @@ class FallbackScreenStreamer(
         )
     }
 
-    fun disable() {
+    @Synchronized fun disable() {
         if (enabled.compareAndSet(true, false)) {
+            refreshTask?.cancel(false); refreshTask = null
             referenceFrame = null
             lastKeyframeAtMs = 0L
             onDiagnostic("Compatibility screen stream disabled")
@@ -200,41 +218,35 @@ class FallbackScreenStreamer(
         }
     }
 
-    private fun encodeAndSend(frame: VideoFrame): Boolean {
+    private fun encodeAndSend(i420: VideoFrame.I420Buffer, rotation: Int): Boolean {
         if (closed.get() || !enabled.get()) return false
+        val width = i420.width
+        val height = i420.height
+        if (
+            width <= 1 ||
+            height <= 1 ||
+            width > MAX_DIMENSION ||
+            height > MAX_DIMENSION
+        ) {
+            return false
+        }
 
-        val i420 = frame.buffer.toI420() ?: return false
-        try {
-            val width = i420.width
-            val height = i420.height
-            if (
-                width <= 1 ||
-                height <= 1 ||
-                width > MAX_DIMENSION ||
-                height > MAX_DIMENSION
-            ) {
-                return false
-            }
-
-            return if (deltaCapable.get()) {
-                encodeAdaptive(
-                    i420 = i420,
-                    width = width,
-                    height = height,
-                    rotation = normalizeRotation(frame.rotation)
-                )
-            } else {
-                sendLegacyKeyframe(
-                    i420 = i420,
-                    width = width,
-                    height = height,
-                    rotation = normalizeRotation(frame.rotation),
-                    adaptiveAnchor = false,
-                    packedLuma = null
-                )
-            }
-        } finally {
-            i420.release()
+        return if (deltaCapable.get()) {
+            encodeAdaptive(
+                i420 = i420,
+                width = width,
+                height = height,
+                rotation = rotation
+            )
+        } else {
+            sendLegacyKeyframe(
+                i420 = i420,
+                width = width,
+                height = height,
+                rotation = rotation,
+                adaptiveAnchor = false,
+                packedLuma = null
+            )
         }
     }
 
@@ -641,9 +653,8 @@ class FallbackScreenStreamer(
 
         for (row in 0 until planeHeight) {
             val srcRow = row * sourceStride
-            for (column in 0 until planeWidth) {
-                destination[dstRow + column] = src.get(srcRow + column)
-            }
+            src.position(srcRow)
+            src.get(destination, dstRow, planeWidth)
             dstRow += destinationStride
         }
     }
@@ -659,12 +670,13 @@ class FallbackScreenStreamer(
     private fun monotonicNowMs(): Long =
         System.nanoTime() / 1_000_000L
 
-    override fun close() {
+    @Synchronized override fun close() {
         if (!closed.compareAndSet(false, true)) return
 
         enabled.set(false)
+        refreshTask?.cancel(false); refreshTask = null
         referenceFrame = null
-        runCatching { track.removeSink(sink) }
+        runCatching { capture.removeSnapshotSink(sink) }
         // An accepted frame owns a retain; let the bounded worker run its finally block.
         worker.shutdown()
     }

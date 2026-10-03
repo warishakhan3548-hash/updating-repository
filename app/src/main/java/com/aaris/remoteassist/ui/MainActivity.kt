@@ -217,7 +217,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showPreviousCrashIfAny(): Boolean {
-        val crash = CrashRecorder.consume(this) ?: return false
+        val crash = CrashRecorder.consume(this)
+            ?.replace(Regex("""(?i)\b(?:https?|wss?)://[^\s<>"']+"""), "[redacted URL]")
+            ?: return false
         val pendingController = prefs.getString(
             KEY_PENDING_CONTROLLER_SESSION,
             null
@@ -235,10 +237,14 @@ class MainActivity : ComponentActivity() {
         AlertDialog.Builder(this)
             .setTitle("Aaris Remote stopped unexpectedly")
             .setMessage(
-                "The previous controller screen crashed, so its stale session " +
-                    "was stopped instead of auto-launching it again.\n\n" +
+                "The previous app run stopped unexpectedly. " +
+                    (if (pendingController != null) "Its old controller session was closed. " else "") +
+                    "You can copy this report to help diagnose the failure.\n\n" +
                     crash.take(2_500)
             )
+            .setNeutralButton("Copy report") { _, _ ->
+                getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Aaris crash report", crash))
+            }
             .setPositiveButton("OK", null)
             .show()
 
