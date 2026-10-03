@@ -22,18 +22,60 @@ data class AiUiNode(
     val valueDigest: String = ""
 ) {
     fun contains(x: Double, y: Double) = x >= left && x < right && y >= top && y < bottom
-    val area: Long get() = (right - left).toLong().coerceAtLeast(0) * (bottom - top).coerceAtLeast(0)
+    val area: Long get() = (right - left).toLong().coerceAtLeast(0) * (bottom - top).toLong().coerceAtLeast(0)
 }
 
 /** A padded touch point/path in full-display coordinates, independent of other animation. */
-data class AiActionScope(val x: Double, val y: Double, val toX: Double = x, val toY: Double = y) {
+data class AiActionScope(
+    val x: Double,
+    val y: Double,
+    val toX: Double = x,
+    val toY: Double = y,
+    val via: List<Pair<Double, Double>> = emptyList()
+) {
     fun contains(px: Double, py: Double): Boolean {
-        // Normalize by clearance so a vertical swipe checks a narrow corridor,
-        // not every pixel in a large axis-aligned rectangle.
-        val dx = (toX - x) / 0.04; val dy = (toY - y) / 0.025
-        val vx = (px - x) / 0.04; val vy = (py - y) / 0.025
-        val t = if (dx * dx + dy * dy == 0.0) 0.0 else ((vx * dx + vy * dy) / (dx * dx + dy * dy)).coerceIn(0.0, 1.0)
-        return (vx - t * dx) * (vx - t * dx) + (vy - t * dy) * (vy - t * dy) <= 1.0
+        val path = buildList {
+            add(x to y)
+            addAll(via)
+            add(toX to toY)
+        }
+        return path.zipWithNext().any { (from, to) ->
+            containsSegment(from.first, from.second, to.first, to.second, px, py)
+        }
+    }
+
+    private fun containsSegment(
+        fromX: Double,
+        fromY: Double,
+        endX: Double,
+        endY: Double,
+        px: Double,
+        py: Double
+    ): Boolean {
+        // Normalize by clearance so vertical/horizontal paths keep a narrow
+        // touch corridor rather than validating the full axis-aligned box.
+        val dx = (endX - fromX) / 0.04
+        val dy = (endY - fromY) / 0.025
+        val vx = (px - fromX) / 0.04
+        val vy = (py - fromY) / 0.025
+        val lengthSquared = dx * dx + dy * dy
+        val t = if (lengthSquared == 0.0) 0.0 else ((vx * dx + vy * dy) / lengthSquared).coerceIn(0.0, 1.0)
+        val ex = vx - t * dx
+        val ey = vy - t * dy
+        return ex * ex + ey * ey <= 1.0
+    }
+
+    companion object {
+        fun fromPath(points: List<Pair<Double, Double>>): AiActionScope {
+            require(points.size >= 2)
+            return AiActionScope(
+                x = points.first().first,
+                y = points.first().second,
+                toX = points.last().first,
+                toY = points.last().second,
+                via = points.subList(1, points.lastIndex)
+            )
+        }
     }
 }
 
