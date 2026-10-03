@@ -42,12 +42,14 @@ import kotlinx.coroutines.withContext
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import org.json.JSONArray
 import org.json.JSONObject
 
 /** Explicitly started, visible MediaProjection owner. A process restart always needs new consent. */
 class AiConnectorService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val backend = AiConnectorBackend()
+    private val supportedActions = AiActionTranslator.supportedActions + "open_app"
     private var credential: AiCredential? = null
     private var capture: ScreenCaptureTrack? = null
     private var snapshots: AiSnapshotProvider? = null
@@ -155,7 +157,16 @@ class AiConnectorService : Service() {
         socket = backend.connect(value, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) { scope.launch {
                 if (socket !== webSocket || stopping) { webSocket.cancel(); return@launch }
-                webSocket.send(JSONObject().put("type", "ready").put("runId", runId).toString())
+                // Server-side tools are capability-gated from this exact list.
+                // Older workers ignore the extra field; newer workers use it to
+                // avoid ever advertising an action this installed APK cannot run.
+                webSocket.send(
+                    JSONObject()
+                        .put("type", "ready")
+                        .put("runId", runId)
+                        .put("actions", JSONArray(supportedActions))
+                        .toString()
+                )
                 heartbeatJob?.cancel()
                 heartbeatJob = scope.launch {
                     while (isActive && socket === webSocket) {
