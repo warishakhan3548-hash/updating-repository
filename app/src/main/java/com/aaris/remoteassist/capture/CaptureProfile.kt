@@ -62,11 +62,22 @@ data class CaptureProfile(
 
         private const val LOW_FPS = 15
         private const val BALANCED_FPS = 24
-        private const val STANDARD_FPS = 30
-        private const val HIGH_FPS = 30
 
-        // Motion is bursty: use higher cadence only while the controller is
-        // actively touching or while the resulting fling/animation is settling.
+        /*
+         * Idle here means "no remote finger is down", not "the screen is
+         * static". Games, video, progress animations and inertial scrolling can
+         * keep changing after input has stopped. Keeping capable phones at a
+         * display-class ambient ceiling prevents those pixels from falling back
+         * to a visibly choppy 30 Hz stream. The cadence governor remains the
+         * authority: it can immediately step 60/45 down when encoder, queue,
+         * network or receiver presentation pressure says that the path cannot
+         * sustain it.
+         */
+        private const val STANDARD_FPS = 45
+        private const val HIGH_FPS = 60
+
+        // Motion is bursty: use higher cadence while the controller is actively
+        // touching or while the resulting fling/animation is settling.
         // Constrained tiers remain conservative; STANDARD/HIGH can match a
         // common 60Hz phone display when the encoder and path are healthy.
         private const val LOW_MOTION_FPS = 20
