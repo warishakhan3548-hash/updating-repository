@@ -16,11 +16,11 @@ class CaptureProfileTest {
         assertEquals(720, profile.captureWidthPx)
         assertEquals(1600, profile.captureHeightPx)
         assertEquals(30, profile.fps)
-        assertEquals(6_800_000, profile.maxVideoBitrateBps)
+        assertEquals(7_200_000, profile.maxVideoBitrateBps)
     }
 
     @Test
-    fun standardPreservesMoreDetailOnModernTallPhone() {
+    fun standardKeepsNativeModernTallPhoneDetail() {
         val profile =
             CaptureProfile.forDisplay(
                 displayWidthPx = 1080,
@@ -28,10 +28,10 @@ class CaptureProfileTest {
                 tier = CaptureTier.STANDARD
             )
 
-        assertEquals(972, profile.captureWidthPx)
-        assertEquals(2160, profile.captureHeightPx)
+        assertEquals(1080, profile.captureWidthPx)
+        assertEquals(2400, profile.captureHeightPx)
         assertEquals(30, profile.fps)
-        assertEquals(6_800_000, profile.maxVideoBitrateBps)
+        assertEquals(7_200_000, profile.maxVideoBitrateBps)
     }
 
     @Test
@@ -60,6 +60,21 @@ class CaptureProfileTest {
 
         assertEquals(1080, profile.captureWidthPx)
         assertEquals(2400, profile.captureHeightPx)
+        assertEquals(30, profile.fps)
+        assertEquals(8_000_000, profile.maxVideoBitrateBps)
+    }
+
+    @Test
+    fun highTierPreservesExtraDetailOnQhdClassPhone() {
+        val profile =
+            CaptureProfile.forDisplay(
+                displayWidthPx = 1440,
+                displayHeightPx = 3200,
+                tier = CaptureTier.HIGH
+            )
+
+        assertEquals(1296, profile.captureWidthPx)
+        assertEquals(2880, profile.captureHeightPx)
         assertEquals(30, profile.fps)
         assertEquals(8_000_000, profile.maxVideoBitrateBps)
     }
