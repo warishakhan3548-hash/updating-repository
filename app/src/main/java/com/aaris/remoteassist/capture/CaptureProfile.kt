@@ -51,13 +51,13 @@ data class CaptureProfile(
          * the governor can still step down immediately when the encoder or path
          * is genuinely constrained.
          *
-         * HIGH remains a distinct performance tier rather than merely raising
-         * bitrate over the same pixel workload. 2880 gives capable >=6 GB
-         * devices extra detail on QHD-class panels while retaining a meaningful
-         * high -> standard pixel-cost reduction under pressure.
+         * HIGH stays distinct without violating the compatibility-video safety
+         * contract, whose current hard dimension ceiling is 2560. That gives
+         * capable >=6 GB devices extra detail on QHD-class panels while keeping
+         * black-screen recovery valid for every capture tier.
          */
         private const val STANDARD_CAPTURE_LONG_SIDE = 2400
-        private const val HIGH_CAPTURE_LONG_SIDE = 2880
+        private const val HIGH_CAPTURE_LONG_SIDE = 2560
 
         private const val LOW_FPS = 15
         private const val BALANCED_FPS = 24
