@@ -72,14 +72,13 @@ class VideoFeedbackTest {
         assertEquals(45, governor.cap)
         assertTrue(governor.observe(outbound(), receiver(), 45, 14_000)); assertEquals(60, governor.cap)
     }
-    @Test fun sustainedSenderQueueResidenceUsesFortyFiveFpsReliefBeforeThirty() {
+    @Test fun measuredSenderQueueResidenceGetsFastFortyFiveFpsRelief() {
         val governor = VideoCadenceGovernor(60)
         val queued = outbound().let {
             it.copy(recent = it.recent!!.copy(frames = 60, sendQueueMs = 70.0))
         }
         val healthyReceiver = receiver().copy(frames = 60)
-        assertFalse(governor.observe(queued, healthyReceiver, 60, 1000))
-        assertTrue(governor.observe(queued, healthyReceiver, 60, 2000))
+        assertTrue(governor.observe(queued, healthyReceiver, 60, 1000))
         assertEquals(45, governor.cap)
     }
     @Test fun severeQueueResidenceCanDownshiftAfterOneMeasuredWindow() {
@@ -90,12 +89,11 @@ class VideoFeedbackTest {
         assertTrue(governor.observe(queued, receiver().copy(frames = 60), 60, 1000))
         assertEquals(30, governor.cap)
     }
-    @Test fun receiverJitterResidenceUsesIntermediateCadenceBeforeThirty() {
+    @Test fun receiverJitterResidenceGetsFastIntermediateCadenceBeforeThirty() {
         val governor = VideoCadenceGovernor(60)
         val sending60 = outbound().let { it.copy(recent = it.recent!!.copy(frames = 60)) }
         val delayedReceiver = receiver().copy(frames = 60, jitterMs = 100.0, dropped = 0, freezes = 0)
-        assertFalse(governor.observe(sending60, delayedReceiver, 60, 1000))
-        assertTrue(governor.observe(sending60, delayedReceiver, 60, 2000))
+        assertTrue(governor.observe(sending60, delayedReceiver, 60, 1000))
         assertEquals(45, governor.cap)
     }
     @Test fun cpuPressureSkipsFortyFiveBecauseEncoderNeedsStrongerRelief() {
