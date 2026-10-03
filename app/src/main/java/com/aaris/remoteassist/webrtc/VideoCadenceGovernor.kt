@@ -62,12 +62,9 @@ class VideoCadenceGovernor(private val maxFps: Int) {
          */
         val presentedFrames = receiver?.presentedFrames ?: 0
         val presentedFps = receiver?.presentedFps
+        val measuredReceiverFps = receiver?.takeIf { it.frames >= MIN_MEASURED_FRAMES }?.fps
         val expectedPresentationFps = if (presentedFps != null) {
-            var expected = minOf(requestedFps.toDouble(), sender.fps)
-            if (receiver != null && receiver.frames >= MIN_MEASURED_FRAMES) {
-                expected = minOf(expected, receiver.fps)
-            }
-            expected
+            minOf(requestedFps.toDouble(), sender.fps, measuredReceiverFps ?: Double.POSITIVE_INFINITY)
         } else 0.0
         val presentationRatio =
             if (presentedFps != null && expectedPresentationFps >= MIN_PRESENTATION_EXPECTED_FPS) {
@@ -110,16 +107,16 @@ class VideoCadenceGovernor(private val maxFps: Int) {
 
             val ceiling = minOf(cap, requestedFps)
             /*
-             * 45 fps is an important intermediate rung for the STANDARD tier:
-             * it avoids the visible 60 -> 30 cliff during ordinary network or
-             * controller-render pressure. CPU limitation is different: keeping
-             * the encoder at 45 fps rarely buys freshness when the local device
-             * is already compute-bound, so CPU pressure deliberately skips to a
-             * stronger <=30 fps relief step.
+             * 45 fps is an important intermediate rung for ordinary interactive
+             * pressure: it avoids the visible 60 -> 30 cliff. Severe queue/jitter/
+             * presentation pressure and CPU limitation are different: freshness
+             * is already at risk, so they deliberately skip the soft rung and
+             * take a stronger <=30 fps relief step.
              */
+            val needsStrongRelief = severePressure || cpuPressure
             val ordinaryNext = DESCENDING_CAPS.firstOrNull { candidate ->
                 candidate < ceiling &&
-                    (!cpuPressure || candidate <= CPU_PRESSURE_MAX_STEP_FPS)
+                    (!needsStrongRelief || candidate <= STRONG_RELIEF_MAX_STEP_FPS)
             } ?: return false
             val next = if (severePressure) {
                 val delivered = buildList {
@@ -129,7 +126,11 @@ class VideoCadenceGovernor(private val maxFps: Int) {
                 }.minOrNull()
                 val guarded = delivered?.times(SEVERE_OBSERVED_HEADROOM)?.toInt()
                 if (guarded == null) ordinaryNext
-                else DESCENDING_CAPS.firstOrNull { it < ceiling && it <= guarded } ?: ordinaryNext
+                else DESCENDING_CAPS.firstOrNull {
+                    it < ceiling &&
+                        it <= guarded &&
+                        it <= STRONG_RELIEF_MAX_STEP_FPS
+                } ?: ordinaryNext
             } else ordinaryNext
 
             cap = next
@@ -213,7 +214,7 @@ class VideoCadenceGovernor(private val maxFps: Int) {
         const val SEVERE_PRESENTATION_DELIVERY_RATIO = 0.60
         const val SEVERE_RENDER_GAP_MS = 150.0
         const val SEVERE_OBSERVED_HEADROOM = 1.10
-        const val CPU_PRESSURE_MAX_STEP_FPS = 30
+        const val STRONG_RELIEF_MAX_STEP_FPS = 30
 
         const val HEALTHY_RTT_MS = 300
         const val HEALTHY_JITTER_MS = 45.0
