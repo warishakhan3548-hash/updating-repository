@@ -23,7 +23,7 @@ class InteractiveVideoPolicyTest {
     }
 
     @Test
-    fun activeStrongTiersUseBalancedDegradation() {
+    fun activeStrongTiersPrioritizeFreshMotionFrames() {
         listOf(
             CaptureTier.STANDARD,
             CaptureTier.HIGH
@@ -34,7 +34,7 @@ class InteractiveVideoPolicyTest {
             )
 
             assertFalse(policy.preserveResolution)
-            assertFalse(policy.motionPriority)
+            assertTrue(policy.motionPriority)
         }
     }
 
@@ -67,6 +67,18 @@ class InteractiveVideoPolicyTest {
 
             assertFalse(policy.preserveResolution)
             assertFalse(policy.motionPriority)
+        }
+    }
+
+    @Test
+    fun everyActiveTierUsesMotionPriority() {
+        CaptureTier.entries.forEach { tier ->
+            val policy = InteractiveVideoPolicy.forState(
+                tier = tier,
+                interactionActive = true
+            )
+
+            assertTrue(policy.motionPriority)
         }
     }
 }

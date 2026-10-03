@@ -7,10 +7,10 @@ import com.aaris.remoteassist.capture.CaptureTier
  *
  * Screen sharing has different priorities from camera video: text must remain
  * readable while idle, but interaction must not turn into a slideshow. The
- * strongest capture tiers therefore use WebRTC's BALANCED strategy during
- * motion instead of forcing MAINTAIN_FRAMERATE (which can create an abrupt
- * resolution/clarity cliff). Constrained tiers still favor frame freshness
- * because their capture resolution is already intentionally bounded.
+ * all capture tiers therefore use MAINTAIN_FRAMERATE during active
+ * interaction. STANDARD/HIGH temporarily raise capture cadence as well; if the
+ * encoder or network cannot sustain that burst, WebRTC may trade resolution for
+ * fresh frames while the slower quality governor remains the safety backstop.
  */
 data class InteractiveVideoPolicy(
     val preserveResolution: Boolean,
@@ -42,7 +42,7 @@ data class InteractiveVideoPolicy(
                 CaptureTier.HIGH ->
                     InteractiveVideoPolicy(
                         preserveResolution = false,
-                        motionPriority = false
+                        motionPriority = true
                     )
             }
         }

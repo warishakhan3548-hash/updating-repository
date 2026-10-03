@@ -141,7 +141,7 @@ class HostWebRtcSession(
 
             if (captureRecoveryAttempts < MAX_CAPTURE_RECOVERY_ATTEMPTS) {
                 captureRecoveryAttempts += 1
-                capture.update(profile)
+                capture.update(effectiveCaptureProfile(profile))
                 displayHandler.postDelayed(
                     this,
                     CAPTURE_RECOVERY_INTERVAL_MS
@@ -324,7 +324,6 @@ class HostWebRtcSession(
         if (latest == previous) return
 
         profile = latest
-        capture.update(latest)
         applyVideoPolicy(latest)
 
         /*
@@ -367,7 +366,6 @@ class HostWebRtcSession(
                 nextTier
             )
         profile = next
-        capture.update(next)
         applyVideoPolicy(next)
 
         listener.onDiagnostic(
@@ -585,7 +583,7 @@ class HostWebRtcSession(
          */
         runCatching {
             capture.videoTrack.setEnabled(false)
-            capture.update(profile)
+            capture.update(effectiveCaptureProfile(profile))
         }
 
         displayHandler.postDelayed(
@@ -593,7 +591,7 @@ class HostWebRtcSession(
                 if (!closed.get()) {
                     runCatching {
                         capture.videoTrack.setEnabled(true)
-                        capture.update(profile)
+                        capture.update(effectiveCaptureProfile(profile))
                     }
                 }
             },
@@ -662,16 +660,39 @@ class HostWebRtcSession(
         )
     }
 
+    private fun effectiveCaptureProfile(
+        target: CaptureProfile
+    ): CaptureProfile {
+        val targetFps =
+            if (interactionActive) {
+                target.motionFps
+            } else {
+                target.fps
+            }
+
+        return if (targetFps == target.fps) {
+            target
+        } else {
+            target.copy(fps = targetFps)
+        }
+    }
+
     private fun applyVideoPolicy(target: CaptureProfile) {
         val policy =
             InteractiveVideoPolicy.forState(
                 tier = target.tier,
                 interactionActive = interactionActive
             )
+        val effective = effectiveCaptureProfile(target)
 
+        // ScreenCapturerAndroid must actually produce the faster frames; merely
+        // increasing RtpSender.maxFramerate cannot make a 30fps source become
+        // 60fps. changeCaptureFormat is lightweight and keeps the same
+        // MediaProjection/VirtualDisplay consent session.
+        capture.update(effective)
         peer.updateInteractiveVideoPolicy(
             maxBitrateBps = target.maxVideoBitrateBps,
-            maxFramerate = target.fps,
+            maxFramerate = effective.fps,
             preserveResolution = policy.preserveResolution,
             motionPriority = policy.motionPriority
         )

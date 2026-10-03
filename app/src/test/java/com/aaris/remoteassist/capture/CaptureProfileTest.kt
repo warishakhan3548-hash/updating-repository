@@ -1,6 +1,7 @@
 package com.aaris.remoteassist.capture
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CaptureProfileTest {
@@ -78,7 +79,8 @@ class CaptureProfileTest {
         assertEquals(720, profile.captureWidthPx)
         assertEquals(1600, profile.captureHeightPx)
         assertEquals(30, profile.fps)
-        assertEquals(7_200_000, profile.maxVideoBitrateBps)
+        assertEquals(60, profile.motionFps)
+        assertEquals(10_000_000, profile.maxVideoBitrateBps)
     }
 
     @Test
@@ -93,7 +95,8 @@ class CaptureProfileTest {
         assertEquals(1080, profile.captureWidthPx)
         assertEquals(2400, profile.captureHeightPx)
         assertEquals(30, profile.fps)
-        assertEquals(7_200_000, profile.maxVideoBitrateBps)
+        assertEquals(60, profile.motionFps)
+        assertEquals(10_000_000, profile.maxVideoBitrateBps)
     }
 
     @Test
@@ -108,6 +111,7 @@ class CaptureProfileTest {
         assertEquals(540, profile.captureWidthPx)
         assertEquals(1200, profile.captureHeightPx)
         assertEquals(24, profile.fps)
+        assertEquals(30, profile.motionFps)
         assertEquals(3_000_000, profile.maxVideoBitrateBps)
     }
 
@@ -123,7 +127,8 @@ class CaptureProfileTest {
         assertEquals(1080, profile.captureWidthPx)
         assertEquals(2400, profile.captureHeightPx)
         assertEquals(30, profile.fps)
-        assertEquals(8_000_000, profile.maxVideoBitrateBps)
+        assertEquals(60, profile.motionFps)
+        assertEquals(12_000_000, profile.maxVideoBitrateBps)
     }
 
     @Test
@@ -138,7 +143,8 @@ class CaptureProfileTest {
         assertEquals(1152, profile.captureWidthPx)
         assertEquals(2560, profile.captureHeightPx)
         assertEquals(30, profile.fps)
-        assertEquals(8_000_000, profile.maxVideoBitrateBps)
+        assertEquals(60, profile.motionFps)
+        assertEquals(12_000_000, profile.maxVideoBitrateBps)
     }
 
     @Test
@@ -153,7 +159,21 @@ class CaptureProfileTest {
         assertEquals(324, profile.captureWidthPx)
         assertEquals(720, profile.captureHeightPx)
         assertEquals(15, profile.fps)
+        assertEquals(20, profile.motionFps)
         assertEquals(1_200_000, profile.maxVideoBitrateBps)
+    }
+
+    @Test
+    fun everyTierMotionBudgetIsNeverBelowIdleBudget() {
+        CaptureTier.entries.forEach { tier ->
+            val profile =
+                CaptureProfile.forDisplay(
+                    displayWidthPx = 1080,
+                    displayHeightPx = 2400,
+                    tier = tier
+                )
+            assertTrue(profile.motionFps >= profile.fps)
+        }
     }
 
     companion object {

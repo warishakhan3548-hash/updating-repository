@@ -1796,7 +1796,7 @@ class InlineRemoteControllerView(
 
         /*
          * Preserve the shape of fast curved drags while pacing the transport
-         * independently from the 30 fps video path. Healthy control traffic can
+         * independently from the video frame cadence. Healthy control traffic can
          * run at a 60 Hz-class cadence; DataChannel backpressure immediately
          * stretches that cadence and the host independently coalesces queued
          * CONTINUE segments, preventing old pointer positions from accumulating.
@@ -2264,7 +2264,7 @@ class InlineRemoteControllerView(
         private const val HANDLE_PEEK_ANIMATION_MS = 120L
         private const val HANDLE_PEEK_DP = 8
         private const val HANDLE_PEEK_ALPHA = 0.38f
-        private const val REMOTE_MOTION_TAIL_MS = 900L
+        private const val REMOTE_MOTION_TAIL_MS = 1_500L
 
         private const val MIN_STREAM_SEGMENT_MS = 16
         private const val MAX_STREAM_SEGMENT_MS = 56
