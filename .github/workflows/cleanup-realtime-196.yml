@@ -1,0 +1,78 @@
+name: Clean realtime 1.9.6 formatting
+
+on:
+  push:
+    branches: [ upgrade/realtime-196 ]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: upgrade/realtime-196
+          fetch-depth: 0
+      - name: Apply fail-closed formatting cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/src/main/java/com/aaris/remoteassist/webrtc/ControllerWebRtcSession.kt")
+          text = path.read_text()
+          old = '''            peer.sendControl(
+        bytes = ControlProtocol.encode(
+            ControlPacket.VideoFeedback(
+                lease,
+                display.generation,
+                feedbackSequence.incrementAndGet(),
+                recent.intervalMs,
+                recent.frames,
+                recent.processingMs?.toFloat() ?: -1f,
+                recent.jitterMs?.toFloat() ?: -1f,
+                recent.dropped ?: -1,
+                recent.freezes ?: -1
+            )
+        ),
+        // Decoder health is periodic freshness telemetry. Once the live lane
+        // exists, dropping an old sample beats head-of-line blocking input.
+        freshnessSensitive = true
+    )'''
+          new = '''            peer.sendControl(
+                bytes = ControlProtocol.encode(
+                    ControlPacket.VideoFeedback(
+                        lease,
+                        display.generation,
+                        feedbackSequence.incrementAndGet(),
+                        recent.intervalMs,
+                        recent.frames,
+                        recent.processingMs?.toFloat() ?: -1f,
+                        recent.jitterMs?.toFloat() ?: -1f,
+                        recent.dropped ?: -1,
+                        recent.freezes ?: -1
+                    )
+                ),
+                // Decoder health is periodic freshness telemetry. Once the live lane
+                // exists, dropping an old sample beats head-of-line blocking input.
+                freshnessSensitive = true
+            )'''
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f"expected exactly one formatting target, found {count}")
+          path.write_text(text.replace(old, new, 1))
+          Path(".github/workflows/cleanup-realtime-196.yml").unlink()
+          PY
+          git diff --check
+      - name: Commit cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "style: clean realtime telemetry formatting"
+          git push origin HEAD:upgrade/realtime-196
