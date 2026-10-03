@@ -25,22 +25,25 @@ data class AiUiNode(
     val area: Long get() = (right - left).toLong().coerceAtLeast(0) * (bottom - top).toLong().coerceAtLeast(0)
 }
 
-/** A padded touch point/path in full-display coordinates, independent of other animation. */
+/** Padded touch path(s) in full-display coordinates, independent of other animation. */
 data class AiActionScope(
     val x: Double,
     val y: Double,
     val toX: Double = x,
     val toY: Double = y,
-    val via: List<Pair<Double, Double>> = emptyList()
+    val via: List<Pair<Double, Double>> = emptyList(),
+    val extraPaths: List<List<Pair<Double, Double>>> = emptyList()
 ) {
     fun contains(px: Double, py: Double): Boolean {
-        val path = buildList {
+        val primary = buildList {
             add(x to y)
             addAll(via)
             add(toX to toY)
         }
-        return path.zipWithNext().any { (from, to) ->
-            containsSegment(from.first, from.second, to.first, to.second, px, py)
+        return (listOf(primary) + extraPaths).any { path ->
+            path.zipWithNext().any { (from, to) ->
+                containsSegment(from.first, from.second, to.first, to.second, px, py)
+            }
         }
     }
 
@@ -74,6 +77,19 @@ data class AiActionScope(
                 toX = points.last().first,
                 toY = points.last().second,
                 via = points.subList(1, points.lastIndex)
+            )
+        }
+
+        fun fromPaths(paths: List<List<Pair<Double, Double>>>): AiActionScope {
+            require(paths.isNotEmpty() && paths.all { it.size >= 2 })
+            val first = paths.first()
+            return AiActionScope(
+                x = first.first().first,
+                y = first.first().second,
+                toX = first.last().first,
+                toY = first.last().second,
+                via = first.subList(1, first.lastIndex),
+                extraPaths = paths.drop(1).map(List<Pair<Double, Double>>::toList)
             )
         }
     }
