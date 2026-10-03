@@ -4,6 +4,7 @@ import android.graphics.ImageFormat
 import android.graphics.Rect
 import android.graphics.YuvImage
 import com.aaris.remoteassist.capture.CaptureVideoContract
+import com.aaris.remoteassist.capture.FrameImageEncoder
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.util.concurrent.Executors
@@ -26,7 +27,8 @@ import org.webrtc.VideoTrack
 class FallbackScreenStreamer(
     private val track: VideoTrack,
     private val sendPacket: (ByteArray) -> Boolean,
-    private val onDiagnostic: (String) -> Unit
+    private val onDiagnostic: (String) -> Unit,
+    private val canStartFrame: () -> Boolean = { true }
 ) : AutoCloseable {
     private data class ReferenceFrame(
         val frameId: Long,
@@ -45,6 +47,7 @@ class FallbackScreenStreamer(
     private val adaptiveIntervalMs = AtomicLong(ADAPTIVE_INITIAL_INTERVAL_MS)
     private val frameSequence = AtomicLong(0L)
     private val firstDeltaReported = AtomicBoolean(false)
+    private val clarity = FallbackClarityPolicy()
     private val worker =
         Executors.newSingleThreadExecutor { runnable ->
             Thread(
@@ -75,12 +78,18 @@ class FallbackScreenStreamer(
         if (!lastFrameAtMs.compareAndSet(previous, now)) {
             return@VideoSink
         }
+        // A new frame cannot overtake already-buffered data. Wait before doing
+        // any encoding so low bandwidth cannot accumulate seconds of old images.
+        if (!canStartFrame()) {
+            if (deltaCapable.get()) adjustCadence(false)
+            return@VideoSink
+        }
         if (!encoding.compareAndSet(false, true)) {
             return@VideoSink
         }
 
         frame.retain()
-        worker.execute {
+        try { worker.execute {
             try {
                 val sent = encodeAndSend(frame)
                 if (deltaCapable.get()) {
@@ -90,6 +99,9 @@ class FallbackScreenStreamer(
                 frame.release()
                 encoding.set(false)
             }
+        } } catch (_: java.util.concurrent.RejectedExecutionException) {
+            frame.release()
+            encoding.set(false)
         }
     }
 
@@ -271,10 +283,17 @@ class FallbackScreenStreamer(
         }
 
         if (plan.regions.isEmpty() && !plan.forceKeyframe) {
+            if (clarity.shouldRefine(now, interactionActive.get(), adaptiveIntervalMs.get() > 180L)) {
+                val sent = sendLegacyKeyframe(i420, width, height, rotation, true, packedLuma, refine = true)
+                if (sent) clarity.sentRefinement()
+                return sent
+            }
             // Do not advance the host reference for pixels that were never sent.
             // This keeps host/controller bases identical across many tiny changes.
             return true
         }
+
+        clarity.changed(now)
 
         if (plan.forceKeyframe) {
             return sendLegacyKeyframe(
@@ -287,7 +306,7 @@ class FallbackScreenStreamer(
             )
         }
 
-        val nv21 = toNv21(i420)
+        val nv21 = FrameImageEncoder.toNv21(i420)
         val image =
             YuvImage(
                 nv21,
@@ -435,15 +454,17 @@ class FallbackScreenStreamer(
         height: Int,
         rotation: Int,
         adaptiveAnchor: Boolean,
-        packedLuma: ByteArray?
+        packedLuma: ByteArray?,
+        refine: Boolean = false
     ): Boolean {
-        val nv21 = toNv21(i420)
+        val nv21 = FrameImageEncoder.toNv21(i420)
         val jpeg =
             compressFullFrameWithinBudget(
                 nv21 = nv21,
                 width = width,
                 height = height,
-                adaptiveAnchor = adaptiveAnchor
+                adaptiveAnchor = adaptiveAnchor,
+                refine = refine
             ) ?: return false
 
         val id = frameSequence.incrementAndGet()
@@ -459,6 +480,7 @@ class FallbackScreenStreamer(
 
         if (allSent) {
             if (adaptiveAnchor) {
+                if (!refine) clarity.changed(monotonicNowMs())
                 referenceFrame =
                     ReferenceFrame(
                         frameId = id,
@@ -494,7 +516,8 @@ class FallbackScreenStreamer(
         nv21: ByteArray,
         width: Int,
         height: Int,
-        adaptiveAnchor: Boolean
+        adaptiveAnchor: Boolean,
+        refine: Boolean
     ): ByteArray? {
         val image =
             YuvImage(
@@ -506,19 +529,23 @@ class FallbackScreenStreamer(
             )
         val rect = Rect(0, 0, width, height)
         val ladder =
-            if (adaptiveAnchor) {
+            if (refine) {
+                intArrayOf(88, 82, 76)
+            } else if (adaptiveAnchor) {
                 ADAPTIVE_KEYFRAME_QUALITY_LADDER
             } else {
                 LEGACY_JPEG_QUALITY_LADDER
             }
         val byteLimit =
-            if (adaptiveAnchor) {
+            if (refine) {
+                MAX_LEGACY_JPEG_BYTES
+            } else if (adaptiveAnchor) {
                 MAX_ADAPTIVE_KEYFRAME_BYTES
             } else {
                 MAX_LEGACY_JPEG_BYTES
             }
 
-        return compressWithLadder(
+        val encoded = compressWithLadder(
             image = image,
             rect = rect,
             qualities = ladder,
@@ -529,6 +556,11 @@ class FallbackScreenStreamer(
                     width * height / 2
                 )
         )
+        // Complex full-screen content may exceed the motion budget even at the
+        // quality floor. A bounded larger anchor is preferable to a black screen.
+        return encoded ?: if (adaptiveAnchor && !refine) compressWithLadder(
+            image, rect, intArrayOf(56, 46, 36), MAX_LEGACY_JPEG_BYTES, MAX_JPEG_ESTIMATE_BYTES
+        ) else null
     }
 
     private fun compressRegionWithinBudget(
@@ -586,46 +618,6 @@ class FallbackScreenStreamer(
         return result
     }
 
-    private fun toNv21(
-        buffer: VideoFrame.I420Buffer
-    ): ByteArray {
-        val width = buffer.width
-        val height = buffer.height
-        val chromaWidth = (width + 1) / 2
-        val chromaHeight = (height + 1) / 2
-        val ySize = width * height
-        val result =
-            ByteArray(
-                ySize +
-                    (chromaWidth * chromaHeight * 2)
-            )
-
-        copyPlane(
-            source = buffer.dataY,
-            sourceStride = buffer.strideY,
-            planeWidth = width,
-            planeHeight = height,
-            destination = result,
-            destinationOffset = 0,
-            destinationStride = width
-        )
-
-        val u = buffer.dataU.duplicate()
-        val v = buffer.dataV.duplicate()
-        var out = ySize
-
-        for (row in 0 until chromaHeight) {
-            val uRow = row * buffer.strideU
-            val vRow = row * buffer.strideV
-            for (column in 0 until chromaWidth) {
-                result[out++] = v.get(vRow + column)
-                result[out++] = u.get(uRow + column)
-            }
-        }
-
-        return result
-    }
-
     private fun copyPlane(
         source: ByteBuffer,
         sourceStride: Int,
@@ -664,7 +656,8 @@ class FallbackScreenStreamer(
         enabled.set(false)
         referenceFrame = null
         runCatching { track.removeSink(sink) }
-        worker.shutdownNow()
+        // An accepted frame owns a retain; let the bounded worker run its finally block.
+        worker.shutdown()
     }
 
     companion object {
@@ -685,9 +678,9 @@ class FallbackScreenStreamer(
         private val LEGACY_JPEG_QUALITY_LADDER =
             intArrayOf(62, 50, 38)
         private val ADAPTIVE_KEYFRAME_QUALITY_LADDER =
-            intArrayOf(44, 34, 26, 20, 16)
+            intArrayOf(76, 66, 56, 46)
         private val PATCH_JPEG_QUALITY_LADDER =
-            intArrayOf(56, 46, 36, 28, 22)
+            intArrayOf(84, 76, 66, 56)
 
         private const val MAX_LEGACY_JPEG_BYTES = 720_000
         private const val MAX_ADAPTIVE_KEYFRAME_BYTES = 240_000

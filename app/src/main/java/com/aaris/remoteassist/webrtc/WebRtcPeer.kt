@@ -803,6 +803,11 @@ class WebRtcPeer(
         return sendBinary(channel, bytes)
     }
 
+    fun canStartFallbackFrame(): Boolean {
+        val channel = fallbackVideoChannel ?: return false
+        return !closed.get() && channel.state() == DataChannel.State.OPEN && channel.bufferedAmount() <= 16_000L
+    }
+
     override fun onRemoteDescription(description: SignalDescription) {
         if (closed.get()) return
 
