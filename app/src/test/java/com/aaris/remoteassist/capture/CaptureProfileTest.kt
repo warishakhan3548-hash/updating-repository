@@ -5,6 +5,68 @@ import org.junit.Test
 
 class CaptureProfileTest {
     @Test
+    fun lowRamFlagAlwaysProtectsDevice() {
+        assertEquals(
+            CaptureTier.LOW,
+            CaptureProfile.recommendedTierForDevice(
+                isLowRamDevice = true,
+                totalMemoryBytes = 8L * GIB
+            )
+        )
+    }
+
+    @Test
+    fun twoAndThreeGigabyteDevicesStayLow() {
+        assertEquals(
+            CaptureTier.LOW,
+            CaptureProfile.recommendedTierForDevice(
+                isLowRamDevice = false,
+                totalMemoryBytes = 2L * GIB
+            )
+        )
+        assertEquals(
+            CaptureTier.LOW,
+            CaptureProfile.recommendedTierForDevice(
+                isLowRamDevice = false,
+                totalMemoryBytes = 3L * GIB
+            )
+        )
+    }
+
+    @Test
+    fun fourGigabyteClassUsesNativeDetailStandardTier() {
+        assertEquals(
+            CaptureTier.STANDARD,
+            CaptureProfile.recommendedTierForDevice(
+                isLowRamDevice = false,
+                totalMemoryBytes = 4L * GIB
+            )
+        )
+    }
+
+    @Test
+    fun sixGigabyteAndAboveUsesHighTier() {
+        assertEquals(
+            CaptureTier.HIGH,
+            CaptureProfile.recommendedTierForDevice(
+                isLowRamDevice = false,
+                totalMemoryBytes = 6L * GIB
+            )
+        )
+    }
+
+    @Test
+    fun unknownMemoryFailsSafeToBalanced() {
+        assertEquals(
+            CaptureTier.BALANCED,
+            CaptureProfile.recommendedTierForDevice(
+                isLowRamDevice = false,
+                totalMemoryBytes = 0L
+            )
+        )
+    }
+
+    @Test
     fun standardKeepsNative1600pLongSide() {
         val profile =
             CaptureProfile.forDisplay(
@@ -92,5 +154,9 @@ class CaptureProfileTest {
         assertEquals(720, profile.captureHeightPx)
         assertEquals(15, profile.fps)
         assertEquals(1_200_000, profile.maxVideoBitrateBps)
+    }
+
+    companion object {
+        private const val GIB = 1024L * 1024L * 1024L
     }
 }
