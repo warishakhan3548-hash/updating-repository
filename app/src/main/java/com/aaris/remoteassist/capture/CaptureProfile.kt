@@ -82,10 +82,6 @@ data class CaptureProfile(
         fun recommendedTier(context: Context): CaptureTier {
             val manager =
                 context.getSystemService(ActivityManager::class.java)
-            if (manager?.isLowRamDevice == true) {
-                return CaptureTier.LOW
-            }
-
             val memoryInfo = ActivityManager.MemoryInfo()
             val totalMemory =
                 runCatching {
@@ -93,12 +89,31 @@ data class CaptureProfile(
                     memoryInfo.totalMem
                 }.getOrDefault(0L)
 
+            return recommendedTierForDevice(
+                isLowRamDevice = manager?.isLowRamDevice == true,
+                totalMemoryBytes = totalMemory
+            )
+        }
+
+        internal fun recommendedTierForDevice(
+            isLowRamDevice: Boolean,
+            totalMemoryBytes: Long
+        ): CaptureTier {
+            if (isLowRamDevice) {
+                return CaptureTier.LOW
+            }
+
             return when {
-                totalMemory <= 0L ->
+                /*
+                 * Unknown hardware must fail safe rather than accidentally
+                 * assuming a STANDARD encoder budget. BALANCED still delivers
+                 * usable 24 fps video while protecting unusual/vendor devices.
+                 */
+                totalMemoryBytes <= 0L ->
                     CaptureTier.BALANCED
-                totalMemory <= LOW_MEMORY_BYTES ->
+                totalMemoryBytes <= LOW_MEMORY_BYTES ->
                     CaptureTier.LOW
-                totalMemory >= HIGH_MEMORY_BYTES ->
+                totalMemoryBytes >= HIGH_MEMORY_BYTES ->
                     CaptureTier.HIGH
                 else ->
                     CaptureTier.STANDARD
