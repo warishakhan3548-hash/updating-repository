@@ -6,6 +6,8 @@ Screen pixels continue to use WebRTC directly or through TURN. Cloudflare Worker
 
 Decoder-health and EGL-presentation telemetry now use the existing unordered, non-retransmitted `control-live-v1` freshness lane after it opens. Startup keeps the reliable fallback. Old telemetry therefore cannot sit in retransmission head-of-line ahead of a newer authoritative tap, gesture START/END, navigation, or text command. Host feedback remains lease/display-generation bound and replay protected.
 
+The lane selection changes transport priority only; the signed control packet bytes, lease checks, display-generation checks, and host-side replay gates remain unchanged.
+
 ## AI hands
 
 AI tap coordinates remain universal, including custom views and canvases. When the fresh Accessibility snapshot exposes an enabled clickable node under the requested point, the tap is centered inside the smallest matching target before the existing semantic and fresh-pixel revalidation. This reduces tiny-icon and edge-tap misses without introducing a second execution protocol.
