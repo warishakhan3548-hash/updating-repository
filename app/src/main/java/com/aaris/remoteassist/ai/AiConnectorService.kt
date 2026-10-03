@@ -237,20 +237,43 @@ class AiConnectorService : Service() {
                         }
                         val currentLease = lease ?: return@withTimeout failure("NOT_CONNECTED")
                         val (width, height) = engine.geometry()
-                        val command = AiActionTranslator.translate(args, currentLease, ++sequence, width, height)
+                        val action = args.getString("action")
                         engine.ledger.consume() // Even a refused/no-op action consumes its observation.
                         outcomes[id] = failure("OUTCOME_UNKNOWN", null)
                         dispatched = true; applied = null
-                        val done = CompletableDeferred<Boolean>()
                         val expiresAt = SystemClock.elapsedRealtime() + 1500
-                        AssistAccessibilityService.dispatch(command, precondition = {
+                        val preconditionValid = {
                             !stopping && socket === ws && validation.stillValid() &&
                                 SystemClock.elapsedRealtime() <= expiresAt &&
+                                SessionRuntime.isAuthorized(
+                                    currentLease.sessionId,
+                                    currentLease.leaseSecret,
+                                    currentLease.displayGeneration
+                                ) &&
                                 CaptureProfile.current(this@AiConnectorService, CaptureTier.BALANCED).let {
                                     it.displayWidthPx == width && it.displayHeightPx == height
                                 }
-                        }) { done.complete(it) }
-                        applied = withTimeout(3500) { done.await() }
+                        }
+                        applied = if (action == "open_app") {
+                            preconditionValid() && AiAppLauncher.launch(
+                                this@AiConnectorService,
+                                args.getString("app")
+                            )
+                        } else {
+                            val command = AiActionTranslator.translate(
+                                args,
+                                currentLease,
+                                ++sequence,
+                                width,
+                                height
+                            )
+                            val done = CompletableDeferred<Boolean>()
+                            AssistAccessibilityService.dispatch(
+                                command,
+                                precondition = preconditionValid
+                            ) { done.complete(it) }
+                            withTimeout(3500) { done.await() }
+                        }
                         engine.invalidate()
                         val image = engine.observe()
                         image.put("applied", applied).put("actionId", id)

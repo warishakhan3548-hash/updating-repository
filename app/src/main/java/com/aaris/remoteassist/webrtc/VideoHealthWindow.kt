@@ -11,10 +11,24 @@ data class VideoHealthWindow(
     val dropped: Int?,
     val freezes: Int?,
     val bitrateBps: Long = 0,
-    val sendQueueMs: Double? = null
+    val sendQueueMs: Double? = null,
+    val presentationIntervalMs: Int? = null,
+    val presentedFrames: Int? = null,
+    val maxRenderGapMs: Int? = null
 ) {
     val fps: Double get() = frames * 1000.0 / intervalMs
-    fun compact() = "${fps.roundToInt()}fps ${bitrateBps / 1000}kbps codec=${processingMs?.roundToInt()}ms jitter=${jitterMs?.roundToInt()}ms drop=$dropped freeze=$freezes queue=${sendQueueMs?.roundToInt()}ms"
+    val presentedFps: Double?
+        get() {
+            val interval = presentationIntervalMs ?: return null
+            val count = presentedFrames ?: return null
+            if (interval <= 0 || count < 0) return null
+            return count * 1000.0 / interval
+        }
+
+    fun compact(): String {
+        val presentation = presentedFps?.roundToInt()?.let { " present=${it}fps gap=${maxRenderGapMs}ms" }.orEmpty()
+        return "${fps.roundToInt()}fps ${bitrateBps / 1000}kbps codec=${processingMs?.roundToInt()}ms jitter=${jitterMs?.roundToInt()}ms drop=$dropped freeze=$freezes queue=${sendQueueMs?.roundToInt()}ms$presentation"
+    }
 }
 
 class VideoHealthWindowTracker {

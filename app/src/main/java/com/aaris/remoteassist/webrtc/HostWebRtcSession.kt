@@ -602,6 +602,12 @@ class HostWebRtcSession(
                     receiverFeedback.accept(packet, current.leaseSecret, current.displayGeneration, android.os.SystemClock.elapsedRealtime())
                 }
             }
+            is ControlPacket.PresentationFeedback -> displayHandler.post {
+                val current = lease
+                if (!closed.get() && current != null && SessionRuntime.isAuthorized(sessionId, current.leaseSecret, current.displayGeneration)) {
+                    receiverFeedback.accept(packet, current.leaseSecret, current.displayGeneration, android.os.SystemClock.elapsedRealtime())
+                }
+            }
             is ControlPacket.CommandResult,
             is ControlPacket.Hello -> Unit
         }

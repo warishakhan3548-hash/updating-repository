@@ -98,6 +98,32 @@ class VideoFeedbackTest {
         assertTrue(governor.observe(sending60, delayedReceiver, 60, 2000))
         assertEquals(30, governor.cap)
     }
+    @Test fun severeControllerPresentationJankCanJumpDirectlyToSustainableCadence() {
+        val governor = VideoCadenceGovernor(60)
+        val sending60 = outbound().let { it.copy(recent = it.recent!!.copy(frames = 60)) }
+        val displayBound = receiver().copy(
+            frames = 60,
+            presentationIntervalMs = 1000,
+            presentedFrames = 22,
+            maxRenderGapMs = 190
+        )
+        assertTrue(governor.observe(sending60, displayBound, 60, 1000))
+        assertEquals(24, governor.cap)
+    }
+
+    @Test fun healthyRealPresentationDoesNotPunishPipelinedSixtyFps() {
+        val governor = VideoCadenceGovernor(60)
+        val sending60 = outbound(25.0).let { it.copy(recent = it.recent!!.copy(frames = 60)) }
+        val displayed60 = receiver(25.0).copy(
+            frames = 60,
+            presentationIntervalMs = 1000,
+            presentedFrames = 59,
+            maxRenderGapMs = 22
+        )
+        repeat(10) { governor.observe(sending60, displayed60, 60, 1000L + it * 1000) }
+        assertEquals(60, governor.cap)
+    }
+
     @Test fun isolatedSpikeAndQuietOrMissingFramesDoNotDriveQualityOscillation() {
         val governor = VideoCadenceGovernor(60)
         governor.observe(outbound(), receiver(40.0), 60, 1000)
