@@ -86,4 +86,27 @@ class CrossLayerLatencyBudgetTest {
         assertTrue(governor.observe(sender, controller, 60, 1_000))
         assertEquals(30, governor.cap)
     }
+
+    @Test
+    fun missingSenderResidenceDoesNotTightenReceiverJitterThreshold() {
+        val governor = VideoCadenceGovernor(60)
+        val sender = outbound(sendQueueMs = 10.0).let { snapshot ->
+            snapshot.copy(
+                recent = checkNotNull(snapshot.recent).copy(sendQueueMs = null)
+            )
+        }
+        val controller = receiver(jitterMs = 80.0)
+
+        repeat(4) { index ->
+            assertFalse(
+                governor.observe(
+                    sender,
+                    controller,
+                    60,
+                    1_000L + index * 3_000L
+                )
+            )
+        }
+        assertEquals(60, governor.cap)
+    }
 }
