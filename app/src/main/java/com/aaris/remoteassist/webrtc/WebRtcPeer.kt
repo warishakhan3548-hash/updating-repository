@@ -1673,10 +1673,10 @@ class WebRtcPeer(
         private const val SCREEN_STREAM_ID = "remote-screen"
         private const val MIN_VIDEO_BITRATE_BPS = 600_000
         private const val DEFAULT_VIDEO_BITRATE_BPS = 1_800_000
-        private const val MAX_VIDEO_BITRATE_BPS = 8_000_000
+        private const val MAX_VIDEO_BITRATE_BPS = 12_000_000
         private const val MIN_VIDEO_FRAMERATE = 10
-        private const val DEFAULT_VIDEO_FRAMERATE = 20
-        private const val MAX_VIDEO_FRAMERATE = 30
+        private const val DEFAULT_VIDEO_FRAMERATE = 30
+        private const val MAX_VIDEO_FRAMERATE = 60
         private const val VIDEO_STATS_INITIAL_DELAY_MS = 1_500L
         private const val VIDEO_STATS_INTERVAL_MS = 3_000L
         private const val RESTART_ICE_REFRESH_TIMEOUT_MS = 1_500L

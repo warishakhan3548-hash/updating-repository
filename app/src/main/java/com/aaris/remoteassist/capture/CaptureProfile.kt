@@ -37,7 +37,8 @@ data class CaptureProfile(
     val captureHeightPx: Int,
     val fps: Int,
     val maxVideoBitrateBps: Int,
-    val tier: CaptureTier
+    val tier: CaptureTier,
+    val motionFps: Int = fps
 ) {
     companion object {
         private const val LOW_CAPTURE_LONG_SIDE = 720
@@ -64,6 +65,15 @@ data class CaptureProfile(
         private const val STANDARD_FPS = 30
         private const val HIGH_FPS = 30
 
+        // Motion is bursty: use higher cadence only while the controller is
+        // actively touching or while the resulting fling/animation is settling.
+        // Constrained tiers remain conservative; STANDARD/HIGH can match a
+        // common 60Hz phone display when the encoder and path are healthy.
+        private const val LOW_MOTION_FPS = 20
+        private const val BALANCED_MOTION_FPS = 30
+        private const val STANDARD_MOTION_FPS = 60
+        private const val HIGH_MOTION_FPS = 60
+
         /*
          * These are encoder ceilings, not forced send rates. WebRTC congestion
          * control still chooses the actual bitrate from current path capacity.
@@ -73,8 +83,8 @@ data class CaptureProfile(
          */
         private const val LOW_BITRATE_BPS = 1_200_000
         private const val BALANCED_BITRATE_BPS = 3_000_000
-        private const val STANDARD_BITRATE_BPS = 7_200_000
-        private const val HIGH_BITRATE_BPS = 8_000_000
+        private const val STANDARD_BITRATE_BPS = 10_000_000
+        private const val HIGH_BITRATE_BPS = 12_000_000
 
         private const val LOW_MEMORY_BYTES = 3L * 1024L * 1024L * 1024L
         private const val HIGH_MEMORY_BYTES = 6L * 1024L * 1024L * 1024L
@@ -179,6 +189,14 @@ data class CaptureProfile(
                     CaptureTier.HIGH -> HIGH_FPS
                 }
 
+            val motionFps =
+                when (tier) {
+                    CaptureTier.LOW -> LOW_MOTION_FPS
+                    CaptureTier.BALANCED -> BALANCED_MOTION_FPS
+                    CaptureTier.STANDARD -> STANDARD_MOTION_FPS
+                    CaptureTier.HIGH -> HIGH_MOTION_FPS
+                }
+
             val maxVideoBitrateBps =
                 when (tier) {
                     CaptureTier.LOW -> LOW_BITRATE_BPS
@@ -196,7 +214,8 @@ data class CaptureProfile(
                     even((displayHeight * scale).roundToInt()),
                 fps = fps,
                 maxVideoBitrateBps = maxVideoBitrateBps,
-                tier = tier
+                tier = tier,
+                motionFps = motionFps
             )
         }
     }
