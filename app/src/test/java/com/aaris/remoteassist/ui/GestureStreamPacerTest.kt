@@ -7,15 +7,15 @@ import org.junit.Test
 
 class GestureStreamPacerTest {
     @Test
-    fun healthyPathRunsAtLowLatencyFloor() {
+    fun healthyPathRunsAtOneTwentyHzClassFloor() {
         val pacer = GestureStreamPacer()
 
         assertTrue(pacer.shouldAttempt(1_000L))
         pacer.onSent(1_000L)
 
-        assertFalse(pacer.shouldAttempt(1_015L))
-        assertTrue(pacer.shouldAttempt(1_016L))
-        assertEquals(16L, pacer.currentIntervalMs())
+        assertFalse(pacer.shouldAttempt(1_007L))
+        assertTrue(pacer.shouldAttempt(1_008L))
+        assertEquals(8L, pacer.currentIntervalMs())
     }
 
     @Test
@@ -24,9 +24,9 @@ class GestureStreamPacerTest {
 
         pacer.onBackpressure(1_000L)
 
-        assertEquals(32L, pacer.currentIntervalMs())
-        assertFalse(pacer.shouldAttempt(1_031L))
-        assertTrue(pacer.shouldAttempt(1_032L))
+        assertEquals(24L, pacer.currentIntervalMs())
+        assertFalse(pacer.shouldAttempt(1_023L))
+        assertTrue(pacer.shouldAttempt(1_024L))
     }
 
     @Test
@@ -35,6 +35,9 @@ class GestureStreamPacerTest {
 
         pacer.onBackpressure(1_000L)
         pacer.onBackpressure(1_100L)
+        assertEquals(40L, pacer.currentIntervalMs())
+
+        pacer.onBackpressure(1_150L)
         assertEquals(48L, pacer.currentIntervalMs())
 
         pacer.onBackpressure(1_200L)
@@ -47,13 +50,13 @@ class GestureStreamPacerTest {
     }
 
     @Test
-    fun resetRestoresImmediateSixtyHzClassAttempt() {
+    fun resetRestoresImmediateOneTwentyHzClassAttempt() {
         val pacer = GestureStreamPacer()
 
         pacer.onBackpressure(5_000L)
         pacer.reset()
 
-        assertEquals(16L, pacer.currentIntervalMs())
+        assertEquals(8L, pacer.currentIntervalMs())
         assertTrue(pacer.shouldAttempt(5_001L))
     }
 }
