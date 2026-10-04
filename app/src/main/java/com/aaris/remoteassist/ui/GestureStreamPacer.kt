@@ -7,7 +7,7 @@ package com.aaris.remoteassist.ui
  * and follows the controller finger promptly even when video itself is encoded
  * at 30 fps. When the unreliable DataChannel reports backpressure, the pacer
  * backs off aggressively instead of repeatedly encoding/sending stale motion.
- * One pressure signal moves 16 -> 32 ms and a second reaches the bounded 48 ms
+ * One pressure signal moves 8 -> 24 ms; repeated pressure reaches the bounded 48 ms
  * ceiling; this gives SCTP/network queues room to drain before old finger
  * positions accumulate. The 8 ms floor is intentionally independent of video
  * cadence: 60 fps pixels can still benefit from receiving the newest finger
