@@ -44,6 +44,7 @@ test('strict arguments reject nonfinite, missing and out of range coordinates, u
   assert.ok(validateArguments('phone_action', { ...args, action: 'open_app', app: 'ChatGPT' }));
   assert.equal(validateArguments('phone_action', { ...args, action: 'open_app' }), false);
   assert.equal(validateArguments('phone_action', { ...args, action: 'open_app', app: '   ' }), false);
+  assert.equal(validateArguments('phone_observe', { quality: 'semantic' }), true);
   assert.equal(validateArguments('phone_observe', { quality: 'invalid' }), false);
 });
 
@@ -71,7 +72,7 @@ test('MCP initialization negotiates a supported version and images are first-cla
   assert.equal(TOOLS.length, 3);
 });
 
-test('settled semantic action results suppress redundant image tokens but explicit observe remains visual', () => {
+test('semantic observe and settled action results suppress only redundant image tokens', () => {
   const semantic = {
     applied: true,
     observationId: 'fresh-observation-0001',
@@ -91,6 +92,15 @@ test('settled semantic action results suppress redundant image tokens but explic
 
   assert.equal(shouldAttachImage('phone_observe', semantic), true);
   assert.equal(toolResult(semantic, 'phone_observe').content[1].type, 'image');
+
+  assert.equal(shouldAttachImage('phone_observe', semantic, { quality: 'semantic' }), false);
+  const semanticObserve = toolResult(semantic, 'phone_observe', { quality: 'semantic' });
+  assert.equal(semanticObserve.content.length, 1);
+  assert.match(JSON.parse(semanticObserve.content[0].text).nextVisual, /quality=standard or detail/);
+
+  assert.equal(shouldAttachImage('phone_observe', { ...semantic, uiHints: [] }, { quality: 'semantic' }), true);
+  assert.equal(shouldAttachImage('phone_observe', { ...semantic, settled: false }, { quality: 'semantic' }), true);
+  assert.equal(shouldAttachImage('phone_observe', { ...semantic, treeTruncated: true }, { quality: 'semantic' }), true);
 });
 
 test('canvas games, animation and stale recovery keep visual action output', () => {
@@ -176,7 +186,7 @@ test('delayed revoke for a previous link cannot stop a newly rotated link', asyn
 });
 test('a different connector cannot receive another phone request', async () => {
   const a = await fixture(), b = await fixture(); a.connect(); b.connect();
-  const pending = a.call('phone_observe');
+  const pending = a.call('phone_observe', { quality: 'standard' });
   await a.complete({ screenVersion: 2, image: { mimeType: 'image/jpeg', data: 'phone-a' } });
   assert.equal((await (await pending).json()).result.content[1].data, 'phone-a'); assert.equal(b.sent.length, 0);
 });
