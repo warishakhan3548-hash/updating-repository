@@ -57,7 +57,7 @@ class AiObservationEngine internal constructor(
         }
     }
 
-    suspend fun observe(detail: Boolean = false): JSONObject {
+    suspend fun observe(detail: Boolean = false, preferSemantic: Boolean = false): JSONObject {
         repeat(2) { attempt ->
             settle()
             val epoch = ledger.invalidationGeneration
@@ -74,10 +74,19 @@ class AiObservationEngine internal constructor(
                 return error("SCREEN_CHANGING")
             }
             val hideAll = ui.sensitiveFocus || ui.packageName == ownPackage
-            val (encoded, fingerprint) = withContext(Dispatchers.Default) {
-                encodeFrame(frame, if (detail) 2400 else 1280, ui.masks,
-                    geometry.displayWidthPx, geometry.displayHeightPx, hideAll) to
-                    AiVisualFingerprint.sample(frame.nv21, frame.width, frame.height, frame.rotation)
+            /*
+             * Fingerprinting is the safety primitive and remains mandatory even
+             * when a semantic observation can omit JPEG pixels. This keeps
+             * target validation bound to the exact captured frame while avoiding
+             * JPEG encode/Base64/network work on stable native Android screens.
+             */
+            val fingerprint = withContext(Dispatchers.Default) {
+                AiVisualFingerprint.sample(
+                    frame.nv21,
+                    frame.width,
+                    frame.height,
+                    frame.rotation
+                )
             }
             val after = uiSnapshot() ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
             if (epoch != ledger.invalidationGeneration) return error("OBSERVATION_INVALIDATED")
@@ -85,6 +94,52 @@ class AiObservationEngine internal constructor(
                 if (attempt == 0) return@repeat
                 return error("SCREEN_CHANGING")
             }
+
+            val hints = if (hideAll) JSONArray() else publishedHints(ui)
+            val stableBeforeEncode = revision == ledger.eventRevision
+            val semanticOnly =
+                preferSemantic &&
+                    (
+                        (hideAll && hints.length() == 0) ||
+                            (
+                                stableBeforeEncode &&
+                                    !ui.truncated &&
+                                    hasActionableHint(hints)
+                                )
+                        )
+
+            val encoded =
+                if (semanticOnly) {
+                    null
+                } else {
+                    withContext(Dispatchers.Default) {
+                        encodeFrame(
+                            frame,
+                            if (detail) 2400 else 1280,
+                            ui.masks,
+                            geometry.displayWidthPx,
+                            geometry.displayHeightPx,
+                            hideAll
+                        )
+                    }.also {
+                        /*
+                         * Encoding can take long enough for the foreground window
+                         * or privacy masks to change. Recheck before publishing
+                         * any bytes; a stale encoded frame is discarded rather
+                         * than risking an unmasked visual result.
+                         */
+                        val afterEncoding =
+                            uiSnapshot()
+                                ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
+                        if (epoch != ledger.invalidationGeneration) {
+                            return error("OBSERVATION_INVALIDATED")
+                        }
+                        if (!samePrivacyContext(ui, afterEncoding)) {
+                            if (attempt == 0) return@repeat
+                            return error("SCREEN_CHANGING")
+                        }
+                    }
+
             val stable = revision == ledger.eventRevision
             val id = UUID.randomUUID().toString()
             width = geometry.displayWidthPx; height = geometry.displayHeightPx; rotation = frame.rotation
@@ -92,13 +147,30 @@ class AiObservationEngine internal constructor(
             ledger.issue(id, now())
             return JSONObject().put("observationId", id).put("screenVersion", ledger.version)
                 .put("capturedAtElapsedMs", frame.receivedAtMs).put("settled", stable)
-                .put("currentPackage", ui.packageName).put("uiHints", if (hideAll) JSONArray() else publishedHints(ui))
+                .put("currentPackage", ui.packageName).put("uiHints", hints)
                 .put("treeTruncated", ui.truncated).put("redacted", hideAll || ui.masks.isNotEmpty())
                 .put("display", JSONObject().put("width", width).put("height", height)
                     .put("coordinateSpace", "full-upright-display-normalized-0-to-1"))
-                .put("image", JSONObject().put("mimeType", "image/jpeg").put("width", encoded.width).put("height", encoded.height)
-                    .put("data", Base64.encodeToString(encoded.bytes, Base64.NO_WRAP)))
                 .apply {
+                    if (encoded != null) {
+                        put(
+                            "image",
+                            JSONObject()
+                                .put("mimeType", "image/jpeg")
+                                .put("width", encoded.width)
+                                .put("height", encoded.height)
+                                .put(
+                                    "data",
+                                    Base64.encodeToString(
+                                        encoded.bytes,
+                                        Base64.NO_WRAP
+                                    )
+                                )
+                        )
+                    } else {
+                        put("visualDelivery", "semantic-only")
+                        put("imageEncodingSkipped", true)
+                    }
                     if (!stable) put("note", "Animation is present. Actions remain available; their target is rechecked against a fresh frame.")
                     if (ui.packageName == ownPackage) put("note", "Connector setup is hidden to protect the access link. Use home to open the phone launcher.")
                     else if (ui.sensitiveFocus) put("note", "Sensitive input is local-only; use back or home to leave it.")
@@ -118,6 +190,20 @@ class AiObservationEngine internal constructor(
      * (common in lists) are intentionally withheld so the model cannot target a
      * repeated row by accident. Older clients can ignore the optional fields.
      */
+    private fun hasActionableHint(hints: JSONArray): Boolean {
+        for (index in 0 until hints.length()) {
+            val hint = hints.optJSONObject(index) ?: continue
+            if (
+                hint.optBoolean("clickable", false) ||
+                hint.optBoolean("editable", false) ||
+                hint.optString("targetId", "").isNotBlank()
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
     private fun publishedHints(ui: AiUiSnapshot): JSONArray {
         if (ui.hints.length() == 0 || ui.nodes.isEmpty()) return ui.hints
 
