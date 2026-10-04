@@ -19,6 +19,16 @@ class PresentationFeedbackTest {
         assertEquals(104, result.maxGapMs)
     }
 
+    @Test fun defaultTrackerSurfacesPresentationStateWithinHalfSecond() {
+        val tracker = PresentationCadenceTracker()
+        assertNull(tracker.onPresented(1_000))
+        assertNull(tracker.onPresented(1_250))
+        val result = checkNotNull(tracker.onPresented(1_500))
+        assertEquals(500, result.intervalMs)
+        assertEquals(3, result.renderedFrames)
+        assertEquals(250, result.maxGapMs)
+    }
+
     @Test fun backwardsOrVeryStaleClockResetsInsteadOfInventingJank() {
         val tracker = PresentationCadenceTracker(minWindowMs = 500)
         tracker.onPresented(1_000)
@@ -52,5 +62,20 @@ class PresentationFeedbackTest {
         assertEquals(72, merged.maxRenderGapMs)
         assertNull(feedback.consume(42, 2, 201))
         assertFalse(feedback.accept(display, 42, 3, 300))
+    }
+
+    @Test fun consecutivePresentationWindowsAggregateAndKeepWorstRenderGap() {
+        val feedback = ReceiverVideoFeedback()
+        val first = ControlPacket.PresentationFeedback(42, 2, 1, 500, 30, 24)
+        val second = ControlPacket.PresentationFeedback(42, 2, 2, 500, 20, 140)
+
+        assertTrue(feedback.accept(first, 42, 2, 100))
+        assertTrue(feedback.accept(second, 42, 2, 620))
+
+        val merged = checkNotNull(feedback.consume(42, 2, 900))
+        assertEquals(1_000, merged.presentationIntervalMs)
+        assertEquals(50, merged.presentedFrames)
+        assertEquals(50.0, merged.presentedFps!!, 0.001)
+        assertEquals(140, merged.maxRenderGapMs)
     }
 }
