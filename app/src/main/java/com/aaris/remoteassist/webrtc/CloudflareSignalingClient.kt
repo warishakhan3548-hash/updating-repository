@@ -190,7 +190,7 @@ class CloudflareSignalingClient(
 
                 override fun onFailure(
                     webSocket: WebSocket,
-                    error: Throwable,
+                    t: Throwable,
                     response: Response?
                 ) {
                     if (closed.get()) return
