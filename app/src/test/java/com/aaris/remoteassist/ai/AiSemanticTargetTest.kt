@@ -86,6 +86,8 @@ class AiSemanticTargetTest {
         val observed = engine.observe()
         val hint = observed.getJSONArray("uiHints").getJSONObject(0)
         assertEquals("launcher:id/open", hint.getString("targetId"))
+        assertEquals(true, hint.getBoolean("enabled"))
+        assertEquals(false, hint.getBoolean("focused"))
 
         val args = tap(observed, "launcher:id/open")
         val validation = engine.validate(args)
@@ -93,6 +95,38 @@ class AiSemanticTargetTest {
         assertNull(validation.error)
         assertEquals(0.80, args.getDouble("x"), 0.0001)
         assertEquals(0.80, args.getDouble("y"), 0.0001)
+        assertEquals(true, validation.stillValid())
+    }
+
+    @Test
+    fun uniqueEditableIdCanBeFocusedPreciselyEvenWhenAndroidSaysNotClickable() = runBlocking {
+        val field = AiUiNode(
+            id = "form:id/name",
+            role = "android.widget.EditText",
+            text = "",
+            left = 12,
+            top = 72,
+            right = 108,
+            bottom = 120,
+            clickable = false,
+            editable = true,
+            focused = false,
+            enabled = true
+        )
+        ui = snapshot(listOf(field))
+
+        val observed = engine.observe()
+        val hint = observed.getJSONArray("uiHints").getJSONObject(0)
+        assertEquals("form:id/name", hint.getString("targetId"))
+        assertEquals(true, hint.getBoolean("enabled"))
+        assertEquals(false, hint.getBoolean("focused"))
+
+        val args = tap(observed, "form:id/name")
+        val validation = engine.validate(args)
+
+        assertNull(validation.error)
+        assertEquals(0.50, args.getDouble("x"), 0.0001)
+        assertEquals(0.40, args.getDouble("y"), 0.0001)
         assertEquals(true, validation.stillValid())
     }
 
