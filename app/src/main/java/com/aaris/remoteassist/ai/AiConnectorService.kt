@@ -223,7 +223,13 @@ class AiConnectorService : Service() {
                 val engine = checkNotNull(observations)
                 val args = packet.optJSONObject("arguments") ?: JSONObject()
                 when (packet.optString("tool")) {
-                    "phone_observe" -> engine.observe(args.optString("quality") == "detail")
+                    "phone_observe" -> {
+                        val quality = args.optString("quality")
+                        engine.observe(
+                            detail = quality == "detail",
+                            preferSemantic = quality == "semantic"
+                        )
+                    }
                     "phone_action" -> {
                         val id = args.getString("actionId").also { require(it.matches(Regex("[a-zA-Z0-9_-]{8,96}"))) }
                         actionId = id
@@ -275,10 +281,15 @@ class AiConnectorService : Service() {
                             withTimeout(3500) { done.await() }
                         }
                         engine.invalidate()
-                        val image = engine.observe()
-                        image.put("applied", applied).put("actionId", id)
-                        if (applied != true && !image.has("error")) image.put("error", "ACTION_NOT_APPLIED")
-                        image
+                        val observation =
+                            engine.observe(
+                                preferSemantic = applied == true
+                            )
+                        observation.put("applied", applied).put("actionId", id)
+                        if (applied != true && !observation.has("error")) {
+                            observation.put("error", "ACTION_NOT_APPLIED")
+                        }
+                        observation
                     }
                     else -> failure("UNKNOWN_TOOL")
                 }
