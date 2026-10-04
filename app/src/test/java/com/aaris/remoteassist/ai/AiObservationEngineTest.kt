@@ -23,9 +23,11 @@ class AiObservationEngineTest {
     private var ui: AiUiSnapshot? = AiUiSnapshot("launcher", JSONArray(), emptyList(), false, false, 3, listOf(icon))
     private var profile = CaptureProfile(120, 240, 120, 240, 8, 1_000_000, CaptureTier.BALANCED)
     private var onFrame: () -> Unit = {}
+    private var encodedFrames = 0
     private val engine = AiObservationEngine("aaris", { profile }, { ui }, {
         onFrame(); AiRawFrame(pixels.clone(), 120, 240, 0, clock)
     }, { clock }, { clock += it }, { frame, _, _, _, _, _ ->
+        encodedFrames++
         // JVM YuvImage does not implement JPEG encoding. All pixels, target
         // validation, event races and dispatch checks still use production code.
         FrameImageEncoder.Encoded(byteArrayOf(1), frame.width, frame.height)
@@ -36,6 +38,58 @@ class AiObservationEngineTest {
     private fun animateOtherRegion() {
         pixels = pixels.clone().apply { for (y in 0 until 55) for (x in 0 until 60) this[y * 120 + x] = 125 }
         engine.changed()
+    }
+
+    @Test fun semanticObservationSkipsJpegButKeepsFreshValidationTicket() = runBlocking {
+        ui = ui!!.copy(
+            hints = JSONArray().put(
+                JSONObject()
+                    .put("text", "ChatGPT")
+                    .put("clickable", true)
+                    .put(
+                        "bounds",
+                        JSONArray()
+                            .put(84)
+                            .put(168)
+                            .put(108)
+                            .put(216)
+                    )
+            )
+        )
+        val before = encodedFrames
+        val observed = engine.observe(preferSemantic = true)
+
+        assertFalse(observed.has("error"))
+        assertFalse(observed.has("image"))
+        assertEquals("semantic-only", observed.getString("visualDelivery"))
+        assertTrue(observed.getBoolean("imageEncodingSkipped"))
+        assertEquals(before, encodedFrames)
+        assertNull(engine.validate(action(observed)).error)
+    }
+
+    @Test fun semanticObservationFallsBackToPixelsForSparseOrUnstableUi() = runBlocking {
+        val sparse = engine.observe(preferSemantic = true)
+        assertTrue(sparse.has("image"))
+        val afterSparse = encodedFrames
+
+        ui = ui!!.copy(
+            hints = JSONArray().put(
+                JSONObject()
+                    .put("clickable", true)
+                    .put(
+                        "bounds",
+                        JSONArray()
+                            .put(84)
+                            .put(168)
+                            .put(108)
+                            .put(216)
+                    )
+            ),
+            truncated = true
+        )
+        val truncated = engine.observe(preferSemantic = true)
+        assertTrue(truncated.has("image"))
+        assertTrue(encodedFrames > afterSparse)
     }
 
     @Test fun continuouslyUpdatingChatStillIssuesUsableHomeAndTapTickets() = runBlocking {
