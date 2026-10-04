@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { AiDevice, canonical, validateArguments, TOOLS, toolResult } from './mcp-worker.js';
+import worker, { AiDevice, canonical, shouldAttachImage, validateArguments, TOOLS, toolResult } from './mcp-worker.js';
 
 const id = '1'.repeat(64), deviceToken = '2'.repeat(64), clientToken = '3'.repeat(64);
 const base = 'https://aaris-phone-mcp.example';
@@ -70,6 +70,46 @@ test('MCP initialization negotiates a supported version and images are first-cla
   assert.equal(toolResult({ image: { mimeType: 'image/jpeg', data: 'aaa' }, screenVersion: 1 }).content[1].type, 'image');
   assert.equal(TOOLS.length, 3);
 });
+
+test('settled semantic action results suppress redundant image tokens but explicit observe remains visual', () => {
+  const semantic = {
+    applied: true,
+    observationId: 'fresh-observation-0001',
+    screenVersion: 5,
+    settled: true,
+    treeTruncated: false,
+    uiHints: [{ text: 'Continue', clickable: true, targetId: 'com.example:id/continue', bounds: [10, 20, 110, 80] }],
+    image: { mimeType: 'image/jpeg', data: 'jpeg-base64', width: 720, height: 1280 }
+  };
+  assert.equal(shouldAttachImage('phone_action', semantic), false);
+  const compact = toolResult(semantic, 'phone_action');
+  assert.equal(compact.content.length, 1);
+  const metadata = JSON.parse(compact.content[0].text);
+  assert.equal(metadata.visualDelivery, 'semantic-only');
+  assert.equal(metadata.image.delivered, false);
+  assert.match(metadata.nextVisual, /phone_observe/);
+
+  assert.equal(shouldAttachImage('phone_observe', semantic), true);
+  assert.equal(toolResult(semantic, 'phone_observe').content[1].type, 'image');
+});
+
+test('canvas games, animation and stale recovery keep visual action output', () => {
+  const baseResult = {
+    applied: true,
+    observationId: 'fresh-observation-0001',
+    screenVersion: 5,
+    settled: true,
+    treeTruncated: false,
+    uiHints: [],
+    image: { mimeType: 'image/jpeg', data: 'jpeg-base64', width: 720, height: 1280 }
+  };
+  assert.equal(shouldAttachImage('phone_action', baseResult), true);
+  assert.equal(shouldAttachImage('phone_action', { ...baseResult, uiHints: [{ clickable: true }], settled: false }), true);
+  assert.equal(shouldAttachImage('phone_action', { ...baseResult, uiHints: [{ clickable: true }], treeTruncated: true }), true);
+  assert.equal(shouldAttachImage('phone_action', { ...baseResult, error: 'STALE_SCREEN', applied: false }), true);
+  assert.equal(shouldAttachImage('phone_action', { ...baseResult, redacted: true }), false);
+});
+
 test('unauthorized links and credential replacement cannot reach a phone', async () => {
   const f = await fixture(); f.connect();
   const response = await f.obj.fetch(f.request(`/mcp/${id}/${'0'.repeat(64)}`, {})); assert.equal(response.status, 401);
