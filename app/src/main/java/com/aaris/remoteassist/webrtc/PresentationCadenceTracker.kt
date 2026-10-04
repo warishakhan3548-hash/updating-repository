@@ -22,12 +22,18 @@ data class PresentationCadenceWindow(
 }
 
 /**
- * Converts real EGL swaps into bounded one-second-ish windows. The tracker is
- * synchronized because EglRenderer invokes its render listener on a render
- * thread while session lifecycle/reset may run on Android's main thread.
+ * Converts real EGL swaps into bounded half-second feedback windows. Shorter
+ * windows surface a render hitch sooner than a one-second stats cycle, while
+ * ReceiverVideoFeedback aggregates consecutive windows until the host consumes
+ * them. That preserves a stable cadence estimate and the worst observed swap
+ * gap without increasing libwebrtc getStats() polling or JNI churn.
+ *
+ * The tracker is synchronized because EglRenderer invokes its render listener
+ * on a render thread while session lifecycle/reset may run on Android's main
+ * thread.
  */
 class PresentationCadenceTracker(
-    private val minWindowMs: Long = 850L,
+    private val minWindowMs: Long = 500L,
     private val maxGapMs: Long = 6_000L
 ) {
     init {
