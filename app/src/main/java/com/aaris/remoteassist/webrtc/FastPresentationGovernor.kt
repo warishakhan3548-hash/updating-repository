@@ -18,6 +18,7 @@ internal class FastPresentationGovernor(
         private set
 
     private var healthyWindows = 0
+    private var pressuredWindows = 0
     private var changedAtMs = Long.MIN_VALUE / 2
 
     fun observe(
@@ -32,6 +33,7 @@ internal class FastPresentationGovernor(
             window.renderedFrames < MIN_PRESENTED_FRAMES
         ) {
             healthyWindows = 0
+            pressuredWindows = 0
             return false
         }
 
@@ -55,6 +57,7 @@ internal class FastPresentationGovernor(
 
         if (severe) {
             healthyWindows = 0
+            pressuredWindows = 0
             if (nowMs - changedAtMs < SEVERE_CHANGE_INTERVAL_MS) return false
 
             val next = DESCENDING_CAPS.firstOrNull {
@@ -65,22 +68,41 @@ internal class FastPresentationGovernor(
             return true
         }
 
-        // One quick high-cadence relief step only. Ordinary pressure at 45/30
-        // is intentionally left to the richer slow governor so one imperfect
-        // half-second sample cannot cause a quality cliff.
         if (pressured) {
             healthyWindows = 0
+            pressuredWindows += 1
+
+            // Full 60 fps gets one immediate soft relief step because even one
+            // half-second render hitch is very visible under a moving finger.
             if (
-                cap < HIGH_CADENCE_FPS ||
-                nowMs - changedAtMs < SOFT_CHANGE_INTERVAL_MS
+                cap >= HIGH_CADENCE_FPS &&
+                nowMs - changedAtMs >= SOFT_CHANGE_INTERVAL_MS
             ) {
-                return false
+                cap = SOFT_RELIEF_FPS
+                changedAtMs = nowMs
+                pressuredWindows = 0
+                return true
             }
-            cap = SOFT_RELIEF_FPS
-            changedAtMs = nowMs
-            return true
+
+            // At lower cadence, require two consecutive bad EGL windows. This
+            // reacts to sustained stutter without letting one GC/compositor blip
+            // collapse quality from 45 to 30.
+            if (
+                pressuredWindows >= SUSTAINED_PRESSURE_WINDOWS_TO_REDUCE &&
+                nowMs - changedAtMs >= SUSTAINED_CHANGE_INTERVAL_MS
+            ) {
+                val next = DESCENDING_CAPS.firstOrNull { it < cap }
+                    ?: return false
+                cap = next
+                changedAtMs = nowMs
+                pressuredWindows = 0
+                return true
+            }
+
+            return false
         }
 
+        pressuredWindows = 0
         val healthy =
             deliveryRatio >= HEALTHY_DELIVERY_RATIO &&
                 window.maxGapMs < healthyGapMs
@@ -128,6 +150,8 @@ internal class FastPresentationGovernor(
 
         const val SOFT_CHANGE_INTERVAL_MS = 500L
         const val SEVERE_CHANGE_INTERVAL_MS = 500L
+        const val SUSTAINED_PRESSURE_WINDOWS_TO_REDUCE = 2
+        const val SUSTAINED_CHANGE_INTERVAL_MS = 1_000L
         const val HEALTHY_WINDOWS_TO_PROBE = 4
         const val RECOVERY_INTERVAL_MS = 2_000L
     }
