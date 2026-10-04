@@ -108,14 +108,15 @@ class AiObservationEngine internal constructor(
     }
 
     /**
-     * Add a semantic selector only when Accessibility proves it is unique on
-     * this observation. The original compact hints stay byte-for-byte compatible
-     * apart from that optional field, so older MCP clients can keep using pixels.
+     * Enrich compact hints with Accessibility-proven motor state while keeping
+     * screenshots primary. Stable resource ids are published only when unique,
+     * enabled and actionable. Editable fields count as actionable even when an
+     * OEM reports clickable=false: a semantic target lets the model focus the
+     * field precisely before the separate validated type action.
      *
-     * A raw Android resource id is useful only as an exact selector. We never
-     * synthesize one from text, and duplicate resource ids (common in lists) are
-     * intentionally withheld so the model cannot accidentally target the wrong
-     * repeated row.
+     * Raw ids are never synthesized from text, and duplicate resource ids
+     * (common in lists) are intentionally withheld so the model cannot target a
+     * repeated row by accident. Older clients can ignore the optional fields.
      */
     private fun publishedHints(ui: AiUiSnapshot): JSONArray {
         if (ui.hints.length() == 0 || ui.nodes.isEmpty()) return ui.hints
@@ -125,12 +126,11 @@ class AiObservationEngine internal constructor(
             .filter { it.isNotBlank() && it.length <= MAX_TARGET_ID_CHARS }
             .groupingBy { it }
             .eachCount()
-        val eligible = ui.nodes.filter { node ->
-            node.enabled && node.clickable && node.area > 0L &&
+        val semanticTargets = ui.nodes.filter { node ->
+            node.enabled && (node.clickable || node.editable) && node.area > 0L &&
                 node.id.isNotBlank() && node.id.length <= MAX_TARGET_ID_CHARS &&
                 idCounts[node.id] == 1
         }
-        if (eligible.isEmpty()) return ui.hints
 
         val result = JSONArray()
         for (index in 0 until ui.hints.length()) {
@@ -141,14 +141,31 @@ class AiObservationEngine internal constructor(
             }
             val hint = JSONObject(original.toString())
             val bounds = original.optJSONArray("bounds")
-            if (bounds != null && bounds.length() == 4 && original.optBoolean("clickable", false)) {
-                val target = eligible.singleOrNull { node ->
+            if (bounds != null && bounds.length() == 4) {
+                val matchingNodes = ui.nodes.filter { node ->
                     node.left == bounds.optInt(0, Int.MIN_VALUE) &&
                         node.top == bounds.optInt(1, Int.MIN_VALUE) &&
                         node.right == bounds.optInt(2, Int.MIN_VALUE) &&
                         node.bottom == bounds.optInt(3, Int.MIN_VALUE)
                 }
-                target?.let { hint.put("targetId", it.id) }
+                val stateNode = matchingNodes.minByOrNull { node -> node.area }
+                stateNode?.let { node ->
+                    hint.put("enabled", node.enabled)
+                    hint.put("focused", node.focused)
+                }
+
+                if (
+                    original.optBoolean("clickable", false) ||
+                    original.optBoolean("editable", false)
+                ) {
+                    val target = semanticTargets.singleOrNull { node ->
+                        node.left == bounds.optInt(0, Int.MIN_VALUE) &&
+                            node.top == bounds.optInt(1, Int.MIN_VALUE) &&
+                            node.right == bounds.optInt(2, Int.MIN_VALUE) &&
+                            node.bottom == bounds.optInt(3, Int.MIN_VALUE)
+                    }
+                    target?.let { hint.put("targetId", it.id) }
+                }
             }
             result.put(hint)
         }
@@ -200,7 +217,8 @@ class AiObservationEngine internal constructor(
         if (args.has("targetId")) {
             if (requestedTarget.isEmpty() || requestedTarget.length > MAX_TARGET_ID_CHARS) return false
             val exact = ui.nodes.filter { node ->
-                node.id == requestedTarget && node.enabled && node.clickable && node.area > 0L
+                node.id == requestedTarget && node.enabled &&
+                    (node.clickable || node.editable) && node.area > 0L
             }
             // Fail closed instead of guessing when an id is stale or repeated.
             if (exact.size != 1) return false
