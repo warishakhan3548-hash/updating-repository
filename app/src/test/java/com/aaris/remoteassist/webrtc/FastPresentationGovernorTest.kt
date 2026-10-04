@@ -6,22 +6,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FastPresentationGovernorTest {
+    private val healthy45 = PresentationCadenceWindow(
+        intervalMs = 500,
+        renderedFrames = 23,
+        maxGapMs = 30
+    )
+
+    private val pressured60 = PresentationCadenceWindow(
+        intervalMs = 500,
+        renderedFrames = 20,
+        maxGapMs = 90
+    )
+
     @Test
     fun highCadenceHitchDropsSixtyToFortyFiveImmediately() {
         val governor = FastPresentationGovernor(maxFps = 60, initialCap = 60)
 
         val changed = governor.observe(
-            window = PresentationCadenceWindow(
-                intervalMs = 500,
-                renderedFrames = 20,
-                maxGapMs = 90
-            ),
+            window = pressured60,
             desiredFps = 60,
             nowMs = 1_000
         )
 
         assertTrue(changed)
         assertEquals(45, governor.cap)
+        assertEquals(1, governor.highCadenceFailureCountForTest())
     }
 
     @Test
@@ -40,6 +49,8 @@ class FastPresentationGovernorTest {
 
         assertTrue(changed)
         assertEquals(30, governor.cap)
+        // A 45-fps failure is not counted against the later 60-fps probe.
+        assertEquals(0, governor.highCadenceFailureCountForTest())
     }
 
     @Test
@@ -87,13 +98,13 @@ class FastPresentationGovernorTest {
     }
 
     @Test
-    fun sustainedHealthyPresentationCautiouslyProbesSixty() {
+    fun cleanFortyFiveWithoutFailureMemoryCautiouslyProbesSixty() {
         val governor = FastPresentationGovernor(maxFps = 60, initialCap = 45)
 
         repeat(3) { index ->
             assertFalse(
                 governor.observe(
-                    window = PresentationCadenceWindow(500, 23, 30),
+                    window = healthy45,
                     desiredFps = 60,
                     nowMs = 500L * (index + 1)
                 )
@@ -102,11 +113,93 @@ class FastPresentationGovernorTest {
 
         assertTrue(
             governor.observe(
-                window = PresentationCadenceWindow(500, 23, 30),
+                window = healthy45,
                 desiredFps = 60,
                 nowMs = 2_000
             )
         )
         assertEquals(60, governor.cap)
+    }
+
+    @Test
+    fun failedSixtyProbeBacksOffNextRetryForTenSeconds() {
+        val governor = FastPresentationGovernor(maxFps = 60, initialCap = 60)
+
+        assertTrue(
+            governor.observe(
+                window = pressured60,
+                desiredFps = 60,
+                nowMs = 1_000
+            )
+        )
+        assertEquals(45, governor.cap)
+
+        // Plenty of healthy evidence is not enough before the remembered
+        // high-cadence retry delay expires.
+        var time = 1_500L
+        while (time < 11_000L) {
+            assertFalse(
+                governor.observe(
+                    window = healthy45,
+                    desiredFps = 60,
+                    nowMs = time
+                )
+            )
+            time += 500L
+        }
+
+        assertTrue(
+            governor.observe(
+                window = healthy45,
+                desiredFps = 60,
+                nowMs = 11_000L
+            )
+        )
+        assertEquals(60, governor.cap)
+    }
+
+    @Test
+    fun repeatedSixtyFailureDoublesRetryDelay() {
+        val governor = FastPresentationGovernor(maxFps = 60, initialCap = 60)
+
+        assertTrue(governor.observe(pressured60, 60, 1_000L))
+        // First failure: retry after 10 s.
+        var time = 1_500L
+        while (time < 11_000L) {
+            governor.observe(healthy45, 60, time)
+            time += 500L
+        }
+        assertTrue(governor.observe(healthy45, 60, 11_000L))
+        assertEquals(60, governor.cap)
+
+        // Fail the probe again; second retry must wait 20 s.
+        assertTrue(governor.observe(pressured60, 60, 11_500L))
+        assertEquals(2, governor.highCadenceFailureCountForTest())
+        assertEquals(45, governor.cap)
+
+        time = 12_000L
+        while (time < 31_500L) {
+            assertFalse(governor.observe(healthy45, 60, time))
+            time += 500L
+        }
+        assertTrue(governor.observe(healthy45, 60, 31_500L))
+        assertEquals(60, governor.cap)
+    }
+
+    @Test
+    fun oldHighCadenceFailureMemoryExpires() {
+        val governor = FastPresentationGovernor(maxFps = 60, initialCap = 60)
+
+        assertTrue(governor.observe(pressured60, 60, 1_000L))
+        assertEquals(1, governor.highCadenceFailureCountForTest())
+
+        // After the memory horizon, four healthy windows may use the normal
+        // cautious recovery interval rather than the old failure backoff.
+        assertFalse(governor.observe(healthy45, 60, 121_000L))
+        assertFalse(governor.observe(healthy45, 60, 121_500L))
+        assertFalse(governor.observe(healthy45, 60, 122_000L))
+        assertTrue(governor.observe(healthy45, 60, 122_500L))
+        assertEquals(60, governor.cap)
+        assertEquals(0, governor.highCadenceFailureCountForTest())
     }
 }
