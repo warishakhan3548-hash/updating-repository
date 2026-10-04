@@ -61,6 +61,32 @@ class FastPresentationGovernorTest {
     }
 
     @Test
+    fun twoConsecutivePressuredWindowsReduceFortyFiveToThirty() {
+        val governor = FastPresentationGovernor(maxFps = 60, initialCap = 45)
+        val pressured = PresentationCadenceWindow(
+            intervalMs = 500,
+            renderedFrames = 18,
+            maxGapMs = 80
+        )
+
+        assertFalse(
+            governor.observe(
+                window = pressured,
+                desiredFps = 60,
+                nowMs = 500
+            )
+        )
+        assertTrue(
+            governor.observe(
+                window = pressured,
+                desiredFps = 60,
+                nowMs = 1_000
+            )
+        )
+        assertEquals(30, governor.cap)
+    }
+
+    @Test
     fun sustainedHealthyPresentationCautiouslyProbesSixty() {
         val governor = FastPresentationGovernor(maxFps = 60, initialCap = 45)
 
