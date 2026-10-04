@@ -19,14 +19,28 @@ class PresentationFeedbackTest {
         assertEquals(104, result.maxGapMs)
     }
 
-    @Test fun defaultTrackerSurfacesPresentationStateWithinHalfSecond() {
+    @Test fun defaultTrackerSurfacesPresentationStateWithinThreeHundredMilliseconds() {
         val tracker = PresentationCadenceTracker()
         assertNull(tracker.onPresented(1_000))
-        assertNull(tracker.onPresented(1_250))
-        val result = checkNotNull(tracker.onPresented(1_500))
-        assertEquals(500, result.intervalMs)
-        assertEquals(3, result.renderedFrames)
-        assertEquals(250, result.maxGapMs)
+        assertNull(tracker.onPresented(1_100))
+        assertNull(tracker.onPresented(1_200))
+        val result = checkNotNull(tracker.onPresented(1_300))
+        assertEquals(300, result.intervalMs)
+        assertEquals(4, result.renderedFrames)
+        assertEquals(100, result.maxGapMs)
+    }
+
+    @Test fun lowCadenceReceiverStillProducesUsableDefaultWindow() {
+        val tracker = PresentationCadenceTracker()
+        assertNull(tracker.onPresented(1_000))
+        var sample: PresentationCadenceWindow? = null
+        for (time in listOf(1_067L, 1_134L, 1_201L, 1_268L, 1_335L)) {
+            sample = tracker.onPresented(time) ?: sample
+        }
+        val result = checkNotNull(sample)
+        assertEquals(335, result.intervalMs)
+        assertEquals(6, result.renderedFrames)
+        assertEquals(67, result.maxGapMs)
     }
 
     @Test fun backwardsOrVeryStaleClockResetsInsteadOfInventingJank() {
