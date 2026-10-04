@@ -112,33 +112,35 @@ class AiObservationEngine internal constructor(
                 if (semanticOnly) {
                     null
                 } else {
-                    withContext(Dispatchers.Default) {
-                        encodeFrame(
-                            frame,
-                            if (detail) 2400 else 1280,
-                            ui.masks,
-                            geometry.displayWidthPx,
-                            geometry.displayHeightPx,
-                            hideAll
-                        )
-                    }.also {
-                        /*
-                         * Encoding can take long enough for the foreground window
-                         * or privacy masks to change. Recheck before publishing
-                         * any bytes; a stale encoded frame is discarded rather
-                         * than risking an unmasked visual result.
-                         */
-                        val afterEncoding =
-                            uiSnapshot()
-                                ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
-                        if (epoch != ledger.invalidationGeneration) {
-                            return error("OBSERVATION_INVALIDATED")
+                    val value =
+                        withContext(Dispatchers.Default) {
+                            encodeFrame(
+                                frame,
+                                if (detail) 2400 else 1280,
+                                ui.masks,
+                                geometry.displayWidthPx,
+                                geometry.displayHeightPx,
+                                hideAll
+                            )
                         }
-                        if (!samePrivacyContext(ui, afterEncoding)) {
-                            if (attempt == 0) return@repeat
-                            return error("SCREEN_CHANGING")
-                        }
+                    /*
+                     * Encoding can take long enough for the foreground window
+                     * or privacy masks to change. Recheck before publishing
+                     * any bytes; a stale encoded frame is discarded rather
+                     * than risking an unmasked visual result.
+                     */
+                    val afterEncoding =
+                        uiSnapshot()
+                            ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
+                    if (epoch != ledger.invalidationGeneration) {
+                        return error("OBSERVATION_INVALIDATED")
                     }
+                    if (!samePrivacyContext(ui, afterEncoding)) {
+                        if (attempt == 0) return@repeat
+                        return error("SCREEN_CHANGING")
+                    }
+                    value
+                }
 
             val stable = revision == ledger.eventRevision
             val id = UUID.randomUUID().toString()
