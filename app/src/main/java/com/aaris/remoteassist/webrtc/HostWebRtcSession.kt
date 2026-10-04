@@ -60,6 +60,11 @@ class HostWebRtcSession(
             maxTier = maxCaptureTier
         )
     private val cadenceGovernor = VideoCadenceGovernor(profile.motionFps)
+    private val fastPresentationGovernor =
+        FastPresentationGovernor(
+            maxFps = profile.motionFps,
+            initialCap = profile.fps
+        )
     private val receiverFeedback = ReceiverVideoFeedback()
     private var lastSlowVideoCheckMs = 0L
 
@@ -598,16 +603,66 @@ class HostWebRtcSession(
 
             is ControlPacket.VideoFeedback -> displayHandler.post {
                 val current = lease
-                if (!closed.get() && current != null && SessionRuntime.isAuthorized(sessionId, current.leaseSecret, current.displayGeneration)) {
-                    receiverFeedback.accept(packet, current.leaseSecret, current.displayGeneration, android.os.SystemClock.elapsedRealtime())
+                if (
+                    !closed.get() &&
+                    current != null &&
+                    SessionRuntime.isAuthorized(
+                        sessionId,
+                        current.leaseSecret,
+                        current.displayGeneration
+                    )
+                ) {
+                    receiverFeedback.accept(
+                        packet,
+                        current.leaseSecret,
+                        current.displayGeneration,
+                        android.os.SystemClock.elapsedRealtime()
+                    )
                 }
             }
+
             is ControlPacket.PresentationFeedback -> displayHandler.post {
                 val current = lease
-                if (!closed.get() && current != null && SessionRuntime.isAuthorized(sessionId, current.leaseSecret, current.displayGeneration)) {
-                    receiverFeedback.accept(packet, current.leaseSecret, current.displayGeneration, android.os.SystemClock.elapsedRealtime())
+                if (
+                    closed.get() ||
+                    current == null ||
+                    !SessionRuntime.isAuthorized(
+                        sessionId,
+                        current.leaseSecret,
+                        current.displayGeneration
+                    )
+                ) {
+                    return@post
+                }
+
+                val now = android.os.SystemClock.elapsedRealtime()
+                val accepted = receiverFeedback.accept(
+                    packet,
+                    current.leaseSecret,
+                    current.displayGeneration,
+                    now
+                )
+                if (!accepted) return@post
+
+                val presentation = PresentationCadenceWindow(
+                    intervalMs = packet.intervalMs,
+                    renderedFrames = packet.renderedFrames,
+                    maxGapMs = packet.maxGapMs
+                )
+                if (
+                    fastPresentationGovernor.observe(
+                        window = presentation,
+                        desiredFps = desiredCaptureFps(profile),
+                        nowMs = now
+                    )
+                ) {
+                    applyVideoPolicy(profile)
+                    listener.onDiagnostic(
+                        "Realtime presentation cadence → ${fastPresentationGovernor.cap}fps fast ceiling"
+                    )
                 }
             }
+
             is ControlPacket.CommandResult,
             is ControlPacket.Hello -> Unit
         }
@@ -654,10 +709,25 @@ class HostWebRtcSession(
 
             val now = android.os.SystemClock.elapsedRealtime()
             val current = lease
-            val receiver = current?.let { receiverFeedback.consume(it.leaseSecret, it.displayGeneration, now) }
-            if (cadenceGovernor.observe(snapshot, receiver, effectiveCaptureProfile(profile).fps, now)) {
+            val receiver = current?.let {
+                receiverFeedback.consume(
+                    it.leaseSecret,
+                    it.displayGeneration,
+                    now
+                )
+            }
+            if (
+                cadenceGovernor.observe(
+                    snapshot,
+                    receiver,
+                    effectiveCaptureProfile(profile).fps,
+                    now
+                )
+            ) {
                 applyVideoPolicy(profile)
-                listener.onDiagnostic("Sustainable video cadence → ${cadenceGovernor.cap}fps ceiling • preserving screen geometry")
+                listener.onDiagnostic(
+                    "Sustainable video cadence → ${cadenceGovernor.cap}fps ceiling • preserving screen geometry"
+                )
             }
             // Preserve the existing recovery/governor timing despite 1s sampling.
             if (now - lastSlowVideoCheckMs < 3000) return@post
@@ -731,22 +801,20 @@ class HostWebRtcSession(
         )
     }
 
+    private fun desiredCaptureFps(target: CaptureProfile): Int =
+        if (interactionActive) target.motionFps else target.fps
+
     private fun effectiveCaptureProfile(
         target: CaptureProfile
-    ): CaptureProfile {
-        val targetFps = minOf(cadenceGovernor.cap,
-            if (interactionActive) {
-                target.motionFps
-            } else {
-                target.fps
-            })
-
-        return if (targetFps == target.fps) {
-            target
-        } else {
-            target.copy(fps = targetFps)
-        }
-    }
+    ): CaptureProfile =
+        RealtimeMotionPolicy.apply(
+            base = target,
+            interactionActive = interactionActive,
+            cadenceCap = minOf(
+                cadenceGovernor.cap,
+                fastPresentationGovernor.cap
+            )
+        )
 
     private fun applyVideoPolicy(target: CaptureProfile) {
         val policy =
@@ -756,8 +824,10 @@ class HostWebRtcSession(
             )
         val effective = effectiveCaptureProfile(target)
 
-        // Apply cadence in VideoSource. FPS/bandwidth changes keep the actual
-        // Android capture surface stable; only display geometry may resize it.
+        // VideoSource scaling changes the encoder pixel budget without
+        // recreating MediaProjection's stable virtual display. During active
+        // control this deliberately trades a little spatial detail for fresher,
+        // evenly presented motion; idle returns to the clarity-first profile.
         capture.update(effective)
         peer.updateInteractiveVideoPolicy(
             maxBitrateBps = target.maxVideoBitrateBps,
@@ -869,6 +939,7 @@ class HostWebRtcSession(
             )
         )
     }
+
     companion object {
         private const val CONNECT_TIMEOUT_MS = 90_000L
         private const val CONTROL_CHANNEL_GRACE_MS = 5_000L
