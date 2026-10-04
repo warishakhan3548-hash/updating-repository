@@ -6,8 +6,12 @@ package com.aaris.remoteassist.webrtc
  * This deliberately does not inspect full RTCStats and does not own bitrate.
  * It reacts only to real EGL presentation cadence arriving from the controller,
  * allowing one immediate 60 -> 45 freshness step (or <=30 on a severe stall)
- * without waiting for the host's slower stats cycle. Recovery is asymmetric and
- * requires several clean windows, so unstable Wi-Fi cannot oscillate 45/60.
+ * without waiting for the host's slower stats cycle.
+ *
+ * Recovery is asymmetric. A clean device may cautiously probe 60 fps quickly,
+ * but every failed high-cadence probe is remembered and exponentially delays
+ * the next 60-fps attempt. This preserves the "stable 45 > unstable 60" rule
+ * without permanently blacklisting 60 after a temporary Wi-Fi/compositor blip.
  */
 internal class FastPresentationGovernor(
     private val maxFps: Int,
@@ -20,6 +24,9 @@ internal class FastPresentationGovernor(
     private var healthyWindows = 0
     private var pressuredWindows = 0
     private var changedAtMs = Long.MIN_VALUE / 2
+
+    private var highCadenceFailures = 0
+    private var lastHighCadenceFailureAtMs = Long.MIN_VALUE / 2
 
     fun observe(
         window: PresentationCadenceWindow,
@@ -60,11 +67,15 @@ internal class FastPresentationGovernor(
             pressuredWindows = 0
             if (nowMs - changedAtMs < SEVERE_CHANGE_INTERVAL_MS) return false
 
+            val oldCap = cap
             val next = DESCENDING_CAPS.firstOrNull {
                 it < cap && it <= STRONG_RELIEF_MAX_FPS
             } ?: return false
             cap = next
             changedAtMs = nowMs
+            if (oldCap >= HIGH_CADENCE_FPS) {
+                rememberHighCadenceFailure(nowMs)
+            }
             return true
         }
 
@@ -81,6 +92,7 @@ internal class FastPresentationGovernor(
                 cap = SOFT_RELIEF_FPS
                 changedAtMs = nowMs
                 pressuredWindows = 0
+                rememberHighCadenceFailure(nowMs)
                 return true
             }
 
@@ -103,6 +115,8 @@ internal class FastPresentationGovernor(
         }
 
         pressuredWindows = 0
+        maybeForgetOldHighCadenceFailures(nowMs)
+
         val healthy =
             deliveryRatio >= HEALTHY_DELIVERY_RATIO &&
                 window.maxGapMs < healthyGapMs
@@ -110,7 +124,6 @@ internal class FastPresentationGovernor(
 
         if (
             healthyWindows < HEALTHY_WINDOWS_TO_PROBE ||
-            nowMs - changedAtMs < RECOVERY_INTERVAL_MS ||
             cap >= desired
         ) {
             return false
@@ -120,11 +133,58 @@ internal class FastPresentationGovernor(
             it > cap && it <= desired && it <= maxFps
         } ?: return false
 
+        val requiredRecoveryMs =
+            if (next >= HIGH_CADENCE_FPS) {
+                highCadenceRetryDelayMs(nowMs)
+            } else {
+                RECOVERY_INTERVAL_MS
+            }
+        if (nowMs - changedAtMs < requiredRecoveryMs) return false
+
         cap = next
         changedAtMs = nowMs
         healthyWindows = 0
         return true
     }
+
+    private fun rememberHighCadenceFailure(nowMs: Long) {
+        if (
+            lastHighCadenceFailureAtMs > Long.MIN_VALUE / 4 &&
+            nowMs - lastHighCadenceFailureAtMs >= HIGH_CADENCE_FAILURE_MEMORY_MS
+        ) {
+            highCadenceFailures = 0
+        }
+        highCadenceFailures =
+            (highCadenceFailures + 1)
+                .coerceAtMost(MAX_HIGH_CADENCE_FAILURES)
+        lastHighCadenceFailureAtMs = nowMs
+    }
+
+    private fun maybeForgetOldHighCadenceFailures(nowMs: Long) {
+        if (
+            highCadenceFailures > 0 &&
+            nowMs - lastHighCadenceFailureAtMs >= HIGH_CADENCE_FAILURE_MEMORY_MS
+        ) {
+            highCadenceFailures = 0
+            lastHighCadenceFailureAtMs = Long.MIN_VALUE / 2
+        }
+    }
+
+    private fun highCadenceRetryDelayMs(nowMs: Long): Long {
+        maybeForgetOldHighCadenceFailures(nowMs)
+        if (highCadenceFailures <= 0) return RECOVERY_INTERVAL_MS
+
+        val doublings =
+            (highCadenceFailures - 1)
+                .coerceIn(0, MAX_HIGH_CADENCE_BACKOFF_DOUBLINGS)
+        var delay = HIGH_CADENCE_RETRY_BASE_MS
+        repeat(doublings) {
+            delay = (delay * 2L).coerceAtMost(HIGH_CADENCE_RETRY_MAX_MS)
+        }
+        return delay.coerceAtMost(HIGH_CADENCE_RETRY_MAX_MS)
+    }
+
+    internal fun highCadenceFailureCountForTest(): Int = highCadenceFailures
 
     private companion object {
         val DESCENDING_CAPS = listOf(60, 45, 30, 24, 20, 15)
@@ -154,5 +214,14 @@ internal class FastPresentationGovernor(
         const val SUSTAINED_CHANGE_INTERVAL_MS = 1_000L
         const val HEALTHY_WINDOWS_TO_PROBE = 4
         const val RECOVERY_INTERVAL_MS = 2_000L
+
+        // Failure-memory applies only to the expensive 45 -> 60 probe. Lower
+        // cadence recovery stays responsive. Each failed 60-fps attempt doubles
+        // its next retry interval until the cap, then clean time expires memory.
+        const val HIGH_CADENCE_RETRY_BASE_MS = 10_000L
+        const val HIGH_CADENCE_RETRY_MAX_MS = 60_000L
+        const val HIGH_CADENCE_FAILURE_MEMORY_MS = 120_000L
+        const val MAX_HIGH_CADENCE_FAILURES = 8
+        const val MAX_HIGH_CADENCE_BACKOFF_DOUBLINGS = 3
     }
 }
