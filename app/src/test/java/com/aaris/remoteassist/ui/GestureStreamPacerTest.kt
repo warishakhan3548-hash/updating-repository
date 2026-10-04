@@ -19,14 +19,14 @@ class GestureStreamPacerTest {
     }
 
     @Test
-    fun backpressureAddsCooldownInsteadOfBusyRetrying() {
+    fun backpressureAddsStrongCooldownInsteadOfBusyRetrying() {
         val pacer = GestureStreamPacer()
 
         pacer.onBackpressure(1_000L)
 
-        assertEquals(24L, pacer.currentIntervalMs())
-        assertFalse(pacer.shouldAttempt(1_023L))
-        assertTrue(pacer.shouldAttempt(1_024L))
+        assertEquals(32L, pacer.currentIntervalMs())
+        assertFalse(pacer.shouldAttempt(1_031L))
+        assertTrue(pacer.shouldAttempt(1_032L))
     }
 
     @Test
@@ -35,9 +35,9 @@ class GestureStreamPacerTest {
 
         pacer.onBackpressure(1_000L)
         pacer.onBackpressure(1_100L)
+        assertEquals(48L, pacer.currentIntervalMs())
+
         pacer.onBackpressure(1_200L)
-        pacer.onBackpressure(1_300L)
-        pacer.onBackpressure(1_400L)
         assertEquals(48L, pacer.currentIntervalMs())
 
         pacer.onSent(1_500L)
