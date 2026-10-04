@@ -47,12 +47,41 @@ class ReceiverVideoFeedback {
         bindIdentity(secret, generation)
         if (packet.sequence <= lastPresentationSequence) return false
         lastPresentationSequence = packet.sequence
-        presentationReceivedAt = nowMs
-        pendingPresentation = PresentationCadenceWindow(
+
+        val incoming = PresentationCadenceWindow(
             intervalMs = packet.intervalMs,
             renderedFrames = packet.renderedFrames,
             maxGapMs = packet.maxGapMs
         )
+
+        /*
+         * EGL presentation feedback intentionally arrives more often than the
+         * sender's expensive getStats() probe. Accumulate consecutive windows
+         * until the host consumes them so an early half-second hitch cannot be
+         * overwritten by a later healthy half-second just before the stats tick.
+         *
+         * FPS remains an aggregate renderedFrames / interval measurement, while
+         * maxGap keeps the worst motion-to-photon stall seen in the interval.
+         * If a consumer disappears long enough to exceed protocol bounds, start
+         * a fresh bounded window rather than manufacturing an oversized packet.
+         */
+        pendingPresentation = pendingPresentation?.let { previous ->
+            val combinedInterval = previous.intervalMs + incoming.intervalMs
+            val combinedFrames = previous.renderedFrames + incoming.renderedFrames
+            if (
+                combinedInterval <= MAX_PRESENTATION_INTERVAL_MS &&
+                combinedFrames <= MAX_PRESENTED_FRAMES
+            ) {
+                PresentationCadenceWindow(
+                    intervalMs = combinedInterval,
+                    renderedFrames = combinedFrames,
+                    maxGapMs = maxOf(previous.maxGapMs, incoming.maxGapMs)
+                )
+            } else {
+                incoming
+            }
+        } ?: incoming
+        presentationReceivedAt = nowMs
         return true
     }
 
@@ -88,5 +117,7 @@ class ReceiverVideoFeedback {
 
     private companion object {
         const val MAX_AGE_MS = 3_000L
+        const val MAX_PRESENTATION_INTERVAL_MS = 6_000
+        const val MAX_PRESENTED_FRAMES = 2_048
     }
 }
