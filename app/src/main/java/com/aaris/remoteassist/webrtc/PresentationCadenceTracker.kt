@@ -22,8 +22,11 @@ data class PresentationCadenceWindow(
 }
 
 /**
- * Converts real EGL swaps into bounded half-second feedback windows. Shorter
- * windows surface a render hitch sooner than a one-second stats cycle, while
+ * Converts real EGL swaps into short bounded feedback windows. A 300 ms default
+ * exposes visible 60/45 fps compositor stalls materially sooner than the slower
+ * RTC stats loop, while a 15 fps receiver still accumulates enough swaps for the
+ * host governor once the elapsed window crosses the threshold.
+ *
  * ReceiverVideoFeedback aggregates consecutive windows until the host consumes
  * them. That preserves a stable cadence estimate and the worst observed swap
  * gap without increasing libwebrtc getStats() polling or JNI churn.
@@ -33,11 +36,11 @@ data class PresentationCadenceWindow(
  * thread.
  */
 class PresentationCadenceTracker(
-    private val minWindowMs: Long = 500L,
+    private val minWindowMs: Long = 300L,
     private val maxGapMs: Long = 6_000L
 ) {
     init {
-        require(minWindowMs in 500L..3_000L)
+        require(minWindowMs in 250L..3_000L)
         require(maxGapMs in minWindowMs..6_000L)
     }
 
