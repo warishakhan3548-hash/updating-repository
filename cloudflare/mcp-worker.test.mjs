@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { AiDevice, canonical, validateArguments, TOOLS, toolResult } from './mcp-worker.js';
+import worker, { AiDevice, canonical, shouldAttachImage, validateArguments, TOOLS, toolResult } from './mcp-worker.js';
 
 const id = '1'.repeat(64), deviceToken = '2'.repeat(64), clientToken = '3'.repeat(64);
 const base = 'https://aaris-phone-mcp.example';
@@ -32,6 +32,36 @@ async function fixture(storage = new Storage()) {
 }
 const result = async response => JSON.parse((await response.json()).result.content[0].text);
 
+test('hint reuse requires a bounded explicit base acknowledgement on observe and action', () => {
+  const knownUiHintsObservationId = 'observation-with-full-hints-000001';
+  for (const [name, parameters] of [['phone_observe', {}], ['phone_action', args]]) {
+    assert.equal(validateArguments(name, { ...parameters, knownUiHintsObservationId }), true);
+    for (const bad of [null, 123, '', 'short', 'x'.repeat(97), 'has spaces in observation', 'x'.repeat(20) + '\n']) {
+      assert.equal(validateArguments(name, { ...parameters, knownUiHintsObservationId: bad }), false);
+    }
+  }
+  assert.equal(validateArguments('phone_status', { knownUiHintsObservationId }), false);
+  assert.equal(TOOLS[1].inputSchema.properties.knownUiHintsObservationId.maxLength, 96);
+  assert.equal(TOOLS[2].inputSchema.properties.knownUiHintsObservationId.minLength, 16);
+});
+
+test('acknowledged hint reuse preserves fresh tickets and changed game images through MCP', async () => {
+  const fx = await fixture(); fx.connect();
+  const knownUiHintsObservationId = 'full-hints-observation-000001';
+  const pending = fx.call('phone_observe', { quality: 'motion', knownUiHintsObservationId });
+  await fx.complete({ observationId: 'fresh-observation-000002', screenVersion: 12, settled: true,
+    redacted: false, uiHints: [], uiHintsDelivery: 'reused', sameUiHintsAsObservationId: knownUiHintsObservationId,
+    image: { mimeType: 'image/jpeg', width: 960, height: 540, data: 'AA==' } });
+  assert.equal(fx.sent[0].arguments.knownUiHintsObservationId, knownUiHintsObservationId);
+  const response = await (await pending).json();
+  const metadata = JSON.parse(response.result.content[0].text);
+  assert.equal(metadata.observationId, 'fresh-observation-000002');
+  assert.equal(metadata.screenVersion, 12);
+  assert.equal(metadata.sameUiHintsAsObservationId, knownUiHintsObservationId);
+  assert.equal(response.result.content[1].type, 'image');
+  assert.equal(response.result.isError, false);
+});
+
 test('strict arguments reject nonfinite, missing and out of range coordinates, unknown fields and oversized text', () => {
   assert.ok(validateArguments('phone_action', args));
   for (const bad of [{ ...args, x: NaN }, { ...args, x: 1.001 }, { ...args, y: undefined }, { ...args, x: '0.4' }, { ...args, shell: 'anything' }, { ...args, screenVersion: -1 }, { ...args, action: 'swipe' }, { ...args, action: 'type', text: 'a'.repeat(1001) }]) assert.equal(validateArguments('phone_action', bad), false);
@@ -44,7 +74,19 @@ test('strict arguments reject nonfinite, missing and out of range coordinates, u
   assert.ok(validateArguments('phone_action', { ...args, action: 'open_app', app: 'ChatGPT' }));
   assert.equal(validateArguments('phone_action', { ...args, action: 'open_app' }), false);
   assert.equal(validateArguments('phone_action', { ...args, action: 'open_app', app: '   ' }), false);
+  assert.equal(validateArguments('phone_observe', { quality: 'auto' }), true);
+  assert.equal(validateArguments('phone_observe', { quality: 'semantic' }), true);
+  assert.equal(validateArguments('phone_observe', { quality: 'motion' }), true);
+  const region = { left: 0.2, top: 0.25, right: 0.8, bottom: 0.75 };
+  assert.equal(validateArguments('phone_observe', { quality: 'auto', region }), true);
+  assert.equal(validateArguments('phone_observe', { region: { ...region, right: 0.22 } }), false);
+  assert.equal(validateArguments('phone_observe', { region: { ...region, right: 1.1 } }), false);
+  assert.equal(validateArguments('phone_observe', { region: { ...region, extra: 1 } }), false);
   assert.equal(validateArguments('phone_observe', { quality: 'invalid' }), false);
+  assert.equal(TOOLS[1].inputSchema.properties.quality.default, 'auto');
+  assert.equal(TOOLS[1].inputSchema.properties.region.required.length, 4);
+  assert.equal(validateArguments('phone_action', { ...args, responseQuality: 'motion' }), true);
+  assert.equal(validateArguments('phone_action', { ...args, responseQuality: 'cinematic' }), false);
 });
 
 test('drag accepts bounded normalized paths and rejects malformed paths', () => {
@@ -70,6 +112,117 @@ test('MCP initialization negotiates a supported version and images are first-cla
   assert.equal(toolResult({ image: { mimeType: 'image/jpeg', data: 'aaa' }, screenVersion: 1 }).content[1].type, 'image');
   assert.equal(TOOLS.length, 3);
 });
+
+test('semantic observe and settled action results suppress only redundant image tokens', () => {
+  const semantic = {
+    applied: true,
+    observationId: 'fresh-observation-0001',
+    screenVersion: 5,
+    settled: true,
+    treeTruncated: false,
+    uiHints: [{ text: 'Continue', clickable: true, targetId: 'com.example:id/continue', bounds: [10, 20, 110, 80] }],
+    image: { mimeType: 'image/jpeg', data: 'jpeg-base64', width: 720, height: 1280 }
+  };
+  assert.equal(shouldAttachImage('phone_action', semantic), false);
+  assert.equal(shouldAttachImage('phone_action', semantic, { responseQuality: 'motion' }), true);
+  assert.equal(shouldAttachImage('phone_action', semantic, { responseQuality: 'standard' }), true);
+  assert.equal(shouldAttachImage('phone_action', semantic, { responseQuality: 'detail' }), true);
+  assert.equal(
+    shouldAttachImage(
+      'phone_action',
+      { ...semantic, redacted: true, uiHints: [] },
+      { responseQuality: 'motion' }
+    ),
+    false
+  );
+  const compact = toolResult(semantic, 'phone_action');
+  assert.equal(compact.content.length, 1);
+  const metadata = JSON.parse(compact.content[0].text);
+  assert.equal(metadata.visualDelivery, 'semantic-only');
+  assert.equal(metadata.image.delivered, false);
+  assert.match(metadata.nextVisual, /phone_observe/);
+
+  assert.equal(shouldAttachImage('phone_observe', semantic), true);
+  assert.equal(toolResult(semantic, 'phone_observe').content[1].type, 'image');
+  assert.equal(shouldAttachImage('phone_observe', semantic, { quality: 'motion' }), true);
+  assert.equal(
+    shouldAttachImage(
+      'phone_observe',
+      { ...semantic, redacted: true, uiHints: [] },
+      { quality: 'standard' }
+    ),
+    false
+  );
+  assert.equal(
+    shouldAttachImage(
+      'phone_observe',
+      { ...semantic, redacted: true, uiHints: [] },
+      { quality: 'detail' }
+    ),
+    false
+  );
+
+  assert.equal(shouldAttachImage('phone_observe', semantic, { quality: 'semantic' }), false);
+  assert.equal(
+    shouldAttachImage(
+      'phone_observe',
+      { ...semantic, imageRegion: { left: 0.2, top: 0.2, right: 0.6, bottom: 0.6 } },
+      { quality: 'semantic', region: { left: 0.2, top: 0.2, right: 0.6, bottom: 0.6 } }
+    ),
+    true
+  );
+  assert.equal(
+    shouldAttachImage(
+      'phone_observe',
+      { ...semantic, redacted: true, uiHints: [] },
+      { quality: 'semantic', region: { left: 0.2, top: 0.2, right: 0.6, bottom: 0.6 } }
+    ),
+    false
+  );
+  const semanticObserve = toolResult(semantic, 'phone_observe', { quality: 'semantic' });
+  assert.equal(semanticObserve.content.length, 1);
+  assert.match(JSON.parse(semanticObserve.content[0].text).nextVisual, /quality=standard or detail/);
+
+  assert.equal(shouldAttachImage('phone_observe', { ...semantic, uiHints: [] }, { quality: 'semantic' }), true);
+  assert.equal(shouldAttachImage('phone_observe', { ...semantic, settled: false }, { quality: 'semantic' }), true);
+  assert.equal(shouldAttachImage('phone_observe', { ...semantic, treeTruncated: true }, { quality: 'semantic' }), true);
+});
+
+test('exact unchanged visual reuse stays metadata-only without hiding changed game frames', () => {
+  const reused = toolResult({
+    applied: true,
+    observationId: 'fresh-observation-0002',
+    screenVersion: 6,
+    settled: true,
+    treeTruncated: false,
+    uiHints: [],
+    visualDelivery: 'reused',
+    imageEncodingSkipped: true,
+    sameVisualAsObservationId: 'fresh-observation-0001'
+  }, 'phone_action');
+  assert.equal(reused.content.length, 1);
+  const metadata = JSON.parse(reused.content[0].text);
+  assert.equal(metadata.visualDelivery, 'reused');
+  assert.equal(metadata.sameVisualAsObservationId, 'fresh-observation-0001');
+});
+
+test('canvas games, animation and stale recovery keep visual action output', () => {
+  const baseResult = {
+    applied: true,
+    observationId: 'fresh-observation-0001',
+    screenVersion: 5,
+    settled: true,
+    treeTruncated: false,
+    uiHints: [],
+    image: { mimeType: 'image/jpeg', data: 'jpeg-base64', width: 720, height: 1280 }
+  };
+  assert.equal(shouldAttachImage('phone_action', baseResult), true);
+  assert.equal(shouldAttachImage('phone_action', { ...baseResult, uiHints: [{ clickable: true }], settled: false }), true);
+  assert.equal(shouldAttachImage('phone_action', { ...baseResult, uiHints: [{ clickable: true }], treeTruncated: true }), true);
+  assert.equal(shouldAttachImage('phone_action', { ...baseResult, error: 'STALE_SCREEN', applied: false }), true);
+  assert.equal(shouldAttachImage('phone_action', { ...baseResult, redacted: true }), false);
+});
+
 test('unauthorized links and credential replacement cannot reach a phone', async () => {
   const f = await fixture(); f.connect();
   const response = await f.obj.fetch(f.request(`/mcp/${id}/${'0'.repeat(64)}`, {})); assert.equal(response.status, 401);
@@ -85,6 +238,33 @@ test('offline phone rejects actions without queuing them for a future connection
   const f = await fixture(); assert.equal((await result(await f.call('phone_action', args))).error, 'PHONE_OFFLINE');
   assert.equal(f.sent.length, 0); assert.equal(f.ctx.storage.values.has(`action:${args.actionId}`), false);
 });
+test('default observe normalizes to semantic-first and omits redundant native-screen pixels', async () => {
+  const f = await fixture(); f.connect();
+  const pending = f.call('phone_observe');
+
+  for (let i = 0; i < 100 && !f.obj.pending; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.ok(f.obj.pending, 'Expected phone_observe to reach the connected phone');
+  assert.equal(f.sent.length, 1);
+  assert.equal(f.sent[0].tool, 'phone_observe');
+  assert.equal(f.sent[0].arguments.quality, 'semantic');
+
+  await f.complete({
+    observationId: 'fresh-observation-default-0001',
+    screenVersion: 7,
+    settled: true,
+    treeTruncated: false,
+    redacted: false,
+    uiHints: [{ clickable: true, targetId: 'com.example:id/next' }],
+    image: { mimeType: 'image/jpeg', data: 'redundant-native-screen', width: 720, height: 1280 }
+  });
+
+  const response = await (await pending).json();
+  assert.equal(response.result.content.length, 1);
+  const metadata = JSON.parse(response.result.content[0].text);
+  assert.equal(metadata.visualDelivery, 'semantic-only');
+  assert.equal(metadata.image.delivered, false);
+});
+
 test('one action returns its image; retry across hibernation returns outcome without re-execution', async () => {
   const f = await fixture(); f.connect();
   const pending = f.call('phone_action', args);
@@ -136,7 +316,7 @@ test('delayed revoke for a previous link cannot stop a newly rotated link', asyn
 });
 test('a different connector cannot receive another phone request', async () => {
   const a = await fixture(), b = await fixture(); a.connect(); b.connect();
-  const pending = a.call('phone_observe');
+  const pending = a.call('phone_observe', { quality: 'standard' });
   await a.complete({ screenVersion: 2, image: { mimeType: 'image/jpeg', data: 'phone-a' } });
   assert.equal((await (await pending).json()).result.content[1].data, 'phone-a'); assert.equal(b.sent.length, 0);
 });

@@ -54,7 +54,7 @@ class AiTapAutoAimTest {
         freshFrame = { AiRawFrame(pixels.clone(), 120, 240, 0, clock) },
         now = { clock },
         pause = { clock += it },
-        encodeFrame = { frame, _, _, _, _, _ ->
+        encodeFrame = { frame, _, _, _, _, _, _ ->
             FrameImageEncoder.Encoded(byteArrayOf(1), frame.width, frame.height)
         }
     )

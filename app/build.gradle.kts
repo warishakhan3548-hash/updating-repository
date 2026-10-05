@@ -20,8 +20,8 @@ android {
         applicationId = "com.aaris.remoteassist"
         minSdk = 26
         targetSdk = 36
-        versionCode = 97
-        versionName = "1.9.9"
+        versionCode = 100
+        versionName = "1.9.12"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { buildConfig = true }
@@ -63,7 +63,7 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.13.0")
     implementation("androidx.fragment:fragment-ktx:1.9.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp:5.3.2")
     implementation("io.github.webrtc-sdk:android:150.7871.01")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.16.1")

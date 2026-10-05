@@ -4,10 +4,15 @@ import android.content.Context
 import com.aaris.remoteassist.backend.CloudflareBackend
 import com.aaris.remoteassist.backend.CloudflareBackendException
 import java.io.Closeable
+import java.io.IOException
+import java.io.InterruptedIOException
+import java.net.ProtocolException
+import java.net.SocketTimeoutException
 import java.security.SecureRandom
 import java.util.Base64
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.net.ssl.SSLException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -178,7 +183,11 @@ class CloudflarePairingGateway(
 
     private fun isRetryable(error: Throwable): Boolean {
         if (error !is CloudflareBackendException) {
-            return true
+            // Cancellation, malformed data and certificate errors cannot be
+            // repaired by consuming another retry of a one-time code.
+            return error is IOException && error !is SSLException &&
+                error !is ProtocolException &&
+                (error !is InterruptedIOException || error is SocketTimeoutException)
         }
         return error.statusCode >= 500 ||
             error.statusCode == 408 ||

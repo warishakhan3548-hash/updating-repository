@@ -6,6 +6,30 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PresentationFeedbackTest {
+    @Test fun sourceSupplySnapshotExpiresAndResetCannotRetainOldCadence() {
+        val tracker = PresentationCadenceTracker()
+        assertNull(tracker.recent(1_000))
+        for (time in 1_000L..1_160L step 16L) tracker.onPresented(time)
+        val source = checkNotNull(tracker.recent(1_160))
+        assertEquals(62.5, source.fps, 0.001)
+        assertEquals(source, tracker.recent(1_910))
+        assertNull(tracker.recent(1_911))
+        assertNull(tracker.recent(1_159))
+        tracker.reset()
+        assertNull(tracker.recent(1_160))
+    }
+
+    @Test fun sourceSupplyIsClearedAfterCaptureClockOrLongGapReset() {
+        val tracker = PresentationCadenceTracker()
+        for (time in 1_000L..1_160L step 16L) tracker.onPresented(time)
+        tracker.onPresented(900)
+        assertNull(tracker.recent(900))
+        for (time in 916L..1_076L step 16L) tracker.onPresented(time)
+        assertNotNull(tracker.recent(1_076))
+        tracker.onPresented(8_000)
+        assertNull(tracker.recent(8_000))
+    }
+
     @Test fun trackerMeasuresActualSwapCadenceAndLargestGap() {
         val tracker = PresentationCadenceTracker(minWindowMs = 500)
         assertNull(tracker.onPresented(1_000))
@@ -15,18 +39,51 @@ class PresentationFeedbackTest {
         }
         val result = checkNotNull(sample)
         assertEquals(500, result.intervalMs)
-        assertEquals(10, result.renderedFrames)
+        assertEquals(9, result.renderedFrames)
         assertEquals(104, result.maxGapMs)
     }
 
-    @Test fun defaultTrackerSurfacesPresentationStateWithinHalfSecond() {
+    @Test fun defaultTrackerSurfacesHighCadenceStateWithinOneHundredSixtyMilliseconds() {
         val tracker = PresentationCadenceTracker()
         assertNull(tracker.onPresented(1_000))
-        assertNull(tracker.onPresented(1_250))
-        val result = checkNotNull(tracker.onPresented(1_500))
-        assertEquals(500, result.intervalMs)
-        assertEquals(3, result.renderedFrames)
-        assertEquals(250, result.maxGapMs)
+        var sample: PresentationCadenceWindow? = null
+        for (time in listOf(
+            1_016L, 1_032L, 1_048L, 1_064L, 1_080L,
+            1_096L, 1_112L, 1_128L, 1_144L, 1_160L
+        )) {
+            sample = tracker.onPresented(time) ?: sample
+        }
+        val result = checkNotNull(sample)
+        assertEquals(160, result.intervalMs)
+        assertEquals(10, result.renderedFrames)
+        assertEquals(16, result.maxGapMs)
+        assertEquals(62.5, result.fps, 0.001)
+    }
+
+    @Test fun lowCadenceReceiverStillProducesUsableDefaultWindow() {
+        val tracker = PresentationCadenceTracker()
+        assertNull(tracker.onPresented(1_000))
+        var sample: PresentationCadenceWindow? = null
+        for (time in listOf(1_067L, 1_134L, 1_201L, 1_268L, 1_335L)) {
+            sample = tracker.onPresented(time) ?: sample
+        }
+        val result = checkNotNull(sample)
+        assertEquals(335, result.intervalMs)
+        assertEquals(5, result.renderedFrames)
+        assertEquals(67, result.maxGapMs)
+    }
+
+    @Test fun elapsedTimeAloneDoesNotEmitAnUndersampledWindow() {
+        val tracker = PresentationCadenceTracker()
+        assertNull(tracker.onPresented(1_000))
+        assertNull(tracker.onPresented(1_200))
+        assertNull(tracker.onPresented(1_400))
+        assertNull(tracker.onPresented(1_600))
+        assertNull(tracker.onPresented(1_800))
+        val result = checkNotNull(tracker.onPresented(2_000))
+        assertEquals(1_000, result.intervalMs)
+        assertEquals(5, result.renderedFrames)
+        assertEquals(200, result.maxGapMs)
     }
 
     @Test fun backwardsOrVeryStaleClockResetsInsteadOfInventingJank() {
@@ -37,13 +94,16 @@ class PresentationFeedbackTest {
         assertNull(tracker.onPresented(8_000))
     }
 
-    @Test fun presentationPacketRoundTripsAndRejectsMalformedWindows() {
-        val packet = ControlPacket.PresentationFeedback(42, 3, 7, 1000, 55, 41)
+    @Test fun presentationPacketRoundTripsAtFastFeedbackCadenceAndRejectsMalformedWindows() {
+        val packet = ControlPacket.PresentationFeedback(42, 3, 7, 160, 10, 41)
         val bytes = ControlProtocol.encode(packet)
         assertEquals(34, bytes.size)
         assertEquals(packet, ControlProtocol.decode(bytes))
         assertNull(ControlProtocol.toRemoteCommand("session", packet, 1080, 2400))
         assertNull(ControlProtocol.decode(bytes.copyOf(bytes.size - 1)))
+        assertThrows(IllegalArgumentException::class.java) {
+            ControlProtocol.encode(packet.copy(intervalMs = 119))
+        }
         assertThrows(IllegalArgumentException::class.java) {
             ControlProtocol.encode(packet.copy(renderedFrames = 0))
         }

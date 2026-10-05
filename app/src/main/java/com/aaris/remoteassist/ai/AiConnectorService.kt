@@ -16,6 +16,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
 import com.aaris.remoteassist.accessibility.AssistAccessibilityService
+import com.aaris.remoteassist.capture.AiImageRegion
 import com.aaris.remoteassist.capture.AiSnapshotProvider
 import com.aaris.remoteassist.capture.CaptureProfile
 import com.aaris.remoteassist.capture.CaptureTier
@@ -102,11 +103,11 @@ class AiConnectorService : Service() {
                 try {
                     credential = withContext(Dispatchers.IO) {
                         val saved = checkNotNull(AiConnectorStore(this@AiConnectorService).load()) { "Create an AI link first" }
-                        WebRtcRuntime.initialize(applicationContext)
+                        WebRtcRuntime.captureEglBase(applicationContext)
                         saved
                     }
                     if (stopping) return@launch
-                    capture = ScreenCaptureTrack(this@AiConnectorService, ProjectionGrant(ownerId, Activity.RESULT_OK, data)) {
+                    capture = ScreenCaptureTrack(this@AiConnectorService, ProjectionGrant(ownerId, Activity.RESULT_OK, data), publishLiveVideo = false) {
                         scope.launch { stopNow("Screen sharing stopped. Tap Connect Phone with AI to resume.") }
                     }
                     snapshots = AiSnapshotProvider(checkNotNull(capture))
@@ -138,8 +139,9 @@ class AiConnectorService : Service() {
     }
 
     private fun profile(): CaptureProfile {
-        val tier = if (CaptureProfile.recommendedTier(this) == CaptureTier.LOW) CaptureTier.BALANCED else CaptureTier.STANDARD
-        // Capture remains live, but expensive conversion and uploads happen only on demand.
+        val tier = if (CaptureProfile.recommendedTier(this) == CaptureTier.LOW) CaptureTier.LOW else CaptureTier.BALANCED
+        // Bounded projection pixels; no peer/encoder pipeline. CPU conversion
+        // and image encoding remain strictly on demand through AiSnapshotProvider.
         return CaptureProfile.current(this, tier).copy(fps = 8, motionFps = 8)
     }
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -223,7 +225,27 @@ class AiConnectorService : Service() {
                 val engine = checkNotNull(observations)
                 val args = packet.optJSONObject("arguments") ?: JSONObject()
                 when (packet.optString("tool")) {
-                    "phone_observe" -> engine.observe(args.optString("quality") == "detail")
+                    "phone_observe" -> {
+                        val quality = args.optString("quality")
+                        val region =
+                            args.optJSONObject("region")?.let { value ->
+                                check(value.length() == 4)
+                                AiImageRegion(
+                                    left = value.getDouble("left"),
+                                    top = value.getDouble("top"),
+                                    right = value.getDouble("right"),
+                                    bottom = value.getDouble("bottom")
+                                )
+                            }
+                        engine.observe(
+                            detail = quality == "detail",
+                            preferSemantic = quality == "semantic",
+                            motion = quality == "motion",
+                            region = region,
+                            knownUiHintsObservationId = args.optString("knownUiHintsObservationId")
+                                .takeIf { it.isNotBlank() }
+                        )
+                    }
                     "phone_action" -> {
                         val id = args.getString("actionId").also { require(it.matches(Regex("[a-zA-Z0-9_-]{8,96}"))) }
                         actionId = id
@@ -238,6 +260,11 @@ class AiConnectorService : Service() {
                         val currentLease = lease ?: return@withTimeout failure("NOT_CONNECTED")
                         val (width, height) = engine.geometry()
                         val action = args.getString("action")
+                        val responseQuality =
+                            args.optString("responseQuality", "auto")
+                        val inheritMotion =
+                            responseQuality == "auto" &&
+                                engine.prefersMotionFollowUp(args)
                         engine.ledger.consume() // Even a refused/no-op action consumes its observation.
                         outcomes[id] = failure("OUTCOME_UNKNOWN", null)
                         dispatched = true; applied = null
@@ -275,10 +302,34 @@ class AiConnectorService : Service() {
                             withTimeout(3500) { done.await() }
                         }
                         engine.invalidate()
-                        val image = engine.observe()
-                        image.put("applied", applied).put("actionId", id)
-                        if (applied != true && !image.has("error")) image.put("error", "ACTION_NOT_APPLIED")
-                        image
+                        val observation =
+                            engine.observe(
+                                detail = responseQuality == "detail",
+                                preferSemantic =
+                                    applied == true &&
+                                        responseQuality == "auto" &&
+                                        !inheritMotion,
+                                motion =
+                                    responseQuality == "motion" ||
+                                        inheritMotion,
+                                /*
+                                 * An explicit motion request is the high-context
+                                 * 960px view. Only an already-established motion
+                                 * loop gets the 800px follow-up budget, while the
+                                 * engine still captures 1280px for validation.
+                                 */
+                                compactMotionFollowUp =
+                                    inheritMotion &&
+                                        responseQuality == "auto",
+                                knownUiHintsObservationId =
+                                    if (applied == true) args.optString("knownUiHintsObservationId")
+                                        .takeIf { it.isNotBlank() } else null
+                            )
+                        observation.put("applied", applied).put("actionId", id)
+                        if (applied != true && !observation.has("error")) {
+                            observation.put("error", "ACTION_NOT_APPLIED")
+                        }
+                        observation
                     }
                     else -> failure("UNKNOWN_TOOL")
                 }
