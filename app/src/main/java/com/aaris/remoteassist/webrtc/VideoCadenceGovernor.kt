@@ -5,9 +5,12 @@ package com.aaris.remoteassist.webrtc
  * congestion control. Freshness wins over nominal FPS: a sustainable cadence
  * is better remote-control UX than a queued/stuttering 60 fps stream.
  */
-class VideoCadenceGovernor(private val maxFps: Int) {
+class VideoCadenceGovernor(
+    private val maxFps: Int,
+    initialCap: Int = maxFps
+) {
     @Volatile
-    var cap = maxFps
+    var cap = initialCap.coerceIn(1, maxFps)
         private set
 
     private var pressure = 0
@@ -124,6 +127,26 @@ class VideoCadenceGovernor(private val maxFps: Int) {
         val severePresentationPressure =
             presentationMeasured &&
                 (presentationRatio < SEVERE_PRESENTATION_DELIVERY_RATIO || renderGapMs >= SEVERE_RENDER_GAP_MS)
+        /*
+         * A software encoder can collapse to only a handful of frames per
+         * second without exposing qualityLimitationReason="cpu". Treat 3-6 fps
+         * delivery as real freshness pressure only when encode residence or the
+         * sender queue also proves the pipeline is overloaded. This avoids
+         * mistaking an intentionally quiet/static screen for encoder failure.
+         */
+        val senderDeliveryCollapse =
+            sender.frames >= MIN_COLLAPSE_MEASURED_FRAMES &&
+                sender.fps <= COLLAPSE_FPS &&
+                (
+                    (sender.processingMs ?: 0.0) >=
+                        budgetMs * COLLAPSE_ENCODE_BUDGET_RATIO ||
+                        (sendQueueMs ?: 0.0) >=
+                            maxOf(
+                                COLLAPSE_MIN_QUEUE_MS,
+                                budgetMs * COLLAPSE_QUEUE_BUDGET_MULTIPLIER
+                            )
+                    )
+
         val severePressure =
             loss >= SEVERE_PACKET_LOSS_RATIO ||
                 (outbound.roundTripTimeMs ?: 0) >= SEVERE_RTT_MS ||
@@ -131,7 +154,8 @@ class VideoCadenceGovernor(private val maxFps: Int) {
                 (receiverJitterMs ?: 0.0) >= SEVERE_JITTER_MS ||
                 (pipelineResidenceMs ?: 0.0) >= SEVERE_PIPELINE_RESIDENCE_MS ||
                 receiverDropRatio >= SEVERE_RECEIVER_DROP_RATIO ||
-                severePresentationPressure
+                severePresentationPressure ||
+                senderDeliveryCollapse
 
         /*
          * Remote control is more sensitive to stale frames than a passive call.
@@ -294,6 +318,11 @@ class VideoCadenceGovernor(private val maxFps: Int) {
         val ASCENDING_CAPS = listOf(15, 20, 24, 30, 45, 60)
 
         const val MIN_MEASURED_FRAMES = 5
+        const val MIN_COLLAPSE_MEASURED_FRAMES = 3
+        const val COLLAPSE_FPS = 6.0
+        const val COLLAPSE_ENCODE_BUDGET_RATIO = 0.75
+        const val COLLAPSE_MIN_QUEUE_MS = 90.0
+        const val COLLAPSE_QUEUE_BUDGET_MULTIPLIER = 3.0
         const val MIN_DROPPED_FRAMES_FOR_PRESSURE = 2
         const val MIN_RECEIVER_SAMPLES_FOR_DROP_RATIO = 8
         const val MIN_PRESENTED_FRAMES = 5
