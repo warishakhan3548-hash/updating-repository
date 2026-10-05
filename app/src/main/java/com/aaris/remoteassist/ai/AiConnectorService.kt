@@ -16,6 +16,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
 import com.aaris.remoteassist.accessibility.AssistAccessibilityService
+import com.aaris.remoteassist.capture.AiImageRegion
 import com.aaris.remoteassist.capture.AiSnapshotProvider
 import com.aaris.remoteassist.capture.CaptureProfile
 import com.aaris.remoteassist.capture.CaptureTier
@@ -225,10 +226,21 @@ class AiConnectorService : Service() {
                 when (packet.optString("tool")) {
                     "phone_observe" -> {
                         val quality = args.optString("quality")
+                        val region =
+                            args.optJSONObject("region")?.let { value ->
+                                check(value.length() == 4)
+                                AiImageRegion(
+                                    left = value.getDouble("left"),
+                                    top = value.getDouble("top"),
+                                    right = value.getDouble("right"),
+                                    bottom = value.getDouble("bottom")
+                                )
+                            }
                         engine.observe(
                             detail = quality == "detail",
                             preferSemantic = quality == "semantic",
-                            motion = quality == "motion"
+                            motion = quality == "motion",
+                            region = region
                         )
                     }
                     "phone_action" -> {
