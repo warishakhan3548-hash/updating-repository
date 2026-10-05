@@ -24,11 +24,22 @@ internal object RealtimeMotionPolicy {
         interactionActive: Boolean,
         cadenceCap: Int
     ): CaptureProfile {
-        val desiredFps =
-            if (interactionActive) base.motionFps else base.fps
-        val targetFps = minOf(desiredFps, cadenceCap).coerceAtLeast(1)
+        /*
+         * The fast presentation governor starts at the clarity profile's idle
+         * cadence, then may raise its cap only after repeated healthy rendered
+         * windows. Let that measured cap unlock motionFps even without a finger
+         * down so passive 60 Hz content (video/game animation) is not permanently
+         * stuck at the idle 45 Hz ceiling. Static screens do not manufacture
+         * frames, and any failed high-cadence probe is already backed off by the
+         * governor.
+         */
+        val targetFps =
+            minOf(base.motionFps, cadenceCap)
+                .coerceAtLeast(1)
 
         if (!interactionActive) {
+            // Ambient cadence probes keep full text/UI resolution. Only active
+            // control is allowed to trade spatial detail for motion freshness.
             return if (targetFps == base.fps) base else base.copy(fps = targetFps)
         }
 
