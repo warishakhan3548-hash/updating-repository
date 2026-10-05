@@ -24,6 +24,7 @@ internal class ThermalVideoGovernor(
         private set
 
     private var recoveryEligibleAtMs = Long.MIN_VALUE
+    private var lastDesiredCap = cap
 
     fun observe(
         pressure: Pressure,
@@ -40,17 +41,28 @@ internal class ThermalVideoGovernor(
 
         if (desiredCap < cap) {
             cap = desiredCap
-            recoveryEligibleAtMs =
-                safeAdd(nowMs, RECOVERY_HOLD_MS)
+            lastDesiredCap = desiredCap
+            recoveryEligibleAtMs = Long.MIN_VALUE
             return true
         }
 
-        if (desiredCap <= cap) {
+        if (desiredCap == cap) {
+            lastDesiredCap = desiredCap
             recoveryEligibleAtMs = Long.MIN_VALUE
             return false
         }
 
-        if (recoveryEligibleAtMs == Long.MIN_VALUE) {
+        /*
+         * A lower thermal severity is a recovery transition. Start the hold
+         * from the transition itself, not from the last time pressure was high.
+         * If cooling improves again before the hold expires (for example
+         * HOT -> WARM -> NORMAL), restart the hold for the new ceiling.
+         */
+        if (
+            desiredCap != lastDesiredCap ||
+            recoveryEligibleAtMs == Long.MIN_VALUE
+        ) {
+            lastDesiredCap = desiredCap
             recoveryEligibleAtMs =
                 safeAdd(nowMs, RECOVERY_HOLD_MS)
             return false
