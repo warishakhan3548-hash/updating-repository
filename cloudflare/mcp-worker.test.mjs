@@ -44,9 +44,11 @@ test('strict arguments reject nonfinite, missing and out of range coordinates, u
   assert.ok(validateArguments('phone_action', { ...args, action: 'open_app', app: 'ChatGPT' }));
   assert.equal(validateArguments('phone_action', { ...args, action: 'open_app' }), false);
   assert.equal(validateArguments('phone_action', { ...args, action: 'open_app', app: '   ' }), false);
+  assert.equal(validateArguments('phone_observe', { quality: 'auto' }), true);
   assert.equal(validateArguments('phone_observe', { quality: 'semantic' }), true);
   assert.equal(validateArguments('phone_observe', { quality: 'motion' }), true);
   assert.equal(validateArguments('phone_observe', { quality: 'invalid' }), false);
+  assert.equal(TOOLS[1].inputSchema.properties.quality.default, 'auto');
   assert.equal(validateArguments('phone_action', { ...args, responseQuality: 'motion' }), true);
   assert.equal(validateArguments('phone_action', { ...args, responseQuality: 'cinematic' }), false);
 });
@@ -168,6 +170,33 @@ test('offline phone rejects actions without queuing them for a future connection
   const f = await fixture(); assert.equal((await result(await f.call('phone_action', args))).error, 'PHONE_OFFLINE');
   assert.equal(f.sent.length, 0); assert.equal(f.ctx.storage.values.has(`action:${args.actionId}`), false);
 });
+test('default observe normalizes to semantic-first and omits redundant native-screen pixels', async () => {
+  const f = await fixture(); f.connect();
+  const pending = f.call('phone_observe');
+
+  for (let i = 0; i < 100 && !f.obj.pending; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.ok(f.obj.pending, 'Expected phone_observe to reach the connected phone');
+  assert.equal(f.sent.length, 1);
+  assert.equal(f.sent[0].tool, 'phone_observe');
+  assert.equal(f.sent[0].arguments.quality, 'semantic');
+
+  await f.complete({
+    observationId: 'fresh-observation-default-0001',
+    screenVersion: 7,
+    settled: true,
+    treeTruncated: false,
+    redacted: false,
+    uiHints: [{ clickable: true, targetId: 'com.example:id/next' }],
+    image: { mimeType: 'image/jpeg', data: 'redundant-native-screen', width: 720, height: 1280 }
+  });
+
+  const response = await (await pending).json();
+  assert.equal(response.result.content.length, 1);
+  const metadata = JSON.parse(response.result.content[0].text);
+  assert.equal(metadata.visualDelivery, 'semantic-only');
+  assert.equal(metadata.image.delivered, false);
+});
+
 test('one action returns its image; retry across hibernation returns outcome without re-execution', async () => {
   const f = await fixture(); f.connect();
   const pending = f.call('phone_action', args);
