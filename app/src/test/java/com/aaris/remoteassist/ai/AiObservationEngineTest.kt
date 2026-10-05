@@ -157,6 +157,43 @@ class AiObservationEngineTest {
         assertNull(engine.validate(action(observed)).error)
     }
 
+    @Test fun regionObservationPublishesOnlyIntersectingHintsButKeepsFullValidationState() = runBlocking {
+        ui = ui!!.copy(
+            hints = JSONArray()
+                .put(
+                    JSONObject()
+                        .put("text", "Inside crop")
+                        .put("clickable", false)
+                        .put("bounds", JSONArray().put(30).put(70).put(50).put(100))
+                )
+                .put(
+                    JSONObject()
+                        .put("text", "Outside crop")
+                        .put("clickable", true)
+                        .put("bounds", JSONArray().put(84).put(168).put(108).put(216))
+                )
+        )
+        val region =
+            AiImageRegion(
+                left = 0.20,
+                top = 0.25,
+                right = 0.50,
+                bottom = 0.50
+            )
+
+        val observed = engine.observe(region = region)
+
+        assertFalse(observed.has("error"))
+        val hints = observed.getJSONArray("uiHints")
+        assertEquals(1, hints.length())
+        assertEquals("Inside crop", hints.getJSONObject(0).getString("text"))
+
+        // Region pruning changes only the model-facing semantic payload. The
+        // authorization snapshot remains full-screen, so validation semantics
+        // are unchanged.
+        assertNull(engine.validate(action(observed)).error)
+    }
+
     @Test fun motionObservationCarriesOnlyItsLiveTicketIntoAutoFollowUp() = runBlocking {
         val motion = engine.observe(motion = true)
         val motionAction = action(motion)
