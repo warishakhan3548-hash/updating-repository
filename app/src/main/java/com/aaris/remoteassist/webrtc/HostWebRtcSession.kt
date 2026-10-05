@@ -848,6 +848,14 @@ class HostWebRtcSession(
 
         if (interactionActive != active) {
             interactionActive = active
+            /*
+             * Couple source admission to the same authoritative interaction
+             * epoch that controls capture cadence/degradation preference. This
+             * makes the freshness decision at the earliest safe point instead
+             * of waiting for a one-second RTC stats window after the finger has
+             * already started moving.
+             */
+            capture.setRealtimeFreshnessPriority(active)
             applyVideoPolicy(profile)
             val policy =
                 InteractiveVideoPolicy.forState(
