@@ -20,6 +20,19 @@ import org.json.JSONObject
 
 data class AiActionValidation(val error: String? = null, val stillValid: () -> Boolean = { false })
 
+/**
+ * The full-frame SHA-256 exists only for exact visual reuse bookkeeping.
+ *
+ * Region delivery never seeds/reuses a full-screen visual, and semantic-only
+ * delivery emits no pixels at all, so hashing every NV21 byte in those modes is
+ * pure CPU/memory-bandwidth work. The smaller action-safety fingerprint remains
+ * mandatory and is intentionally independent of this policy.
+ */
+internal fun needsFullFrameVisualDigest(
+    region: AiImageRegion?,
+    semanticOnly: Boolean
+): Boolean = region == null && !semanticOnly
+
 /** Main-thread owner. Events guide settling; fresh pixels and target semantics authorize actions. */
 class AiObservationEngine internal constructor(
     private val ownPackage: String,
@@ -127,13 +140,13 @@ class AiObservationEngine internal constructor(
              * target validation bound to the exact captured frame while avoiding
              * JPEG encode/Base64/network work on stable native Android screens.
              */
-            val (fingerprint, visualDigest) = withContext(Dispatchers.Default) {
+            val fingerprint = withContext(Dispatchers.Default) {
                 AiVisualFingerprint.sample(
                     frame.nv21,
                     frame.width,
                     frame.height,
                     frame.rotation
-                ) to MessageDigest.getInstance("SHA-256").digest(frame.nv21)
+                )
             }
             val after = uiSnapshot() ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
             if (epoch != ledger.invalidationGeneration) return error("OBSERVATION_INVALIDATED")
@@ -161,6 +174,20 @@ class AiObservationEngine internal constructor(
                             !ui.truncated &&
                             hasActionableHint(hints)
                         )
+            val visualDigest =
+                if (
+                    needsFullFrameVisualDigest(
+                        region = region,
+                        semanticOnly = semanticOnly
+                    )
+                ) {
+                    withContext(Dispatchers.Default) {
+                        MessageDigest.getInstance("SHA-256")
+                            .digest(frame.nv21)
+                    }
+                } else {
+                    null
+                }
             /*
              * Semantic-first and motion observations may reuse the previously
              * delivered visual only when the FULL NV21 frame digest is identical.
@@ -182,6 +209,7 @@ class AiObservationEngine internal constructor(
                     lastDeliveredVisualFrameWidth == frame.width &&
                     lastDeliveredVisualFrameHeight == frame.height &&
                     lastDeliveredVisualRotation == frame.rotation &&
+                    visualDigest != null &&
                     lastDeliveredVisualDigest?.contentEquals(visualDigest) == true &&
                     lastDeliveredVisualUi?.let { samePrivacyContext(it, ui) } == true
                 ) {
@@ -234,7 +262,8 @@ class AiObservationEngine internal constructor(
                 maxOf(frame.width, frame.height)
             lastFingerprint = fingerprint
             if (encoded != null && region == null) {
-                lastDeliveredVisualDigest = visualDigest.copyOf()
+                lastDeliveredVisualDigest =
+                    checkNotNull(visualDigest).copyOf()
                 lastDeliveredVisualObservationId = id
                 lastDeliveredVisualUi = ui
                 lastDeliveredVisualFrameWidth = frame.width
