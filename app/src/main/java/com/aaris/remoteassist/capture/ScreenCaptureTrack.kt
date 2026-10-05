@@ -41,10 +41,11 @@ class ScreenCaptureTrack(
     private val sampleClock = CaptureSampleClock()
 
     /*
-     * Queue residence is measured for every frame, but source-level stale-frame
-     * rejection is enabled only during active remote interaction. Passive video
-     * playback therefore keeps the normal WebRTC cadence, while a swipe/drag can
-     * prefer a newer frame over an old frame already waiting behind encoder work.
+     * Queue residence is measured for every frame. Source-level stale-frame
+     * rejection is enabled only when the host explicitly requests freshness:
+     * either direct remote interaction or measured passive encoder backlog.
+     * Healthy passive video therefore keeps normal WebRTC admission, while a
+     * swipe/drag or real queue buildup can prefer a newer frame over old work.
      *
      * BoundedStalenessGate has hysteresis plus a starvation escape, so this is
      * not an unbounded "drop until healthy" path.
@@ -244,6 +245,17 @@ class ScreenCaptureTrack(
          */
         stalenessGate.reset()
         realtimeFreshnessPriority = active
+    }
+
+    fun restartRealtimeFreshnessEpoch() {
+        if (closed.get() || !realtimeFreshnessPriority) return
+
+        /*
+         * A direct manipulation can begin while passive video freshness mode is
+         * already active. Give that new touch epoch its own bootstrap admission
+         * instead of inheriting a pre-touch drop/starvation timer.
+         */
+        stalenessGate.reset()
     }
 
     fun addSnapshotSink(sink: VideoSink) {
