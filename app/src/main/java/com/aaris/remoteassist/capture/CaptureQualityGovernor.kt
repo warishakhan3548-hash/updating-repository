@@ -75,50 +75,13 @@ class CaptureQualityGovernor(
          * Static screens with few frames and no queue/encode pressure do not
          * count as overload.
          */
-        val safeRequestedFps = requestedFps.coerceIn(1, 60)
-        val frameBudgetMs = 1_000.0 / safeRequestedFps.toDouble()
-        val normalizedEncodeMs =
-            encodeTimeMs?.takeIf { it.isFinite() && it >= 0.0 }
-        val normalizedQueueMs =
-            sendQueueMs?.takeIf { it.isFinite() && it >= 0.0 }
-        val normalizedDeliveredFps =
-            deliveredFps?.takeIf { it.isFinite() && it >= 0.0 }
-
-        val deliveryBelowTarget =
-            normalizedDeliveredFps?.let {
-                it < safeRequestedFps * LOCAL_DELIVERY_RATIO
-            } ?: false
-        val slowEncode =
-            normalizedEncodeMs?.let {
-                it >= maxOf(
-                    LOCAL_MIN_ENCODE_MS,
-                    frameBudgetMs * LOCAL_ENCODE_BUDGET_RATIO
-                )
-            } ?: false
-        val longQueue =
-            normalizedQueueMs?.let {
-                it >= maxOf(
-                    LOCAL_MIN_QUEUE_MS,
-                    frameBudgetMs * LOCAL_QUEUE_BUDGET_MULTIPLIER
-                )
-            } ?: false
-        val collapsedDelivery =
-            normalizedDeliveredFps?.let { it <= LOCAL_COLLAPSE_FPS }
-                ?: false
         val localPipelinePressure =
-            longQueue ||
-                (slowEncode && deliveryBelowTarget) ||
-                (
-                    collapsedDelivery &&
-                        (
-                            normalizedEncodeMs?.let {
-                                it >= frameBudgetMs * LOCAL_COLLAPSE_ENCODE_RATIO
-                            } == true ||
-                                normalizedQueueMs?.let {
-                                    it >= LOCAL_COLLAPSE_QUEUE_MS
-                                } == true
-                            )
-                    )
+            hasLocalPipelinePressure(
+                encodeTimeMs = encodeTimeMs,
+                sendQueueMs = sendQueueMs,
+                deliveredFps = deliveredFps,
+                requestedFps = requestedFps
+            )
 
         val pressuredLoss =
             normalizedLoss
@@ -274,6 +237,58 @@ class CaptureQualityGovernor(
                 null
             }
         }
+    }
+
+    internal fun hasLocalPipelinePressure(
+        encodeTimeMs: Double?,
+        sendQueueMs: Double?,
+        deliveredFps: Double?,
+        requestedFps: Int
+    ): Boolean {
+        val safeRequestedFps = requestedFps.coerceIn(1, 60)
+        val frameBudgetMs = 1_000.0 / safeRequestedFps.toDouble()
+        val normalizedEncodeMs =
+            encodeTimeMs?.takeIf { it.isFinite() && it >= 0.0 }
+        val normalizedQueueMs =
+            sendQueueMs?.takeIf { it.isFinite() && it >= 0.0 }
+        val normalizedDeliveredFps =
+            deliveredFps?.takeIf { it.isFinite() && it >= 0.0 }
+
+        val deliveryBelowTarget =
+            normalizedDeliveredFps?.let {
+                it < safeRequestedFps * LOCAL_DELIVERY_RATIO
+            } ?: false
+        val slowEncode =
+            normalizedEncodeMs?.let {
+                it >= maxOf(
+                    LOCAL_MIN_ENCODE_MS,
+                    frameBudgetMs * LOCAL_ENCODE_BUDGET_RATIO
+                )
+            } ?: false
+        val longQueue =
+            normalizedQueueMs?.let {
+                it >= maxOf(
+                    LOCAL_MIN_QUEUE_MS,
+                    frameBudgetMs * LOCAL_QUEUE_BUDGET_MULTIPLIER
+                )
+            } ?: false
+        val collapsedDelivery =
+            normalizedDeliveredFps?.let { it <= LOCAL_COLLAPSE_FPS }
+                ?: false
+
+        return longQueue ||
+            (slowEncode && deliveryBelowTarget) ||
+            (
+                collapsedDelivery &&
+                    (
+                        normalizedEncodeMs?.let {
+                            it >= frameBudgetMs * LOCAL_COLLAPSE_ENCODE_RATIO
+                        } == true ||
+                            normalizedQueueMs?.let {
+                                it >= LOCAL_COLLAPSE_QUEUE_MS
+                            } == true
+                        )
+                )
     }
 
     private fun resetPressureCounters() {
