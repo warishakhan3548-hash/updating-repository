@@ -149,7 +149,7 @@ sealed interface ControlPacket {
     ) : ControlPacket {
         fun valid() =
             sequence > 0 &&
-                intervalMs in 500..6000 &&
+                intervalMs in 120..6000 &&
                 renderedFrames in 1..2048 &&
                 maxGapMs in 0..6000
     }

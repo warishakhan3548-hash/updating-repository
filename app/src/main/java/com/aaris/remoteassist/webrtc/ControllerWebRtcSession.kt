@@ -150,17 +150,31 @@ class ControllerWebRtcSession(
         if (closed.get()) return false
         val lease = leaseSecret ?: return false
         val display = geometry ?: return false
+        val packet =
+            ControlPacket.PresentationFeedback(
+                leaseSecret = lease,
+                generation = display.generation,
+                sequence = feedbackSequence.incrementAndGet(),
+                intervalMs = window.intervalMs,
+                renderedFrames = window.renderedFrames,
+                maxGapMs = window.maxGapMs
+            )
+
+        /*
+         * Renderer feedback is advisory telemetry, never an authority boundary.
+         * A future producer/protocol mismatch must drop one sample rather than
+         * throw through the controller UI thread and interrupt the live session.
+         */
+        if (!packet.valid()) return false
+        val bytes =
+            runCatching {
+                ControlProtocol.encode(packet)
+            }.getOrElse {
+                return false
+            }
+
         return peer.sendControl(
-            bytes = ControlProtocol.encode(
-                ControlPacket.PresentationFeedback(
-                    leaseSecret = lease,
-                    generation = display.generation,
-                    sequence = feedbackSequence.incrementAndGet(),
-                    intervalMs = window.intervalMs,
-                    renderedFrames = window.renderedFrames,
-                    maxGapMs = window.maxGapMs
-                )
-            ),
+            bytes = bytes,
             // Presentation telemetry is freshness-only: stale retransmits must
             // never sit ahead of the user's next authoritative control packet.
             freshnessSensitive = true
