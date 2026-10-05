@@ -252,11 +252,18 @@ object FrameImageEncoder {
         }
     }
 
-    internal fun cropRect(
+    internal data class CropBounds(
+        val left: Int,
+        val top: Int,
+        val right: Int,
+        val bottom: Int
+    )
+
+    internal fun cropBounds(
         region: AiImageRegion,
         width: Int,
         height: Int
-    ): Rect {
+    ): CropBounds {
         require(width > 0 && height > 0)
 
         val left =
@@ -276,7 +283,21 @@ object FrameImageEncoder {
                 .toInt()
                 .coerceIn(top + 1, height)
 
-        return Rect(left, top, right, bottom)
+        return CropBounds(left, top, right, bottom)
+    }
+
+    internal fun cropRect(
+        region: AiImageRegion,
+        width: Int,
+        height: Int
+    ): Rect {
+        val bounds = cropBounds(region, width, height)
+        return Rect(
+            bounds.left,
+            bounds.top,
+            bounds.right,
+            bounds.bottom
+        )
     }
 
     private fun ensureMutable(source: Bitmap): Bitmap {
