@@ -27,13 +27,18 @@ class CaptureQualityGovernor(
     private var bandwidthOnlySamples = 0
     private var bandwidthProbeSamples = 0
     private var healthySamples = 0
+    private var localPipelinePressureSamples = 0
 
     fun currentTier(): CaptureTier = currentTier
 
     fun observeQualityLimitation(
         reason: String?,
         roundTripTimeMs: Int? = null,
-        packetLossRatio: Double? = null
+        packetLossRatio: Double? = null,
+        encodeTimeMs: Double? = null,
+        sendQueueMs: Double? = null,
+        deliveredFps: Double? = null,
+        requestedFps: Int = 30
     ): CaptureTier? {
         val normalizedReason =
             reason?.trim()?.lowercase()
@@ -61,6 +66,59 @@ class CaptureQualityGovernor(
             normalizedReason == "cpu"
         val bandwidthPressure =
             normalizedReason == "bandwidth"
+
+        /*
+         * Resolution is the expensive lever, so cadence gets first chance to
+         * recover freshness. Only sustained local pipeline pressure may lower
+         * the capture tier: slow encode residence with under-delivery, a long
+         * sender queue, or a 3-6 fps collapse corroborated by either signal.
+         * Static screens with few frames and no queue/encode pressure do not
+         * count as overload.
+         */
+        val safeRequestedFps = requestedFps.coerceIn(1, 60)
+        val frameBudgetMs = 1_000.0 / safeRequestedFps.toDouble()
+        val normalizedEncodeMs =
+            encodeTimeMs?.takeIf { it.isFinite() && it >= 0.0 }
+        val normalizedQueueMs =
+            sendQueueMs?.takeIf { it.isFinite() && it >= 0.0 }
+        val normalizedDeliveredFps =
+            deliveredFps?.takeIf { it.isFinite() && it >= 0.0 }
+
+        val deliveryBelowTarget =
+            normalizedDeliveredFps?.let {
+                it < safeRequestedFps * LOCAL_DELIVERY_RATIO
+            } ?: false
+        val slowEncode =
+            normalizedEncodeMs?.let {
+                it >= maxOf(
+                    LOCAL_MIN_ENCODE_MS,
+                    frameBudgetMs * LOCAL_ENCODE_BUDGET_RATIO
+                )
+            } ?: false
+        val longQueue =
+            normalizedQueueMs?.let {
+                it >= maxOf(
+                    LOCAL_MIN_QUEUE_MS,
+                    frameBudgetMs * LOCAL_QUEUE_BUDGET_MULTIPLIER
+                )
+            } ?: false
+        val collapsedDelivery =
+            normalizedDeliveredFps?.let { it <= LOCAL_COLLAPSE_FPS }
+                ?: false
+        val localPipelinePressure =
+            longQueue ||
+                (slowEncode && deliveryBelowTarget) ||
+                (
+                    collapsedDelivery &&
+                        (
+                            normalizedEncodeMs?.let {
+                                it >= frameBudgetMs * LOCAL_COLLAPSE_ENCODE_RATIO
+                            } == true ||
+                                normalizedQueueMs?.let {
+                                    it >= LOCAL_COLLAPSE_QUEUE_MS
+                                } == true
+                            )
+                    )
 
         val pressuredLoss =
             normalizedLoss
@@ -103,9 +161,26 @@ class CaptureQualityGovernor(
              * deserve one immediate tier reduction; recovery remains slow.
              */
             severeLoss || cpuPressure -> {
+                localPipelinePressureSamples = 0
                 resetPressureCounters()
                 resetRecoveryCounters()
                 downgrade()
+            }
+
+            localPipelinePressure -> {
+                resetPressureCounters()
+                resetRecoveryCounters()
+                localPipelinePressureSamples += 1
+
+                if (
+                    localPipelinePressureSamples <
+                    LOCAL_PIPELINE_PRESSURE_SAMPLE_COUNT
+                ) {
+                    null
+                } else {
+                    localPipelinePressureSamples = 0
+                    downgrade()
+                }
             }
 
             /*
@@ -115,6 +190,7 @@ class CaptureQualityGovernor(
              * cellular spike never causes a visible clarity cliff.
              */
             severeRtt || networkPressure -> {
+                localPipelinePressureSamples = 0
                 bandwidthOnlySamples = 0
                 resetRecoveryCounters()
                 constrainedSamples += 1
@@ -136,6 +212,7 @@ class CaptureQualityGovernor(
              * remote screen blurry for the rest of the session.
              */
             healthyBandwidth -> {
+                localPipelinePressureSamples = 0
                 constrainedSamples = 0
                 bandwidthOnlySamples = 0
                 healthySamples = 0
@@ -159,6 +236,7 @@ class CaptureQualityGovernor(
              * corroborated congestion.
              */
             bandwidthPressure && !hasTransportTelemetry -> {
+                localPipelinePressureSamples = 0
                 constrainedSamples = 0
                 resetRecoveryCounters()
                 bandwidthOnlySamples += 1
@@ -175,6 +253,7 @@ class CaptureQualityGovernor(
             }
 
             explicitHealthy || inferredHealthy -> {
+                localPipelinePressureSamples = 0
                 resetPressureCounters()
                 bandwidthProbeSamples = 0
                 healthySamples += 1
@@ -189,6 +268,7 @@ class CaptureQualityGovernor(
 
             else -> {
                 // Missing/ambiguous stats are not proof of congestion or health.
+                localPipelinePressureSamples = 0
                 resetPressureCounters()
                 resetRecoveryCounters()
                 null
@@ -225,6 +305,16 @@ class CaptureQualityGovernor(
         internal const val BANDWIDTH_ONLY_DOWNGRADE_SAMPLE_COUNT = 4
         internal const val UPGRADE_SAMPLE_COUNT = 6
         internal const val BANDWIDTH_PROBE_UPGRADE_SAMPLE_COUNT = 10
+        internal const val LOCAL_PIPELINE_PRESSURE_SAMPLE_COUNT = 2
+
+        internal const val LOCAL_MIN_ENCODE_MS = 18.0
+        internal const val LOCAL_ENCODE_BUDGET_RATIO = 0.90
+        internal const val LOCAL_DELIVERY_RATIO = 0.70
+        internal const val LOCAL_MIN_QUEUE_MS = 120.0
+        internal const val LOCAL_QUEUE_BUDGET_MULTIPLIER = 4.0
+        internal const val LOCAL_COLLAPSE_FPS = 6.0
+        internal const val LOCAL_COLLAPSE_ENCODE_RATIO = 0.70
+        internal const val LOCAL_COLLAPSE_QUEUE_MS = 90.0
 
         internal const val HEALTHY_RTT_MS = 300
         internal const val PRESSURE_RTT_MS = 650
