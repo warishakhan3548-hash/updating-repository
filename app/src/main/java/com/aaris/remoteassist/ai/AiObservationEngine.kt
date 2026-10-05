@@ -24,7 +24,7 @@ class AiObservationEngine internal constructor(
     private val ownPackage: String,
     private val display: () -> CaptureProfile,
     private val uiSnapshot: () -> AiUiSnapshot?,
-    private val freshFrame: suspend () -> AiRawFrame,
+    private val freshFrame: suspend (Int) -> AiRawFrame,
     private val now: () -> Long = SystemClock::elapsedRealtime,
     private val pause: suspend (Long) -> Unit = { delay(it) },
     private val encodeFrame: (AiRawFrame, Int, List<android.graphics.Rect>, Int, Int, Boolean) -> FrameImageEncoder.Encoded = FrameImageEncoder::encode
@@ -44,6 +44,7 @@ class AiObservationEngine internal constructor(
     private var lastDeliveredVisualRotation = 0
     private var issuedUi: AiUiSnapshot? = null
     private var issuedMotionObservation = false
+    private var issuedCaptureLongEdgePx = 0
     private var width = 0
     private var height = 0
     private var rotation = 0
@@ -83,7 +84,23 @@ class AiObservationEngine internal constructor(
             val revision = ledger.eventRevision
             val before = uiSnapshot() ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
             val geometry = display()
-            val frame = freshFrame()
+            val visualLongEdgePx =
+                when {
+                    detail -> DETAIL_LONG_EDGE_PX
+                    motion -> MOTION_LONG_EDGE_PX
+                    else -> STANDARD_LONG_EDGE_PX
+                }
+            /*
+             * Keep action validation slightly sharper than the compact motion
+             * image while avoiding a full 2400px pixel copy for ordinary AI
+             * loops. Detail remains full fidelity.
+             */
+            val captureLongEdgePx =
+                maxOf(
+                    visualLongEdgePx,
+                    ANALYSIS_LONG_EDGE_PX
+                )
+            val frame = freshFrame(captureLongEdgePx)
             if (!geometryMatches(frame, geometry)) { invalidate(); return error("CAPTURE_GEOMETRY_CHANGED") }
             val ui = uiSnapshot() ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
             // Never publish pixels if privacy masks or foreground window changed
@@ -162,11 +179,7 @@ class AiObservationEngine internal constructor(
                         withContext(Dispatchers.Default) {
                             encodeFrame(
                                 frame,
-                                when {
-                                    detail -> DETAIL_LONG_EDGE_PX
-                                    motion -> MOTION_LONG_EDGE_PX
-                                    else -> STANDARD_LONG_EDGE_PX
-                                },
+                                visualLongEdgePx,
                                 ui.masks,
                                 geometry.displayWidthPx,
                                 geometry.displayHeightPx,
@@ -197,6 +210,8 @@ class AiObservationEngine internal constructor(
             width = geometry.displayWidthPx; height = geometry.displayHeightPx; rotation = frame.rotation
             issuedUi = ui
             issuedMotionObservation = motion
+            issuedCaptureLongEdgePx =
+                maxOf(frame.width, frame.height)
             lastFingerprint = fingerprint
             if (encoded != null) {
                 lastDeliveredVisualDigest = visualDigest.copyOf()
@@ -359,7 +374,11 @@ class AiObservationEngine internal constructor(
         val scope = if (navigation) null else (actionScope(args, observed) ?: return refused("FOCUSED_FIELD_REQUIRED"))
         if (!navigation && !sameTarget(args, observed, ui)) return refused("TARGET_CHANGED")
         if (!navigation) {
-            val fresh = freshFrame()
+            val fresh =
+                freshFrame(
+                    issuedCaptureLongEdgePx
+                        .coerceAtLeast(2)
+                )
             if (fresh.rotation != rotation || !geometryMatches(fresh, geometry)) return refused("CAPTURE_GEOMETRY_CHANGED")
             val changed = withContext(Dispatchers.Default) {
                 AiVisualFingerprint.materiallyDifferent(lastFingerprint ?: byteArrayOf(),
@@ -550,6 +569,7 @@ class AiObservationEngine internal constructor(
         private const val SETTLE_POLL_MS = 40L
         private const val MOTION_LONG_EDGE_PX = 960
         private const val STANDARD_LONG_EDGE_PX = 1280
+        private const val ANALYSIS_LONG_EDGE_PX = 1280
         private const val DETAIL_LONG_EDGE_PX = 2400
         private const val TAP_NEAR_MISS_RADIUS = 0.035
         private const val TAP_NEAR_MISS_RADIUS_SQ = TAP_NEAR_MISS_RADIUS * TAP_NEAR_MISS_RADIUS

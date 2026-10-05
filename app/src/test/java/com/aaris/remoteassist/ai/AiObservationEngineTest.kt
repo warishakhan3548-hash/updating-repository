@@ -26,7 +26,9 @@ class AiObservationEngineTest {
     private var encodedFrames = 0
     private var pauseCalls = 0
     private var lastEncodeLongEdge = 0
-    private val engine = AiObservationEngine("aaris", { profile }, { ui }, {
+    private var lastRequestedCaptureLongEdge = 0
+    private val engine = AiObservationEngine("aaris", { profile }, { ui }, { requestedLongEdge ->
+        lastRequestedCaptureLongEdge = requestedLongEdge
         onFrame(); AiRawFrame(pixels.clone(), 120, 240, 0, clock)
     }, { clock }, {
         pauseCalls++
@@ -56,10 +58,12 @@ class AiObservationEngineTest {
         assertEquals("motion", observed.getString("observationMode"))
         assertEquals(0, pauseCalls)
         assertEquals(960, lastEncodeLongEdge)
+        assertEquals(1280, lastRequestedCaptureLongEdge)
         assertTrue(observed.has("image"))
 
         engine.observe(detail = true)
         assertEquals(2400, lastEncodeLongEdge)
+        assertEquals(2400, lastRequestedCaptureLongEdge)
     }
 
     @Test fun motionObservationCarriesOnlyItsLiveTicketIntoAutoFollowUp() = runBlocking {
