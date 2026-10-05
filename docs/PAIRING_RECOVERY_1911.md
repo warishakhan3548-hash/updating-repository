@@ -5,6 +5,28 @@ the code, before approval, ICE negotiation or screen media. A successful server
 health check does not prove that a particular phone's network can reach that
 hostname. Version 1.9.11 fixes the single-route recovery gap.
 
+## Comparison with the reported working build
+
+The user identified `49b7465` (1.9.9 / versionCode 97) as working and `9d6de41`
+(1.9.10 / versionCode 98) as failing. Git blob comparison confirms these files
+are byte-for-byte identical between those two commits:
+
+| Area | Identical files |
+| --- | --- |
+| Connect UI and code redemption | `MainActivity.kt`, `CloudflarePairingGateway.kt` |
+| HTTPS origin, client settings and credentials | `CloudflareBackend.kt` |
+| Signaling and controller connection owner | `CloudflareSignalingClient.kt`, `ControllerConnectionService.kt` |
+| Permissions and signed-build configuration | `AndroidManifest.xml`, `codemagic.yaml` |
+| Pairing/session/signaling/TURN authority | `cloudflare/core-worker.js` |
+
+The Gradle difference is only versionCode/versionName; the dependencies and
+SDK levels are unchanged. Rendering, capture and AI files do differ, but the
+reported TCP connect failure is on the unchanged HTTP code-redemption path,
+before controller WebRTC startup. These facts do not establish a video/AI
+regression as the cause. They also cannot identify the phone's exact network
+failure remotely. The targeted fix adds recovery when the first public route
+is unreachable, retaining the existing media and consent logic.
+
 ## Execution and state map
 
 | User step | Source owner | Backend / UI result |
