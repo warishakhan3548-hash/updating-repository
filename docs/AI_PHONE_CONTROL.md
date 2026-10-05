@@ -1,13 +1,4 @@
-# AI phone control
-
-In v1.9.10, `phone_observe` and `phone_action` accept optional
-`knownUiHintsObservationId`: the ID of a full hint list already received by your
-AI client. When fresh hints are exactly unchanged, the response may include
-`uiHintsDelivery=reused` and `sameUiHintsAsObservationId` instead of retransmitting
-that list. Use the referenced hints with the NEW observation ticket for actions.
-Omit the acknowledgement to fetch full hints again without requiring a larger
-image. Standard/detail, region, privacy-hidden, masked, truncated and uncertain
-observations keep complete delivery. Fresh screen/target validation still runs.
+# AI phone control (v1.9.3)
 
 Tap **Connect Phone with AI** below Connect/Share. The app registers a random,
 device-specific MCP link, copies it automatically, and displays it below the
@@ -38,26 +29,9 @@ There is no boot receiver, hidden capture, unattended restart or permission bypa
 
 - `phone_status`: online/sharing state and a setup, connecting, stopped or
   disconnected explanation; no command is queued for an offline phone.
-- `phone_observe({quality: "semantic" | "motion" | "standard" | "detail", region?})`:
-  fresh display state, compact UI hints, `screenVersion` and single-use
-  `observationId`. `semantic` can omit redundant pixels on stable native UI;
-  `motion` skips the optional quiet-window wait and uses a compact 960px visual
-  budget for games/video/canvas; once that motion context is established, automatic
-  post-action follow-ups may use an 800px delivery budget while retaining a 1280px
-  validation capture. Optional `region={left,top,right,bottom}` requests a bounded
-  full-display 0..1 crop for closer inspection. The phone increases the source
-  capture budget before cropping (up to the existing 2400px ceiling), applies
-  privacy masks before the crop, and returns `imageRegion` metadata. Region
-  observations publish only Accessibility hints whose bounds intersect that crop,
-  avoiding full-screen semantic text tokens that cannot describe the requested
-  area. Internal stale-target validation still retains the complete screen
-  snapshot. Action coordinates remain full-display normalized coordinates; a crop
-  never creates a second execution coordinate system. Standard/detail remain
-  clarity-first.
-- `phone_action`: exactly one validated tap, long press, swipe, drag,
-  two-finger gesture, type, back, home, recents or app launch. Optional
-  `responseQuality` selects `auto`, `motion`, `standard` or `detail` for
-  the fresh post-action observation.
+- `phone_observe({quality: "standard" | "detail"})`: fresh screenshot, full display
+  geometry, compact UI hints, `screenVersion` and single-use `observationId`.
+- `phone_action`: exactly one tap, long press, swipe, type, back, home or recents.
   Include a unique `actionId`, the last observation ID and screen version.
   Coordinates are **0..1 over the entire upright display**, independent of image
   resizing. `type` inserts at the currently focused cursor/selection.
@@ -88,9 +62,8 @@ require the same foreground window but allow animation. Errors include a specifi
 
 Actions carry a 500 ms validation-to-dispatch deadline. Window/target state,
 lease and deadline are checked again inside the actual Accessibility queue,
-including after STOP moves out of the way. Clarity-first observations wait for a
-bounded quiet interval (up to 220 ms); explicit `motion` observations skip that
-optional wait so continuous animation is sampled immediately. Both modes request a
+including after STOP moves out of the way. After input, the engine waits for a
+bounded quiet interval (at most about 320 ms) and requests a
 current SurfaceTexture after the capture barrier, including on a static screen
 that emits no new frames. These checks reduce stale clicks; they do
 not prove a model chose the correct target or eliminate every app/UI race.
@@ -184,15 +157,8 @@ defects rather than promising an unmeasured latency improvement.
 
 AI uses a live 8 fps capture source but only copies/encodes/uploads frames when
 requested. There is one pending snapshot, one in-flight tool operation and no
-frame backlog or screenshot archive. Explicit motion observations use a
-960-pixel long edge; established automatic game/canvas follow-ups use an
-800-pixel delivery budget while still capturing 1280 pixels for stale-target
-fingerprinting and action validation. Normal images use 1280 pixels, and detail
-requests can use up to the capture source's 2400-pixel long edge. Region
-observations can spend that same bounded source budget on a smaller visual area
-instead of paying image tokens for irrelevant full-screen pixels. Exact unchanged
-full-screen follow-ups may reference the prior visual instead of retransmitting
-identical JPEG tokens.
+frame backlog or screenshot archive. Normal images have a 1280-pixel long edge;
+detail requests can use up to the capture source's 2400-pixel long edge.
 Low-memory devices use a lower capture ceiling. Source aspect ratio and normalized
 input mapping remain consistent. JPEG output is bounded to 850 KB. Capture and
 conversion are shared primitives with the human path, while capture ownership is

@@ -23,7 +23,6 @@ class CaptureQualityGovernor(
     private val maxTier: CaptureTier = initialTier
 ) {
     private var currentTier = initialTier
-    private var encoderMaxTier = maxTier
     private var constrainedSamples = 0
     private var bandwidthOnlySamples = 0
     private var bandwidthProbeSamples = 0
@@ -34,20 +33,8 @@ class CaptureQualityGovernor(
     fun observeQualityLimitation(
         reason: String?,
         roundTripTimeMs: Int? = null,
-        packetLossRatio: Double? = null,
-        softwareEncoder: Boolean = false,
-        encodeTimeMs: Double? = null,
-        requestedFps: Int = 30
+        packetLossRatio: Double? = null
     ): CaptureTier? {
-        encoderMaxTier = if (softwareEncoder && maxTier.ordinal > CaptureTier.BALANCED.ordinal) {
-            CaptureTier.BALANCED
-        } else maxTier
-        if (currentTier.ordinal > encoderMaxTier.ordinal) {
-            currentTier = encoderMaxTier
-            resetPressureCounters()
-            resetRecoveryCounters()
-            return currentTier
-        }
         val normalizedReason =
             reason?.trim()?.lowercase()
         val normalizedRtt =
@@ -70,9 +57,8 @@ class CaptureQualityGovernor(
             normalizedRtt
                 ?.let { it >= SEVERE_RTT_MS }
                 ?: false
-        val cpuPressure = normalizedReason == "cpu" ||
-            (encodeTimeMs?.takeIf { it.isFinite() && it >= 0.0 }
-                ?.let { it > 1000.0 / requestedFps.coerceIn(1, 60) } == true)
+        val cpuPressure =
+            normalizedReason == "cpu"
         val bandwidthPressure =
             normalizedReason == "bandwidth"
 
@@ -228,7 +214,7 @@ class CaptureQualityGovernor(
 
     private fun upgrade(): CaptureTier? =
         currentTier.higher()
-            ?.takeIf { it.ordinal <= encoderMaxTier.ordinal }
+            ?.takeIf { it.ordinal <= maxTier.ordinal }
             ?.let { next ->
                 currentTier = next
                 next

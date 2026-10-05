@@ -3,22 +3,19 @@ package com.aaris.remoteassist.ui
 /**
  * Paces freshness-only remote drag updates independently of the video cadence.
  *
- * Healthy sessions target a 120 Hz-class input loop so the remote pointer starts
+ * Healthy sessions target a 60 Hz-class input loop so the remote pointer starts
  * and follows the controller finger promptly even when video itself is encoded
  * at 30 fps. When the unreliable DataChannel reports backpressure, the pacer
  * backs off aggressively instead of repeatedly encoding/sending stale motion.
- * One pressure signal moves 8 -> 24 ms; repeated pressure reaches the bounded 48 ms
+ * One pressure signal moves 16 -> 32 ms and a second reaches the bounded 48 ms
  * ceiling; this gives SCTP/network queues room to drain before old finger
- * positions accumulate. The 8 ms floor is intentionally independent of video
- * cadence: 60 fps pixels can still benefit from receiving the newest finger
- * position before the next captured frame. Successful sends then converge
- * gradually back toward
+ * positions accumulate. Successful sends then converge gradually back toward
  * the low-latency floor so a transient spike cannot cause oscillation.
  *
  * START/END packets are authoritative and never pass through this pacer.
  */
 internal class GestureStreamPacer(
-    private val minIntervalMs: Long = 8L,
+    private val minIntervalMs: Long = 16L,
     private val maxIntervalMs: Long = 48L,
     private val pressureStepMs: Long = 16L,
     private val recoveryStepMs: Long = 4L

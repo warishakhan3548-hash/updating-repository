@@ -12,9 +12,6 @@ import org.webrtc.VideoTrack
 import java.io.Closeable
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.ScheduledThreadPoolExecutor
-import java.util.concurrent.ScheduledFuture
-import java.util.concurrent.TimeUnit
 
 data class RemoteGeometry(
     val generation: Int,
@@ -51,12 +48,6 @@ class ControllerWebRtcSession(
     private var lastVideoLivenessMs = 0L
     private val gestureStreamIds = AtomicLong(0L)
     private val handler = Handler(Looper.getMainLooper())
-    private val heartbeatLock = Any()
-    private val heartbeatSendLock = Any()
-    private val heartbeatExecutor = ScheduledThreadPoolExecutor(1) { task ->
-        Thread(task, "AarisControlHeartbeat").apply { isDaemon = true }
-    }.apply { removeOnCancelPolicy = true }
-    private var heartbeatTask: ScheduledFuture<*>? = null
     private val transport = ControlTransportTracker()
     private val inboundVideoLiveness =
         InboundVideoLivenessMonitor()
@@ -96,25 +87,19 @@ class ControllerWebRtcSession(
 
     private val heartbeat = object : Runnable {
         override fun run() {
-            val failure = synchronized(heartbeatSendLock) {
-                if (closed.get()) return
-                val lease = leaseSecret ?: return
-                // A closing channel must not cancel all future scheduled ticks.
-                runCatching {
-                    peer.sendControl(ControlProtocol.encode(ControlPacket.Heartbeat(lease)))
-                }.exceptionOrNull()
-            }
-            if (failure != null && !closed.get()) listener.onRecoverableError(failure)
-        }
-    }
+            if (closed.get()) return
 
-    private fun startHeartbeat() = synchronized(heartbeatLock) {
-        if (closed.get()) return@synchronized
-        heartbeatTask?.cancel(false)
-        // EGL/view recovery must not delay the authenticated control lease.
-        heartbeatTask = heartbeatExecutor.scheduleWithFixedDelay(
-            heartbeat, 0L, HEARTBEAT_MS, TimeUnit.MILLISECONDS
-        )
+            val lease = leaseSecret
+            if (lease != null) {
+                peer.sendControl(
+                    ControlProtocol.encode(
+                        ControlPacket.Heartbeat(lease)
+                    )
+                )
+            }
+
+            handler.postDelayed(this, HEARTBEAT_MS)
+        }
     }
 
     fun start() {
@@ -165,31 +150,17 @@ class ControllerWebRtcSession(
         if (closed.get()) return false
         val lease = leaseSecret ?: return false
         val display = geometry ?: return false
-        val packet =
-            ControlPacket.PresentationFeedback(
-                leaseSecret = lease,
-                generation = display.generation,
-                sequence = feedbackSequence.incrementAndGet(),
-                intervalMs = window.intervalMs,
-                renderedFrames = window.renderedFrames,
-                maxGapMs = window.maxGapMs
-            )
-
-        /*
-         * Renderer feedback is advisory telemetry, never an authority boundary.
-         * A future producer/protocol mismatch must drop one sample rather than
-         * throw through the controller UI thread and interrupt the live session.
-         */
-        if (!packet.valid()) return false
-        val bytes =
-            runCatching {
-                ControlProtocol.encode(packet)
-            }.getOrElse {
-                return false
-            }
-
         return peer.sendControl(
-            bytes = bytes,
+            bytes = ControlProtocol.encode(
+                ControlPacket.PresentationFeedback(
+                    leaseSecret = lease,
+                    generation = display.generation,
+                    sequence = feedbackSequence.incrementAndGet(),
+                    intervalMs = window.intervalMs,
+                    renderedFrames = window.renderedFrames,
+                    maxGapMs = window.maxGapMs
+                )
+            ),
             // Presentation telemetry is freshness-only: stale retransmits must
             // never sit ahead of the user's next authoritative control packet.
             freshnessSensitive = true
@@ -557,7 +528,8 @@ class ControllerWebRtcSession(
                 this.geometry = geometry
                 if (resetLatency) commandLatency.reset()
 
-                startHeartbeat()
+                handler.removeCallbacks(heartbeat)
+                handler.post(heartbeat)
 
                 listener.onLive(geometry)
                 peer.sendControl(
@@ -684,16 +656,7 @@ class ControllerWebRtcSession(
 
         screenReadyArmed.set(false)
         handler.removeCallbacks(helloWatchdog)
-        synchronized(heartbeatLock) {
-            heartbeatTask?.cancel(false)
-            heartbeatTask = null
-            heartbeatExecutor.shutdownNow()
-        }
-        // The pinned SDK predates native lifecycle guards. Drain any active
-        // heartbeat before disposal. This lock is separate from scheduling:
-        // an RTC HELLO callback must never wait behind a native send which may
-        // itself be waiting for that callback's thread.
-        synchronized(heartbeatSendLock) { }
+        handler.removeCallbacks(heartbeat)
         inboundVideoLiveness.reset()
         if (notifyRemote) {
             runCatching {

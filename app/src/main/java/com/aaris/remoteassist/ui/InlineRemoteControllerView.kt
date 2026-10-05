@@ -5,15 +5,14 @@ import android.app.AlertDialog
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.SurfaceTexture
 import android.graphics.Typeface
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.MotionEvent
-import android.view.Surface
-import android.view.SurfaceHolder
-import android.view.SurfaceView
+import android.view.TextureView
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
@@ -50,11 +49,10 @@ import org.webrtc.VideoTrack
 /**
  * Full-screen controller UI that lives inside MainActivity.
  *
- * WebRTC remains owned by ControllerConnectionService. The remote video is
- * presented through a SurfaceView-backed EglRenderer: on Android 8+ this gives
- * SurfaceFlinger a direct composition surface instead of forcing every remote
- * frame through TextureView's extra GPU copy/composition path. Controls and
- * recovery UI remain ordinary Views above the default below-window SurfaceView.
+ * WebRTC remains owned by ControllerConnectionService. This view uses a
+ * TextureView-backed EglRenderer so the remote video participates in the same
+ * Android view hierarchy as the controls instead of depending on a separate
+ * SurfaceView window/layer.
  */
 class InlineRemoteControllerView(
     private val activity: Activity,
@@ -79,7 +77,7 @@ class InlineRemoteControllerView(
     private val controlHandle = Button(activity)
     private val rendererContainer = FrameLayout(activity)
     private val fallbackImageView = ImageView(activity)
-    private val surfaceView = SurfaceView(activity)
+    private val textureView = TextureView(activity)
     private val touchFeedback = RemoteTouchFeedback(activity)
     @Volatile private var videoStats = "Video stats: waiting for transport"
     @Volatile private var inputStats = "Command ACK: waiting for applied input"
@@ -95,7 +93,6 @@ class InlineRemoteControllerView(
         }
 
     private var eglRenderer: EglRenderer? = null
-    private var rendererSurfaceAttached = false
     private var remoteTrack: VideoTrack? = null
     private var sinkTrack: VideoTrack? = null
 
@@ -120,7 +117,6 @@ class InlineRemoteControllerView(
         ArrayList<LocalTouchPoint>(MAX_LOCAL_GESTURE_POINTS)
     private val gestureStreamPacer = GestureStreamPacer()
     private val presentationCadence = PresentationCadenceTracker()
-    private val surfaceFrameRateHints = SurfaceFrameRateHintGovernor()
 
     private var downX = 0f
     private var downY = 0f
@@ -253,7 +249,6 @@ class InlineRemoteControllerView(
                 if (!attached) return
 
                 if (!rawFrameSeen.get() || android.os.SystemClock.elapsedRealtime() - lastRawFrameAtMs > FIRST_FRAME_DEADLINE_MS) {
-                    clearSurfaceFrameRateHintIfNeeded()
                     if (
                         mediaRecoveryAttempts <
                             MAX_MEDIA_RECOVERY_ATTEMPTS
@@ -338,7 +333,6 @@ class InlineRemoteControllerView(
                         rawFrameSeen.set(false)
                         renderedFrameSeen.set(false)
                         presentationCadence.reset()
-                        clearSurfaceFrameRateHintIfNeeded()
                         frameWidth = 0
                         frameHeight = 0
                         latestObservedFrameWidth = 0
@@ -378,7 +372,6 @@ class InlineRemoteControllerView(
                 presentationCadence.reset()
                 mainHandler.post {
                     if (attached) {
-                        clearSurfaceFrameRateHintIfNeeded()
                         mainHandler.removeCallbacks(mediaWatchdog)
                         mainHandler.postDelayed(mediaWatchdog, MEDIA_RECOVERY_RETRY_MS)
                     }
@@ -539,49 +532,47 @@ class InlineRemoteControllerView(
             visibility = View.GONE
             contentDescription = "Remote screen compatibility video"
         }
-        /*
-         * SurfaceView stays at the default below-window Z order. Remote video can
-         * use Android's direct Surface composition path while fallback/touch/status
-         * remain ordinary Views above it.
-         */
-        surfaceView.setZOrderOnTop(false)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            surfaceView.setSurfaceLifecycle(
-                SurfaceView.SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT
+        rendererContainer.addView(
+            fallbackImageView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
             )
-        }
-        surfaceView.holder.addCallback(
-            object : SurfaceHolder.Callback {
-                override fun surfaceCreated(holder: SurfaceHolder) {
-                    ensureRenderer()
-                    ensureRendererSurface(holder)
-                    surfaceFrameRateHints
-                        .currentHintFps()
-                        .takeIf { it > 0 }
-                        ?.let(::applySurfaceFrameRateHint)
-                    updateRendererAspect(
-                        surfaceView.width,
-                        surfaceView.height
-                    )
-                    remoteTrack?.let(::attachTrack)
-                }
+        )
 
-                override fun surfaceChanged(
-                    holder: SurfaceHolder,
-                    format: Int,
+        textureView.isOpaque = true
+        textureView.surfaceTextureListener =
+            object : TextureView.SurfaceTextureListener {
+                override fun onSurfaceTextureAvailable(
+                    surface: SurfaceTexture,
                     width: Int,
                     height: Int
                 ) {
                     ensureRenderer()
-                    ensureRendererSurface(holder)
+                    eglRenderer?.createEglSurface(surface)
+                    updateRendererAspect(width, height)
+                    remoteTrack?.let(::attachTrack)
+                }
+
+                override fun onSurfaceTextureSizeChanged(
+                    surface: SurfaceTexture,
+                    width: Int,
+                    height: Int
+                ) {
                     updateRendererAspect(width, height)
                 }
 
-                override fun surfaceDestroyed(holder: SurfaceHolder) {
-                    releaseRendererSurface()
+                override fun onSurfaceTextureDestroyed(
+                    surface: SurfaceTexture
+                ): Boolean {
+                    eglRenderer?.releaseEglSurface {}
+                    return true
                 }
+
+                override fun onSurfaceTextureUpdated(
+                    surface: SurfaceTexture
+                ) = Unit
             }
-        )
 
         rendererContainer.setBackgroundColor(Color.BLACK)
         rendererContainer.addView(touchFeedback, FrameLayout.LayoutParams(
@@ -610,20 +601,7 @@ class InlineRemoteControllerView(
             }
         }
         rendererContainer.addView(
-            surfaceView,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-        )
-
-        /*
-         * Recovery pixels must be in the app window above SurfaceView's
-         * below-window surface. Keep this child after the SurfaceView; the touch
-         * overlay is brought to front below.
-         */
-        rendererContainer.addView(
-            fallbackImageView,
+            textureView,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
@@ -1196,18 +1174,16 @@ class InlineRemoteControllerView(
             renderer.setMirror(false)
             renderer.disableFpsReduction()
             updateRendererAspect(
-                surfaceView.width,
-                surfaceView.height,
+                textureView.width,
+                textureView.height,
                 renderer
             )
             // FrameListener is a ONE-SHOT screenshot API. RenderListener fires
             // after every real EGL swap, so recovery can be confirmed repeatedly.
             renderer.addRenderListener {
                 val generation = recoveryGeneration.get()
-                val presentedAtMs =
-                    android.os.SystemClock.elapsedRealtime()
                 presentationCadence
-                    .onPresented(presentedAtMs)
+                    .onPresented(android.os.SystemClock.elapsedRealtime())
                     ?.let { window ->
                         mainHandler.post {
                             if (
@@ -1215,9 +1191,6 @@ class InlineRemoteControllerView(
                                 eglRenderer === renderer &&
                                 generation == recoveryGeneration.get()
                             ) {
-                                surfaceFrameRateHints
-                                    .observe(window, presentedAtMs)
-                                    ?.let(::applySurfaceFrameRateHint)
                                 session()?.sendPresentationFeedback(window)
                             }
                         }
@@ -1227,6 +1200,7 @@ class InlineRemoteControllerView(
                         if (attached && eglRenderer === renderer && generation == recoveryGeneration.get()) {
                             fallbackActive = false
                             imageDisplayed = true
+                            textureView.alpha = 1f
                             fallbackImageView.visibility = View.GONE
                             fallbackImageView.setImageDrawable(null)
                             fallbackBitmap?.recycle()
@@ -1245,7 +1219,13 @@ class InlineRemoteControllerView(
             }
 
             eglRenderer = renderer
-            ensureRendererSurface()
+
+            if (textureView.isAvailable) {
+                textureView.surfaceTexture?.let(
+                    renderer::createEglSurface
+                )
+            }
+
             true
         }.getOrDefault(false)
     }
@@ -1265,84 +1245,9 @@ class InlineRemoteControllerView(
         )
     }
 
-    private fun ensureRendererSurface(
-        holder: SurfaceHolder = surfaceView.holder
-    ): Boolean {
-        val renderer = eglRenderer ?: return false
-        if (rendererSurfaceAttached) return true
-
-        val surface = holder.surface
-        if (!surface.isValid) return false
-
-        return runCatching {
-            renderer.createEglSurface(surface)
-            rendererSurfaceAttached = true
-            true
-        }.getOrElse {
-            rendererSurfaceAttached = false
-            false
-        }
-    }
-
-    /**
-     * Tell SurfaceFlinger the cadence that the remote stream has actually
-     * sustained. This is a display-scheduler hint only; WebRTC remains the
-     * producer/pacer authority and Android may ignore the request.
-     *
-     * Remote control is mixed UI/video/game content, so DEFAULT compatibility
-     * is correct here rather than FIXED_SOURCE. Never request a disruptive
-     * display-mode switch while the user is actively controlling another phone.
-     */
-    private fun clearSurfaceFrameRateHintIfNeeded() {
-        if (surfaceFrameRateHints.reset()) {
-            /*
-             * Android explicitly defines 0 Hz as "clear this Surface's frame
-             * rate preference". Do this when a still-visible remote surface has
-             * stopped producing frames or is switching to a new track, otherwise
-             * the display scheduler may keep honoring a cadence that no longer
-             * describes the producer during recovery.
-             */
-            applySurfaceFrameRateHint(0)
-        }
-    }
-
-    private fun applySurfaceFrameRateHint(fps: Int) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || fps < 0) return
-
-        val surface = surfaceView.holder.surface
-        if (!surface.isValid) return
-
-        runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                surface.setFrameRate(
-                    fps.toFloat(),
-                    Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
-                    Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                surface.setFrameRate(
-                    fps.toFloat(),
-                    Surface.FRAME_RATE_COMPATIBILITY_DEFAULT
-                )
-            }
-        }
-    }
-
-    private fun releaseRendererSurface() {
-        val renderer = eglRenderer
-        rendererSurfaceAttached = false
-        if (renderer != null) {
-            runCatching {
-                renderer.releaseEglSurface {}
-            }
-        }
-    }
-
     private fun releaseRenderer() {
         val renderer = eglRenderer ?: return
         eglRenderer = null
-        rendererSurfaceAttached = false
         runCatching {
             renderer.releaseEglSurface {}
         }
@@ -1433,7 +1338,7 @@ class InlineRemoteControllerView(
         }
 
         val params =
-            (surfaceView.layoutParams as? FrameLayout.LayoutParams)
+            (textureView.layoutParams as? FrameLayout.LayoutParams)
                 ?: FrameLayout.LayoutParams(
                     targetWidth,
                     targetHeight
@@ -1446,7 +1351,7 @@ class InlineRemoteControllerView(
             params.width = targetWidth
             params.height = targetHeight
             params.gravity = Gravity.CENTER
-            surfaceView.layoutParams = params
+            textureView.layoutParams = params
         }
 
         updateRendererAspect(targetWidth, targetHeight)
@@ -1598,6 +1503,8 @@ class InlineRemoteControllerView(
             fallbackScratchBitmap = null
             fallbackImageView.setImageBitmap(oriented)
             fallbackImageView.visibility = View.VISIBLE
+            textureView.alpha = 0f
+
             if (
                 previous != null &&
                 previous !== oriented &&
@@ -1775,6 +1682,7 @@ class InlineRemoteControllerView(
         frameHeight = orientedHeight
         updateVideoViewport()
         fallbackImageView.visibility = View.VISIBLE
+        textureView.alpha = 0f
         showVideoStatus("Adaptive recovery video • primary stream recovering…")
 
     }

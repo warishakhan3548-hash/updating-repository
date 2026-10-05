@@ -26,7 +26,6 @@ import com.aaris.remoteassist.control.CommandGate
 import com.aaris.remoteassist.control.GlobalAction
 import com.aaris.remoteassist.control.GesturePathCommand
 import com.aaris.remoteassist.control.GestureStreamCommand
-import com.aaris.remoteassist.control.GestureStreamCoalescer
 import com.aaris.remoteassist.control.GestureStreamPhase
 import com.aaris.remoteassist.control.GlobalActionCommand
 import com.aaris.remoteassist.control.LongPressCommand
@@ -771,26 +770,21 @@ class AssistAccessibilityService : AccessibilityService() {
         onResult: (Boolean) -> Unit,
         precondition: () -> Boolean
     ) {
+        val pending = PendingCommand(command, onResult, precondition)
+
         /*
          * Remote drag segments are freshness-sensitive, not archival events.
          * If Android is still finishing the previous continued stroke, keeping
          * every intermediate CONTINUE in FIFO order makes the pointer visibly
-         * trail the controller's finger. START and END remain authoritative.
+         * trail the controller's finger. START and END remain authoritative;
+         * only queued (never active) CONTINUE segments from the same stream are
+         * superseded by the newest position.
          *
-         * When a queued CONTINUE is superseded, preserve its geometry inside
-         * the newest segment before removing it. The merged path is resampled
-         * to the existing 16-point bound, so queue residence and packet size
-         * stay bounded without making a curved drag shortcut across dropped
-         * intermediate points.
+         * Superseded segments complete successfully because their destination
+         * is incorporated by the newer continuation/end path. Reporting them
+         * as failures would create false UI errors on a healthy session.
          */
-        val coalescedCommand =
-            coalesceQueuedGestureSegments(command)
-        val pending =
-            PendingCommand(
-                coalescedCommand,
-                onResult,
-                precondition
-            )
+        coalesceQueuedGestureSegments(command)
 
         val inFlight = if (activeCommand == null) 0 else 1
         if (
@@ -807,18 +801,16 @@ class AssistAccessibilityService : AccessibilityService() {
 
     private fun coalesceQueuedGestureSegments(
         command: RemoteCommand
-    ): RemoteCommand {
+    ) {
         val stream =
-            command as? GestureStreamCommand ?: return command
+            command as? GestureStreamCommand ?: return
         if (
             stream.phase == GestureStreamPhase.START ||
             pendingCommands.isEmpty()
         ) {
-            return command
+            return
         }
 
-        val superseded =
-            ArrayList<GestureStreamCommand>()
         val iterator = pendingCommands.iterator()
         while (iterator.hasNext()) {
             val queued = iterator.next()
@@ -828,28 +820,14 @@ class AssistAccessibilityService : AccessibilityService() {
 
             if (
                 queuedStream.streamId != stream.streamId ||
-                queuedStream.sessionId != stream.sessionId ||
-                queuedStream.leaseSecret != stream.leaseSecret ||
-                queuedStream.generation != stream.generation ||
                 queuedStream.phase != GestureStreamPhase.CONTINUE
             ) {
                 continue
             }
 
             iterator.remove()
-            superseded += queuedStream
-            /*
-             * CONTINUE packets are deliberately unacknowledged on the wire.
-             * Locally complete their callbacks successfully because the newest
-             * command now carries their path and will represent that motion.
-             */
             queued.complete(true)
         }
-
-        return GestureStreamCoalescer.merge(
-            superseded = superseded,
-            incoming = stream
-        )
     }
 
     private fun drainCommandQueue() {

@@ -6,47 +6,6 @@ import org.junit.Test
 
 class CaptureQualityGovernorTest {
     @Test
-    fun softwareEncodingCannotClimbBackToNativeTallPhoneFrames() {
-        val governor = CaptureQualityGovernor(CaptureTier.HIGH)
-        assertEquals(CaptureTier.BALANCED, governor.observeQualityLimitation(
-            reason = null, roundTripTimeMs = 200, packetLossRatio = 0.0, softwareEncoder = true))
-        repeat(100) {
-            assertNull(governor.observeQualityLimitation(
-                reason = "none", roundTripTimeMs = 100, packetLossRatio = 0.0, softwareEncoder = true))
-        }
-        assertEquals(CaptureTier.BALANCED, governor.currentTier())
-    }
-
-    @Test
-    fun measuredSlowEncodingReducesPixelsEvenWhenVendorOmitsCpuReason() {
-        val governor = CaptureQualityGovernor(CaptureTier.STANDARD)
-        assertEquals(CaptureTier.BALANCED, governor.observeQualityLimitation(
-            reason = null, roundTripTimeMs = 200, packetLossRatio = 0.0,
-            encodeTimeMs = 90.0, requestedFps = 20))
-    }
-
-    @Test
-    fun quickHardwareEncodingRetainsReadableResolution() {
-        val governor = CaptureQualityGovernor(CaptureTier.STANDARD)
-        repeat(10) {
-            assertNull(governor.observeQualityLimitation(
-                reason = "none", roundTripTimeMs = 120, packetLossRatio = 0.0,
-                encodeTimeMs = 8.0, requestedFps = 30))
-        }
-        assertEquals(CaptureTier.STANDARD, governor.currentTier())
-    }
-
-    @Test
-    fun returningToHardwareCanRecoverDetailAfterHealthySamples() {
-        val governor = CaptureQualityGovernor(CaptureTier.STANDARD)
-        governor.observeQualityLimitation("none", softwareEncoder = true)
-        repeat(CaptureQualityGovernor.UPGRADE_SAMPLE_COUNT - 1) {
-            assertNull(governor.observeQualityLimitation("none", 100, 0.0))
-        }
-        assertEquals(CaptureTier.STANDARD, governor.observeQualityLimitation("none", 100, 0.0))
-    }
-
-    @Test
     fun healthyBandwidthReasonDoesNotSacrificeResolution() {
         val governor =
             CaptureQualityGovernor(

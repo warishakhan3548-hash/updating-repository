@@ -4,13 +4,11 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Base64
 import com.aaris.remoteassist.accessibility.AssistAccessibilityService
-import com.aaris.remoteassist.capture.AiImageRegion
 import com.aaris.remoteassist.capture.AiRawFrame
 import com.aaris.remoteassist.capture.AiSnapshotProvider
 import com.aaris.remoteassist.capture.CaptureProfile
 import com.aaris.remoteassist.capture.CaptureTier
 import com.aaris.remoteassist.capture.FrameImageEncoder
-import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -20,28 +18,15 @@ import org.json.JSONObject
 
 data class AiActionValidation(val error: String? = null, val stillValid: () -> Boolean = { false })
 
-/**
- * The full-frame SHA-256 exists only for exact visual reuse bookkeeping.
- *
- * Region delivery never seeds/reuses a full-screen visual, and semantic-only
- * delivery emits no pixels at all, so hashing every NV21 byte in those modes is
- * pure CPU/memory-bandwidth work. The smaller action-safety fingerprint remains
- * mandatory and is intentionally independent of this policy.
- */
-internal fun needsFullFrameVisualDigest(
-    region: AiImageRegion?,
-    semanticOnly: Boolean
-): Boolean = region == null && !semanticOnly
-
 /** Main-thread owner. Events guide settling; fresh pixels and target semantics authorize actions. */
 class AiObservationEngine internal constructor(
     private val ownPackage: String,
     private val display: () -> CaptureProfile,
     private val uiSnapshot: () -> AiUiSnapshot?,
-    private val freshFrame: suspend (Int) -> AiRawFrame,
+    private val freshFrame: suspend () -> AiRawFrame,
     private val now: () -> Long = SystemClock::elapsedRealtime,
     private val pause: suspend (Long) -> Unit = { delay(it) },
-    private val encodeFrame: (AiRawFrame, Int, List<android.graphics.Rect>, Int, Int, Boolean, AiImageRegion?) -> FrameImageEncoder.Encoded = FrameImageEncoder::encode
+    private val encodeFrame: (AiRawFrame, Int, List<android.graphics.Rect>, Int, Int, Boolean) -> FrameImageEncoder.Encoded = FrameImageEncoder::encode
 ) {
     constructor(context: Context, snapshots: AiSnapshotProvider) : this(
         context.packageName, { CaptureProfile.current(context, CaptureTier.BALANCED) },
@@ -50,26 +35,7 @@ class AiObservationEngine internal constructor(
 
     val ledger = AiScreenLedger()
     private var lastFingerprint: ByteArray? = null
-    private var lastDeliveredVisualDigest: ByteArray? = null
-    private var lastDeliveredVisualObservationId: String? = null
-    private var lastDeliveredVisualUi: AiUiSnapshot? = null
-    private var lastDeliveredVisualFrameWidth = 0
-    private var lastDeliveredVisualFrameHeight = 0
-    private var lastDeliveredVisualRotation = 0
-    private data class PublishedHints(
-        val json: String,
-        val observationId: String,
-        val packageName: String,
-        val windowId: Int,
-        val displayWidth: Int,
-        val displayHeight: Int,
-        val rotation: Int,
-        val deliveredAtMs: Long
-    )
-    private var lastPublishedHints: PublishedHints? = null
     private var issuedUi: AiUiSnapshot? = null
-    private var issuedMotionObservation = false
-    private var issuedCaptureLongEdgePx = 0
     private var width = 0
     private var height = 0
     private var rotation = 0
@@ -91,52 +57,14 @@ class AiObservationEngine internal constructor(
         }
     }
 
-    suspend fun observe(
-        detail: Boolean = false,
-        preferSemantic: Boolean = false,
-        motion: Boolean = false,
-        compactMotionFollowUp: Boolean = false,
-        region: AiImageRegion? = null,
-        knownUiHintsObservationId: String? = null
-    ): JSONObject {
+    suspend fun observe(detail: Boolean = false): JSONObject {
         repeat(2) { attempt ->
-            /*
-             * Continuous games/video may never become Accessibility-quiet. In
-             * motion mode, waiting for a quiet window only turns current pixels
-             * into old pixels. Skip that optional UX settling delay, while
-             * retaining every privacy/window/geometry check below and the same
-             * fresh-pixel action validation path.
-             */
-            if (!motion) settle()
+            settle()
             val epoch = ledger.invalidationGeneration
             val revision = ledger.eventRevision
             val before = uiSnapshot() ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
             val geometry = display()
-            val visualLongEdgePx =
-                when {
-                    detail -> DETAIL_LONG_EDGE_PX
-                    motion && compactMotionFollowUp ->
-                        MOTION_FOLLOW_UP_LONG_EDGE_PX
-                    motion -> MOTION_LONG_EDGE_PX
-                    else -> STANDARD_LONG_EDGE_PX
-                }
-            /*
-             * Keep action validation sharper than the delivered motion image.
-             * Auto game/canvas follow-ups may use an even smaller visual budget,
-             * but the capture/fingerprint used for target validation remains at
-             * ANALYSIS_LONG_EDGE_PX. This saves vision tokens without weakening
-             * the stale-target safety check. Detail remains full fidelity.
-             */
-            val captureLongEdgePx =
-                region?.requiredSourceLongEdge(
-                    deliveryLongEdgePx = visualLongEdgePx,
-                    analysisLongEdgePx = ANALYSIS_LONG_EDGE_PX,
-                    sourceLongEdgeCapPx = DETAIL_LONG_EDGE_PX
-                ) ?: maxOf(
-                    visualLongEdgePx,
-                    ANALYSIS_LONG_EDGE_PX
-                )
-            val frame = freshFrame(captureLongEdgePx)
+            val frame = freshFrame()
             if (!geometryMatches(frame, geometry)) { invalidate(); return error("CAPTURE_GEOMETRY_CHANGED") }
             val ui = uiSnapshot() ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
             // Never publish pixels if privacy masks or foreground window changed
@@ -146,19 +74,10 @@ class AiObservationEngine internal constructor(
                 return error("SCREEN_CHANGING")
             }
             val hideAll = ui.sensitiveFocus || ui.packageName == ownPackage
-            /*
-             * Fingerprinting is the safety primitive and remains mandatory even
-             * when a semantic observation can omit JPEG pixels. This keeps
-             * target validation bound to the exact captured frame while avoiding
-             * JPEG encode/Base64/network work on stable native Android screens.
-             */
-            val fingerprint = withContext(Dispatchers.Default) {
-                AiVisualFingerprint.sample(
-                    frame.nv21,
-                    frame.width,
-                    frame.height,
-                    frame.rotation
-                )
+            val (encoded, fingerprint) = withContext(Dispatchers.Default) {
+                encodeFrame(frame, if (detail) 2400 else 1280, ui.masks,
+                    geometry.displayWidthPx, geometry.displayHeightPx, hideAll) to
+                    AiVisualFingerprint.sample(frame.nv21, frame.width, frame.height, frame.rotation)
             }
             val after = uiSnapshot() ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
             if (epoch != ledger.invalidationGeneration) return error("OBSERVATION_INVALIDATED")
@@ -166,213 +85,20 @@ class AiObservationEngine internal constructor(
                 if (attempt == 0) return@repeat
                 return error("SCREEN_CHANGING")
             }
-
-            val hints =
-                if (hideAll) {
-                    JSONArray()
-                } else {
-                    publishedHints(
-                        ui = ui,
-                        region = region,
-                        displayWidthPx = geometry.displayWidthPx,
-                        displayHeightPx = geometry.displayHeightPx
-                    )
-                }
-            val stableBeforeEncode = revision == ledger.eventRevision
-            /*
-             * A fully privacy-hidden frame contains no usable visual signal.
-             * Skip JPEG/Base64 work for every quality mode, not only semantic
-             * mode. Older Workers already treat these pixels as non-actionable;
-             * avoiding the encode also saves device CPU, uplink bytes and image
-             * tokens. Region requests do not override this privacy fast path.
-             */
-            val privacyOnly = hideAll && hints.length() == 0
-            val semanticOnly =
-                privacyOnly ||
-                    (
-                        region == null &&
-                            preferSemantic &&
-                            stableBeforeEncode &&
-                            !ui.truncated &&
-                            hasActionableHint(hints)
-                        )
-            val visualDigest =
-                if (
-                    needsFullFrameVisualDigest(
-                        region = region,
-                        semanticOnly = semanticOnly
-                    )
-                ) {
-                    withContext(Dispatchers.Default) {
-                        MessageDigest.getInstance("SHA-256")
-                            .digest(frame.nv21)
-                    }
-                } else {
-                    null
-                }
-            /*
-             * Semantic-first and motion observations may reuse the previously
-             * delivered visual only when the FULL NV21 frame digest is identical.
-             * This matters for fast game/canvas loops where a no-op or already
-             * completed action would otherwise spend JPEG/vision tokens on the
-             * same pixels. Reuse remains stricter than action validation: stable
-             * event revision, unchanged geometry/privacy context, non-truncated
-             * semantics, and never an explicit detail request. One changed byte
-             * falls straight back to a fresh JPEG.
-             */
-            val reusableVisualObservationId =
-                if (
-                    region == null &&
-                    (preferSemantic || motion) &&
-                    !detail &&
-                    !semanticOnly &&
-                    stableBeforeEncode &&
-                    !ui.truncated &&
-                    lastDeliveredVisualFrameWidth == frame.width &&
-                    lastDeliveredVisualFrameHeight == frame.height &&
-                    lastDeliveredVisualRotation == frame.rotation &&
-                    visualDigest != null &&
-                    lastDeliveredVisualDigest?.contentEquals(visualDigest) == true &&
-                    lastDeliveredVisualUi?.let { samePrivacyContext(it, ui) } == true
-                ) {
-                    lastDeliveredVisualObservationId
-                } else {
-                    null
-                }
-
-            val encoded =
-                if (semanticOnly || reusableVisualObservationId != null) {
-                    null
-                } else {
-                    val value =
-                        withContext(Dispatchers.Default) {
-                            encodeFrame(
-                                frame,
-                                visualLongEdgePx,
-                                ui.masks,
-                                geometry.displayWidthPx,
-                                geometry.displayHeightPx,
-                                hideAll,
-                                region
-                            )
-                        }
-                    /*
-                     * Encoding can take long enough for the foreground window
-                     * or privacy masks to change. Recheck before publishing
-                     * any bytes; a stale encoded frame is discarded rather
-                     * than risking an unmasked visual result.
-                     */
-                    val afterEncoding =
-                        uiSnapshot()
-                            ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
-                    if (epoch != ledger.invalidationGeneration) {
-                        return error("OBSERVATION_INVALIDATED")
-                    }
-                    if (!samePrivacyContext(ui, afterEncoding)) {
-                        if (attempt == 0) return@repeat
-                        return error("SCREEN_CHANGING")
-                    }
-                    value
-                }
-
             val stable = revision == ledger.eventRevision
             val id = UUID.randomUUID().toString()
-            /*
-             * Reuse only a large, exactly equal hint list the caller explicitly
-             * acknowledges having received. This avoids references to results
-             * lost in transit or belonging to another MCP client's context.
-             * Full internal nodes/fingerprints remain fresh and authorize the
-             * new ticket; this only omits repeated model-facing text.
-             */
-            val hintJson = hints.toString()
-            val mayRememberHints = stable && region == null && !ui.truncated &&
-                !hideAll && ui.masks.isEmpty() && hintJson.length >= MIN_REUSABLE_HINT_CHARS
-            val rememberedHints = lastPublishedHints
-            val reusableHintsId = rememberedHints?.takeIf {
-                mayRememberHints && !detail && (preferSemantic || motion) &&
-                    knownUiHintsObservationId == it.observationId &&
-                    hintJson == it.json && ui.packageName == it.packageName &&
-                    ui.windowId == it.windowId &&
-                    geometry.displayWidthPx == it.displayWidth &&
-                    geometry.displayHeightPx == it.displayHeight &&
-                    frame.rotation == it.rotation &&
-                    now() - it.deliveredAtMs in 0L..MAX_HINT_REUSE_AGE_MS
-            }?.observationId
-            if (reusableHintsId == null) {
-                lastPublishedHints = if (mayRememberHints) {
-                    PublishedHints(hintJson, id, ui.packageName, ui.windowId,
-                        geometry.displayWidthPx, geometry.displayHeightPx, frame.rotation, now())
-                } else null
-            }
             width = geometry.displayWidthPx; height = geometry.displayHeightPx; rotation = frame.rotation
-            issuedUi = ui
-            issuedMotionObservation = motion
-            issuedCaptureLongEdgePx =
-                maxOf(frame.width, frame.height)
-            lastFingerprint = fingerprint
-            if (encoded != null && region == null) {
-                lastDeliveredVisualDigest =
-                    checkNotNull(visualDigest).copyOf()
-                lastDeliveredVisualObservationId = id
-                lastDeliveredVisualUi = ui
-                lastDeliveredVisualFrameWidth = frame.width
-                lastDeliveredVisualFrameHeight = frame.height
-                lastDeliveredVisualRotation = frame.rotation
-            }
+            issuedUi = ui; lastFingerprint = fingerprint
             ledger.issue(id, now())
             return JSONObject().put("observationId", id).put("screenVersion", ledger.version)
                 .put("capturedAtElapsedMs", frame.receivedAtMs).put("settled", stable)
-                .put("observationMode", if (motion) "motion" else if (detail) "detail" else if (preferSemantic) "semantic" else "standard")
-                .put("currentPackage", ui.packageName)
-                .put("uiHints", if (reusableHintsId == null) hints else JSONArray())
+                .put("currentPackage", ui.packageName).put("uiHints", if (hideAll) JSONArray() else publishedHints(ui))
                 .put("treeTruncated", ui.truncated).put("redacted", hideAll || ui.masks.isNotEmpty())
                 .put("display", JSONObject().put("width", width).put("height", height)
                     .put("coordinateSpace", "full-upright-display-normalized-0-to-1"))
+                .put("image", JSONObject().put("mimeType", "image/jpeg").put("width", encoded.width).put("height", encoded.height)
+                    .put("data", Base64.encodeToString(encoded.bytes, Base64.NO_WRAP)))
                 .apply {
-                    if (reusableHintsId != null) {
-                        put("uiHintsDelivery", "reused")
-                        put("sameUiHintsAsObservationId", reusableHintsId)
-                    }
-                    if (encoded != null) {
-                        put(
-                            "image",
-                            JSONObject()
-                                .put("mimeType", "image/jpeg")
-                                .put("width", encoded.width)
-                                .put("height", encoded.height)
-                                .put(
-                                    "data",
-                                    Base64.encodeToString(
-                                        encoded.bytes,
-                                        Base64.NO_WRAP
-                                    )
-                                )
-                        )
-                        if (region != null) {
-                            put(
-                                "imageRegion",
-                                JSONObject()
-                                    .put("left", region.left)
-                                    .put("top", region.top)
-                                    .put("right", region.right)
-                                    .put("bottom", region.bottom)
-                                    .put(
-                                        "coordinateSpace",
-                                        "full-upright-display-normalized-0-to-1"
-                                    )
-                            )
-                        }
-                    } else if (semanticOnly) {
-                        put("visualDelivery", "semantic-only")
-                        put("imageEncodingSkipped", true)
-                    } else {
-                        put("visualDelivery", "reused")
-                        put("imageEncodingSkipped", true)
-                        put(
-                            "sameVisualAsObservationId",
-                            checkNotNull(reusableVisualObservationId)
-                        )
-                    }
                     if (!stable) put("note", "Animation is present. Actions remain available; their target is rechecked against a fresh frame.")
                     if (ui.packageName == ownPackage) put("note", "Connector setup is hidden to protect the access link. Use home to open the phone launcher.")
                     else if (ui.sensitiveFocus) put("note", "Sensitive input is local-only; use back or home to leave it.")
@@ -392,44 +118,9 @@ class AiObservationEngine internal constructor(
      * (common in lists) are intentionally withheld so the model cannot target a
      * repeated row by accident. Older clients can ignore the optional fields.
      */
-    private fun hasActionableHint(hints: JSONArray): Boolean {
-        for (index in 0 until hints.length()) {
-            val hint = hints.optJSONObject(index) ?: continue
-            if (
-                hint.optBoolean("clickable", false) ||
-                hint.optBoolean("editable", false) ||
-                hint.optString("targetId", "").isNotBlank()
-            ) {
-                return true
-            }
-        }
-        return false
-    }
+    private fun publishedHints(ui: AiUiSnapshot): JSONArray {
+        if (ui.hints.length() == 0 || ui.nodes.isEmpty()) return ui.hints
 
-    private fun publishedHints(
-        ui: AiUiSnapshot,
-        region: AiImageRegion?,
-        displayWidthPx: Int,
-        displayHeightPx: Int
-    ): JSONArray {
-        if (ui.hints.length() == 0) return ui.hints
-
-        val enriched =
-            if (ui.nodes.isEmpty()) {
-                ui.hints
-            } else {
-                enrichPublishedHints(ui)
-            }
-
-        return hintsIntersectingRegion(
-            hints = enriched,
-            region = region,
-            displayWidthPx = displayWidthPx,
-            displayHeightPx = displayHeightPx
-        )
-    }
-
-    private fun enrichPublishedHints(ui: AiUiSnapshot): JSONArray {
         val idCounts = ui.nodes.asSequence()
             .map { it.id }
             .filter { it.isNotBlank() && it.length <= MAX_TARGET_ID_CHARS }
@@ -481,69 +172,6 @@ class AiObservationEngine internal constructor(
         return result
     }
 
-    /**
-     * A region image is useful only when its semantic payload is similarly
-     * localized. Keep every coordinate in the full-display space, but avoid
-     * spending model text tokens on Accessibility hints that cannot overlap the
-     * requested crop. Internal validation still keeps the complete UI snapshot.
-     */
-    private fun hintsIntersectingRegion(
-        hints: JSONArray,
-        region: AiImageRegion?,
-        displayWidthPx: Int,
-        displayHeightPx: Int
-    ): JSONArray {
-        if (region == null || hints.length() == 0) return hints
-
-        val regionLeft = region.left * displayWidthPx
-        val regionTop = region.top * displayHeightPx
-        val regionRight = region.right * displayWidthPx
-        val regionBottom = region.bottom * displayHeightPx
-        val result = JSONArray()
-
-        for (index in 0 until hints.length()) {
-            val hint = hints.optJSONObject(index) ?: continue
-            val bounds = hint.optJSONArray("bounds") ?: continue
-            if (bounds.length() != 4) continue
-
-            val left = bounds.optDouble(0, Double.NaN)
-            val top = bounds.optDouble(1, Double.NaN)
-            val right = bounds.optDouble(2, Double.NaN)
-            val bottom = bounds.optDouble(3, Double.NaN)
-            if (
-                !left.isFinite() ||
-                !top.isFinite() ||
-                !right.isFinite() ||
-                !bottom.isFinite()
-            ) {
-                continue
-            }
-
-            val intersects =
-                right > regionLeft &&
-                    left < regionRight &&
-                    bottom > regionTop &&
-                    top < regionBottom
-            if (intersects) result.put(hint)
-        }
-
-        return result
-    }
-
-    /**
-     * Auto follow-ups preserve an explicitly selected motion observation only
-     * while that exact single-use observation ticket is still current. This
-     * keeps games/canvas loops on the no-settle compact visual path without
-     * turning ordinary native UI into permanent low-detail mode.
-     */
-    fun prefersMotionFollowUp(args: JSONObject): Boolean =
-        issuedMotionObservation &&
-            ledger.valid(
-                args.getString("observationId"),
-                args.getLong("screenVersion"),
-                now()
-            )
-
     suspend fun validate(args: JSONObject): AiActionValidation {
         fun refused(reason: String) = AiActionValidation(reason)
         fun ticketValid() = ledger.valid(args.getString("observationId"), args.getLong("screenVersion"), now())
@@ -561,11 +189,7 @@ class AiObservationEngine internal constructor(
         val scope = if (navigation) null else (actionScope(args, observed) ?: return refused("FOCUSED_FIELD_REQUIRED"))
         if (!navigation && !sameTarget(args, observed, ui)) return refused("TARGET_CHANGED")
         if (!navigation) {
-            val fresh =
-                freshFrame(
-                    issuedCaptureLongEdgePx
-                        .coerceAtLeast(2)
-                )
+            val fresh = freshFrame()
             if (fresh.rotation != rotation || !geometryMatches(fresh, geometry)) return refused("CAPTURE_GEOMETRY_CHANGED")
             val changed = withContext(Dispatchers.Default) {
                 AiVisualFingerprint.materiallyDifferent(lastFingerprint ?: byteArrayOf(),
@@ -751,16 +375,9 @@ class AiObservationEngine internal constructor(
     companion object {
         private const val MAX_AI_DRAG_POINTS = 24
         private const val MAX_TARGET_ID_CHARS = 256
-        private const val MIN_REUSABLE_HINT_CHARS = 512
-        private const val MAX_HINT_REUSE_AGE_MS = 60_000L
         private const val QUIET_WINDOW_MS = 100L
         private const val MAX_ANIMATED_SETTLE_MS = 220L
         private const val SETTLE_POLL_MS = 40L
-        private const val MOTION_LONG_EDGE_PX = 960
-        private const val MOTION_FOLLOW_UP_LONG_EDGE_PX = 800
-        private const val STANDARD_LONG_EDGE_PX = 1280
-        private const val ANALYSIS_LONG_EDGE_PX = 1280
-        private const val DETAIL_LONG_EDGE_PX = 2400
         private const val TAP_NEAR_MISS_RADIUS = 0.035
         private const val TAP_NEAR_MISS_RADIUS_SQ = TAP_NEAR_MISS_RADIUS * TAP_NEAR_MISS_RADIUS
     }

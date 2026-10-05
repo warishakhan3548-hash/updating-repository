@@ -20,7 +20,6 @@ jobs:
         with:
           node-version: "24"
       - run: node cloudflare/mcp-worker.test.mjs
-      - run: node --test cloudflare/connect-gateway.test.mjs
 
   android:
     runs-on: ubuntu-latest
@@ -53,9 +52,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
       - name: Verify live Cloudflare control plane
         shell: bash
         run: |
@@ -472,6 +468,7 @@ jobs:
           cleanup
           trap - EXIT
           test "$(state "$CONTROLLER_TOKEN")" = "CLOSED"
+
           # Backward compatibility: the first 1.8.0 client asked the server
           # to mint the controller token instead of supplying a stable token.
           LEGACY_HOST="$(curl --retry 3 --retry-all-errors -fsS -X POST "$BASE/v1/sessions" -H "content-type: application/json" -d "{}")"
@@ -485,5 +482,3 @@ jobs:
           test -n "$LEGACY_CONTROLLER_TOKEN"
           test "$(curl -fsS "$BASE/v1/sessions/$LEGACY_SID" -H "authorization: Bearer $LEGACY_CONTROLLER_TOKEN" | python3 -c 'import json,sys; print(json.load(sys.stdin)["session"]["state"])')" = "PAIR_PENDING"
           curl -fsS -X POST "$BASE/v1/sessions/$LEGACY_SID/close" -H "authorization: Bearer $LEGACY_HOST_TOKEN" -H "content-type: application/json" -d "{}" >/dev/null
-      - name: Verify pairing across both public routes
-        run: python3 cloudflare/smoke-connect.py

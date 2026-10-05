@@ -166,7 +166,6 @@ class CloudflareSignalingClient(
                     webSocket: WebSocket,
                     response: Response
                 ) {
-                    CloudflareBackend.socketConnected(request)
                     reconnectAttempt.set(0)
                     reconnectScheduled.set(false)
                     dispatchDiagnostic("Cloudflare WebSocket OPEN")
@@ -211,7 +210,6 @@ class CloudflareSignalingClient(
                             )
                         )
                     } else {
-                        if (response == null) CloudflareBackend.socketFailed(request, t)
                         scheduleReconnect()
                     }
                 }

@@ -46,8 +46,8 @@ mature remote-access systems:
   - caches live geometry/video track/connection state for late UI attachment.
 - `ui/InlineRemoteControllerView.kt`
   - full-screen presentation/control surface inside `MainActivity`;
-  - uses a direct SurfaceView-backed EGL renderer with controls overlaid in
-    the Android view hierarchy;
+  - uses a TextureView-backed EGL renderer in the same Android view hierarchy
+    as controls;
   - lazily attaches the service-owned remote video track;
   - aspect-fits remote pixels and uses the same geometry contract for touch
     mapping;
@@ -84,13 +84,6 @@ Authoritative backend flow:
 
 - `backend/CloudflareBackend.kt`
   - HTTPS/WebSocket request construction and token storage.
-- `backend/BackendTransport.kt`
-  - fast IP fallback and two fixed public origins for the same control plane;
-  - reuse of the working origin for HTTP and signaling;
-  - stable-token redemption retry, one-shot creation/events, no redirects.
-- `cloudflare/connect-gateway/_worker.js`
-  - Pages recovery route bound directly to the existing core Worker;
-  - preserves WebSocket upgrades and the same Durable Object session state.
 - `pairing/CloudflarePairingGateway.kt`
   - create/redeem/approve/state polling and deadline recovery.
 - `webrtc/CloudflareSignalingClient.kt`
@@ -136,9 +129,6 @@ Authoritative backend flow:
   - refreshes the interaction-policy watchdog from live gesture traffic so a
     long drag does not fall back to idle video policy mid-gesture;
   - drives capture-tier adaptation from outbound WebRTC telemetry.
-  - samples source-admitted VideoTrack cadence before encoding and compares
-    short controller presentation windows with that fresh supply, so ordinary
-    24/30 fps source content does not masquerade as receiver overload.
 
 ### Screen capture / adaptive quality
 
@@ -217,17 +207,6 @@ initial InteractionState packet was sent several seconds earlier.
 WebRTC congestion control remains authoritative for packet pacing and the real
 send rate. The app supplies ceilings and capture-cost decisions; it does not
 force the network to carry the configured maximum bitrate.
-
-The encoder wrapper also maintains a low-cost leaky-bucket estimate of encoded
-frame residence at the current encoder target rate. A 500 ms host-side guard
-consumes that telemetry and has two coordinated responses. First, measured queue
-pressure enables a short-lived freshness-first mode even without an active finger:
-bounded-stale source samples may be skipped, VideoSource can trade some spatial
-detail for freshness, and RTP uses MAINTAIN_FRAMERATE. Second, sustained pressure
-can lower the capture FPS ceiling; severe residence can move directly to a <=30
-fps relief rung. Healthy/static windows release freshness mode and recover cadence
-with hysteresis. GCC and the WebRTC pacer remain authoritative for bandwidth and
-packet pacing.
 
 ## Waiting and retry policy
 
