@@ -155,7 +155,17 @@ class AiObservationEngine internal constructor(
                 return error("SCREEN_CHANGING")
             }
 
-            val hints = if (hideAll) JSONArray() else publishedHints(ui)
+            val hints =
+                if (hideAll) {
+                    JSONArray()
+                } else {
+                    publishedHints(
+                        ui = ui,
+                        region = region,
+                        displayWidthPx = geometry.displayWidthPx,
+                        displayHeightPx = geometry.displayHeightPx
+                    )
+                }
             val stableBeforeEncode = revision == ledger.eventRevision
             /*
              * A fully privacy-hidden frame contains no usable visual signal.
@@ -352,9 +362,30 @@ class AiObservationEngine internal constructor(
         return false
     }
 
-    private fun publishedHints(ui: AiUiSnapshot): JSONArray {
-        if (ui.hints.length() == 0 || ui.nodes.isEmpty()) return ui.hints
+    private fun publishedHints(
+        ui: AiUiSnapshot,
+        region: AiImageRegion?,
+        displayWidthPx: Int,
+        displayHeightPx: Int
+    ): JSONArray {
+        if (ui.hints.length() == 0) return ui.hints
 
+        val enriched =
+            if (ui.nodes.isEmpty()) {
+                ui.hints
+            } else {
+                enrichPublishedHints(ui)
+            }
+
+        return hintsIntersectingRegion(
+            hints = enriched,
+            region = region,
+            displayWidthPx = displayWidthPx,
+            displayHeightPx = displayHeightPx
+        )
+    }
+
+    private fun enrichPublishedHints(ui: AiUiSnapshot): JSONArray {
         val idCounts = ui.nodes.asSequence()
             .map { it.id }
             .filter { it.isNotBlank() && it.length <= MAX_TARGET_ID_CHARS }
@@ -403,6 +434,55 @@ class AiObservationEngine internal constructor(
             }
             result.put(hint)
         }
+        return result
+    }
+
+    /**
+     * A region image is useful only when its semantic payload is similarly
+     * localized. Keep every coordinate in the full-display space, but avoid
+     * spending model text tokens on Accessibility hints that cannot overlap the
+     * requested crop. Internal validation still keeps the complete UI snapshot.
+     */
+    private fun hintsIntersectingRegion(
+        hints: JSONArray,
+        region: AiImageRegion?,
+        displayWidthPx: Int,
+        displayHeightPx: Int
+    ): JSONArray {
+        if (region == null || hints.length() == 0) return hints
+
+        val regionLeft = region.left * displayWidthPx
+        val regionTop = region.top * displayHeightPx
+        val regionRight = region.right * displayWidthPx
+        val regionBottom = region.bottom * displayHeightPx
+        val result = JSONArray()
+
+        for (index in 0 until hints.length()) {
+            val hint = hints.optJSONObject(index) ?: continue
+            val bounds = hint.optJSONArray("bounds") ?: continue
+            if (bounds.length() != 4) continue
+
+            val left = bounds.optDouble(0, Double.NaN)
+            val top = bounds.optDouble(1, Double.NaN)
+            val right = bounds.optDouble(2, Double.NaN)
+            val bottom = bounds.optDouble(3, Double.NaN)
+            if (
+                !left.isFinite() ||
+                !top.isFinite() ||
+                !right.isFinite() ||
+                !bottom.isFinite()
+            ) {
+                continue
+            }
+
+            val intersects =
+                right > regionLeft &&
+                    left < regionRight &&
+                    bottom > regionTop &&
+                    top < regionBottom
+            if (intersects) result.put(hint)
+        }
+
         return result
     }
 
