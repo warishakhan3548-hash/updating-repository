@@ -2,8 +2,10 @@ package com.aaris.remoteassist.webrtc
 
 import android.content.Context
 import android.hardware.display.DisplayManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import com.aaris.remoteassist.accessibility.AssistAccessibilityService
 import com.aaris.remoteassist.capture.CaptureProfile
 import com.aaris.remoteassist.capture.CaptureQualityGovernor
@@ -42,7 +44,15 @@ class HostWebRtcSession(
     private val closed = AtomicBoolean(false)
     private val displayManager =
         appContext.getSystemService(DisplayManager::class.java)
+    private val powerManager =
+        appContext.getSystemService(PowerManager::class.java)
     private val displayHandler = Handler(Looper.getMainLooper())
+
+    @Volatile
+    private var thermalPressure =
+        ThermalVideoGovernor.Pressure.NORMAL
+
+    private var thermalStatusListener: Any? = null
 
     private val maxCaptureTier =
         CaptureProfile.recommendedTier(appContext)
@@ -73,6 +83,8 @@ class HostWebRtcSession(
             // conservative startup probe; do not impose a second startup cap.
             initialCap = profile.motionFps
         )
+    private val thermalVideoGovernor =
+        ThermalVideoGovernor(profile.motionFps)
     private val receiverFeedback = ReceiverVideoFeedback()
     private var lastSlowVideoCheckMs = 0L
 
@@ -153,6 +165,21 @@ class HostWebRtcSession(
                         "ms max=" +
                         (snapshot.maxQueueDelayMs?.toInt() ?: -1) +
                         "ms"
+                )
+            }
+
+            if (
+                thermalVideoGovernor.observe(
+                    pressure = thermalPressure,
+                    nowMs = now
+                )
+            ) {
+                applyVideoPolicy(profile)
+                listener.onDiagnostic(
+                    "Thermal freshness guard → " +
+                        thermalVideoGovernor.cap +
+                        "fps ceiling • pressure=" +
+                        thermalPressure.name
                 )
             }
 
@@ -319,17 +346,24 @@ class HostWebRtcSession(
             displayListener,
             displayHandler
         )
+        registerThermalStatusListener()
+        thermalVideoGovernor.observe(
+            pressure = thermalPressure,
+            nowMs = android.os.SystemClock.elapsedRealtime()
+        )
 
         captureRecoveryAttempts = 0
         localCaptureFrameSeen.set(false)
 
+        val initialEffective =
+            effectiveCaptureProfile(profile)
         listener.onDiagnostic(
             "Starting MediaProjection capture • " +
-                profile.captureWidthPx +
+                initialEffective.captureWidthPx +
                 "x" +
-                profile.captureHeightPx +
+                initialEffective.captureHeightPx +
                 "@" +
-                profile.fps +
+                initialEffective.fps +
                 " • tier=" +
                 profile.tier.name
         )
@@ -342,11 +376,11 @@ class HostWebRtcSession(
         peer.addLocalVideoTrack(
             track = capture.videoTrack,
             maxBitrateBps = profile.maxVideoBitrateBps,
-            maxFramerate = profile.fps,
+            maxFramerate = initialEffective.fps,
             preserveResolution =
                 initialVideoPolicy.preserveResolution
         )
-        capture.start(profile)
+        capture.start(initialEffective)
 
         displayHandler.removeCallbacks(encoderResidencePoll)
         displayHandler.postDelayed(
@@ -866,7 +900,8 @@ class HostWebRtcSession(
             cadenceCap = minOf(
                 cadenceGovernor.cap,
                 fastPresentationGovernor.cap,
-                encoderResidenceGovernor.cap
+                encoderResidenceGovernor.cap,
+                thermalVideoGovernor.cap
             )
         )
 
@@ -914,6 +949,7 @@ class HostWebRtcSession(
         runCatching {
             displayManager.unregisterDisplayListener(displayListener)
         }
+        unregisterThermalStatusListener()
         runCatching {
             capture.videoTrack.removeSink(captureProbe)
         }
@@ -928,6 +964,81 @@ class HostWebRtcSession(
         interactionActive = false
         lease = null
     }
+
+    private fun registerThermalStatusListener() {
+        if (
+            Build.VERSION.SDK_INT <
+                Build.VERSION_CODES.Q ||
+            thermalStatusListener != null
+        ) {
+            return
+        }
+
+        val manager = powerManager ?: return
+        thermalPressure =
+            thermalPressureFor(
+                manager.currentThermalStatus
+            )
+
+        val listener =
+            PowerManager.OnThermalStatusChangedListener {
+                status ->
+                thermalPressure =
+                    thermalPressureFor(status)
+            }
+        thermalStatusListener = listener
+
+        runCatching {
+            manager.addThermalStatusListener(listener)
+        }.onFailure {
+            thermalStatusListener = null
+        }
+    }
+
+    private fun unregisterThermalStatusListener() {
+        if (
+            Build.VERSION.SDK_INT <
+                Build.VERSION_CODES.Q
+        ) {
+            thermalStatusListener = null
+            return
+        }
+
+        val listener =
+            thermalStatusListener as?
+                PowerManager.OnThermalStatusChangedListener
+        thermalStatusListener = null
+        if (listener != null) {
+            runCatching {
+                powerManager
+                    ?.removeThermalStatusListener(listener)
+            }
+        }
+    }
+
+    private fun thermalPressureFor(
+        status: Int
+    ): ThermalVideoGovernor.Pressure =
+        when {
+            status >=
+                PowerManager.THERMAL_STATUS_EMERGENCY ->
+                ThermalVideoGovernor.Pressure.EMERGENCY
+
+            status >=
+                PowerManager.THERMAL_STATUS_CRITICAL ->
+                ThermalVideoGovernor.Pressure.CRITICAL
+
+            status >=
+                PowerManager.THERMAL_STATUS_SEVERE ->
+                ThermalVideoGovernor.Pressure.HOT
+
+            status >=
+                PowerManager.THERMAL_STATUS_MODERATE ->
+                ThermalVideoGovernor.Pressure.WARM
+
+            else ->
+                ThermalVideoGovernor.Pressure.NORMAL
+        }
 
     @Synchronized
     private fun ensureLiveHandshake() {
