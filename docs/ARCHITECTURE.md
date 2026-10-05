@@ -208,6 +208,14 @@ WebRTC congestion control remains authoritative for packet pacing and the real
 send rate. The app supplies ceilings and capture-cost decisions; it does not
 force the network to carry the configured maximum bitrate.
 
+The encoder wrapper also maintains a low-cost leaky-bucket estimate of encoded
+frame residence at the current encoder target rate. A 500 ms host-side guard
+consumes the existing shadow telemetry and, with hysteresis, lowers only the
+capture FPS ceiling when frames begin accumulating. Severe residence can move
+directly to a <=30 fps relief rung; healthy windows recover one rung at a time.
+The bounded-staleness frame-drop gate remains shadow-only, so this feedback loop
+drains queues without replacing GCC, the WebRTC pacer, or native adaptation.
+
 ## Waiting and retry policy
 
 The backend CONNECT_TTL is 180 seconds. A host must not give up after a few
