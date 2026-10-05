@@ -125,6 +125,7 @@ class AiObservationEngine internal constructor(
                     !detail &&
                     !semanticOnly &&
                     stableBeforeEncode &&
+                    !ui.truncated &&
                     lastDeliveredVisualFingerprint?.contentEquals(fingerprint) == true &&
                     lastDeliveredVisualUi?.let { samePrivacyContext(it, ui) } == true
                 ) {
