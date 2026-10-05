@@ -51,6 +51,32 @@ class AiObservationEngineTest {
         engine.changed()
     }
 
+    @Test fun fullFrameDigestRunsOnlyWhenItCanSeedOrVerifyVisualReuse() {
+        assertTrue(
+            needsFullFrameVisualDigest(
+                region = null,
+                semanticOnly = false
+            )
+        )
+        assertFalse(
+            needsFullFrameVisualDigest(
+                region = null,
+                semanticOnly = true
+            )
+        )
+        assertFalse(
+            needsFullFrameVisualDigest(
+                region = AiImageRegion(
+                    left = 0.10,
+                    top = 0.10,
+                    right = 0.60,
+                    bottom = 0.60
+                ),
+                semanticOnly = false
+            )
+        )
+    }
+
     @Test fun motionObservationSkipsQuietWaitAndUsesCompactVisualBudget() = runBlocking {
         engine.changed()
         pauseCalls = 0
