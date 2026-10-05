@@ -191,9 +191,9 @@ class BackendTransportTest {
                 override fun createSocket(host: InetAddress, port: Int, local: InetAddress, localPort: Int) =
                     createSocket().apply { bind(InetSocketAddress(local, localPort)); connect(InetSocketAddress(host, port)) }
             }
-            val client = networkClient().newBuilder().fastFallback(true).socketFactory(socketFactory)
+            val client = CloudflareBackend.httpClient.newBuilder().proxy(Proxy.NO_PROXY).socketFactory(socketFactory)
                 .dns { listOf(blocked, InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))) }
-                .connectTimeout(4, TimeUnit.SECONDS).callTimeout(5, TimeUnit.SECONDS).build()
+                .build()
             val before = System.nanoTime()
             try {
                 client.newCall(Request.Builder().url("http://race.aaris.test:${server.origin.port}/healthz").build())
