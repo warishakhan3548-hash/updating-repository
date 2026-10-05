@@ -36,11 +36,13 @@ data class PresentationCadenceWindow(
  * thread.
  */
 class PresentationCadenceTracker(
-    private val minWindowMs: Long = 300L,
+    private val minWindowMs: Long = 160L,
+    private val minRenderedFrames: Int = 5,
     private val maxGapMs: Long = 6_000L
 ) {
     init {
-        require(minWindowMs in 250L..3_000L)
+        require(minWindowMs in 120L..3_000L)
+        require(minRenderedFrames in 2..120)
         require(maxGapMs in minWindowMs..6_000L)
     }
 
@@ -61,7 +63,12 @@ class PresentationCadenceTracker(
         ) {
             windowStartMs = nowMs
             lastFrameMs = nowMs
-            frames = 1
+            /*
+             * This frame is the timing anchor, not a completed presentation
+             * interval. Counting it would overstate FPS in the first window
+             * because elapsed time starts at this exact swap.
+             */
+            frames = 0
             largestGapMs = 0L
             return null
         }
@@ -71,7 +78,13 @@ class PresentationCadenceTracker(
         frames += 1
 
         val elapsed = nowMs - windowStartMs
-        if (elapsed < minWindowMs) return null
+        /*
+         * Use a hybrid time + evidence window. Fast 45/60 Hz rendering reports
+         * in ~160 ms, while low-cadence paths wait until enough real swap
+         * intervals exist to make the FPS estimate trustworthy. This avoids both
+         * slow hitch detection and tiny-sample false alarms.
+         */
+        if (elapsed < minWindowMs || frames < minRenderedFrames) return null
 
         val sample = PresentationCadenceWindow(
             intervalMs = elapsed.coerceIn(1L, 6_000L).toInt(),
