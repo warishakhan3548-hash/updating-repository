@@ -54,15 +54,15 @@ export function shouldAttachImage(toolName, data, toolArgs = {}) {
   const postAction = toolName === 'phone_action';
   const explicitPostActionVisual =
     postAction && ['motion', 'standard', 'detail'].includes(toolArgs?.responseQuality);
+  const hints = Array.isArray(data.uiHints) ? data.uiHints : [];
+  // Privacy-hidden pixels are intentionally blank. Apply this admission rule
+  // before the standard-observe fast path as well, so old Android clients that
+  // still send a black JPEG cannot spend image tokens on it.
+  if (data.redacted === true && hints.length === 0) return false;
   if (!semanticObserve && !postAction) return true;
   if (data.error) return true;
   if (postAction && data.applied !== true) return true;
   if (typeof data.observationId !== 'string' || data.observationId.length < 16 || !Number.isSafeInteger(data.screenVersion)) return true;
-
-  const hints = Array.isArray(data.uiHints) ? data.uiHints : [];
-  // A privacy-hidden frame is intentionally blank; sending it to a vision
-  // model wastes tokens without adding usable information.
-  if (data.redacted === true && hints.length === 0) return false;
   if (regionObserve) return true;
   if (explicitPostActionVisual) return true;
   if (data.treeTruncated === true || data.settled !== true) return true;
