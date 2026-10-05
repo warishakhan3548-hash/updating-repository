@@ -43,4 +43,39 @@ class SendQueueModelTest {
         assertTrue(gate.admit(350L, 70.0)) // starvation escape
         assertTrue(gate.admit(400L, 40.0)) // release threshold
     }
+
+    @Test
+    fun gateBootstrapsOneFreshFrameEvenIfPressureIsAlreadyHigh() {
+        val gate = BoundedStalenessGate(
+            engageMs = 90.0,
+            releaseMs = 45.0,
+            maxStarveMs = 250L
+        )
+
+        // Interaction may begin while the encoder queue is already backed up.
+        // Admit one current sample so the starvation timer has a real anchor,
+        // then shed stale work until the bounded escape interval is reached.
+        assertTrue(gate.admit(1_000L, 120.0))
+        assertFalse(gate.admit(1_010L, 120.0))
+        assertFalse(gate.admit(1_200L, 120.0))
+        assertTrue(gate.admit(1_250L, 120.0))
+    }
+
+    @Test
+    fun resetStartsANewAdmissionEpochWithoutInheritedDropState() {
+        val gate = BoundedStalenessGate(
+            engageMs = 90.0,
+            releaseMs = 45.0,
+            maxStarveMs = 250L
+        )
+
+        assertTrue(gate.admit(2_000L, 120.0))
+        assertFalse(gate.admit(2_010L, 120.0))
+
+        gate.reset()
+
+        // A new swipe/control epoch receives its own bootstrap sample.
+        assertTrue(gate.admit(2_020L, 120.0))
+        assertFalse(gate.admit(2_030L, 120.0))
+    }
 }
