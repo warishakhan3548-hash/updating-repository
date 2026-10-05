@@ -38,9 +38,13 @@ There is no boot receiver, hidden capture, unattended restart or permission bypa
   validation capture. Optional `region={left,top,right,bottom}` requests a bounded
   full-display 0..1 crop for closer inspection. The phone increases the source
   capture budget before cropping (up to the existing 2400px ceiling), applies
-  privacy masks before the crop, and returns `imageRegion` metadata. Action
-  coordinates remain full-display normalized coordinates; a crop never creates a
-  second execution coordinate system. Standard/detail remain clarity-first.
+  privacy masks before the crop, and returns `imageRegion` metadata. Region
+  observations publish only Accessibility hints whose bounds intersect that crop,
+  avoiding full-screen semantic text tokens that cannot describe the requested
+  area. Internal stale-target validation still retains the complete screen
+  snapshot. Action coordinates remain full-display normalized coordinates; a crop
+  never creates a second execution coordinate system. Standard/detail remain
+  clarity-first.
 - `phone_action`: exactly one validated tap, long press, swipe, drag,
   two-finger gesture, type, back, home, recents or app launch. Optional
   `responseQuality` selects `auto`, `motion`, `standard` or `detail` for
