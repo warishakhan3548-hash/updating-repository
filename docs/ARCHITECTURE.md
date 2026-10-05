@@ -84,6 +84,13 @@ Authoritative backend flow:
 
 - `backend/CloudflareBackend.kt`
   - HTTPS/WebSocket request construction and token storage.
+- `backend/BackendTransport.kt`
+  - fast IP fallback and two fixed public origins for the same control plane;
+  - reuse of the working origin for HTTP and signaling;
+  - stable-token redemption retry, one-shot creation/events, no redirects.
+- `cloudflare/connect-gateway/_worker.js`
+  - Pages recovery route bound directly to the existing core Worker;
+  - preserves WebSocket upgrades and the same Durable Object session state.
 - `pairing/CloudflarePairingGateway.kt`
   - create/redeem/approve/state polling and deadline recovery.
 - `webrtc/CloudflareSignalingClient.kt`

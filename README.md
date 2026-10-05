@@ -29,13 +29,18 @@ Backend transitions are monotonic and idempotent for already-completed forward s
 
 ## Security
 
-The 12-digit code is stored only as a SHA-256 lookup key inside the private pairing Durable Object and is deleted on redemption. Host and controller get independent random opaque session tokens; only SHA-256 token hashes persist in the session Durable Object. TURN account secrets remain Cloudflare Worker secrets and never ship in the APK.
+The 12-digit code is stored only as a SHA-256 lookup key inside the private pairing Durable Object until its five-minute expiry. Only one controller token can redeem it; retries with that same token recover the same session. Host and controller get independent random opaque session tokens; only SHA-256 token hashes persist in the session Durable Object. TURN account secrets remain Cloudflare Worker secrets and never ship in the APK.
 
 Screen frames and remote-control commands are not proxied through the Worker. They stay on the WebRTC peer connection.
 
 ## Reliability
 
 Signaling events receive monotonic sequence numbers. A reconnecting WebSocket requests replay after its last sequence so a short signaling disconnect does not silently lose SDP/ICE state. Android keeps bounded SDP/candidate retries and bounded ICE-restart/relay escalation. Transport truth remains the WebRTC peer plus ordered DataChannel.
+
+Version 1.9.11 adds fast IP fallback and a second fixed HTTPS route to the same
+Cloudflare control plane. Pairing and signaling reuse the working route, and
+ambiguous session creation/events are protected against automatic replay.
+See [pairing recovery and live verification](docs/PAIRING_RECOVERY_1911.md).
 
 ## Build
 

@@ -39,6 +39,7 @@ import com.aaris.remoteassist.ai.AiConnectorRuntime
 import com.aaris.remoteassist.ai.AiConnectorService
 import com.aaris.remoteassist.ai.AiConnectorState
 import com.aaris.remoteassist.ai.AiConnectorStore
+import com.aaris.remoteassist.backend.CloudflareBackendException
 import com.aaris.remoteassist.capture.ScreenShareService
 import com.aaris.remoteassist.diagnostics.ConnectionFlightRecorder
 import com.aaris.remoteassist.diagnostics.CrashRecorder
@@ -54,6 +55,8 @@ import com.aaris.remoteassist.session.SessionCoordinator
 import com.aaris.remoteassist.session.SessionState
 import com.aaris.remoteassist.webrtc.ControllerConnectionService
 import java.io.Closeable
+import java.io.IOException
+import javax.net.ssl.SSLException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -2418,6 +2421,9 @@ class MainActivity : ComponentActivity() {
             .lowercase()
 
         status.text = when {
+            generateSequence(error) { it.cause }.any { it is SSLException } ->
+                "Could not verify the secure connection. Check the phone's date and time, then retry."
+
             "backend_not_configured" in detail ||
                 "turn_not_configured" in detail ->
                 "Aaris Remote service setup needs attention. Try the latest build."
@@ -2426,12 +2432,15 @@ class MainActivity : ComponentActivity() {
                 "missing_session_token" in detail ->
                 "This connection expired. Create a new one-time code."
 
-            "network" in detail ||
+            "backend_unreachable" in detail ||
+                (error is IOException && error !is CloudflareBackendException) ||
+                "failed to connect" in detail ||
+                "network" in detail ||
                 "timeout" in detail ||
                 "timed out" in detail ||
                 "unavailable" in detail ||
                 "could not reach" in detail ->
-                "Could not reach Aaris Remote. Check internet and try again."
+                "Could not reach Aaris Remote. Try Wi-Fi or mobile data, then retry."
 
             else ->
                 error.message
