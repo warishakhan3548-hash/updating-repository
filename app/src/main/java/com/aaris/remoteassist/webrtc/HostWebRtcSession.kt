@@ -109,7 +109,11 @@ class HostWebRtcSession(
             fallbackStreamer.setInteractionActive(false)
             applyVideoPolicy(profile)
             listener.onDiagnostic(
-                "Remote interaction idle • restoring clarity-first video policy"
+                if (encoderResidenceGovernor.freshnessPriority) {
+                    "Remote interaction idle • passive motion remains freshness-first"
+                } else {
+                    "Remote interaction idle • restoring clarity-first video policy"
+                }
             )
         }
     }
@@ -873,13 +877,23 @@ class HostWebRtcSession(
         fallbackStreamer.setInteractionActive(active)
 
         if (interactionActive != active) {
+            val freshnessWasAlreadyActive =
+                freshnessPriorityActive()
             interactionActive = active
             /*
              * applyVideoPolicy is the single synchronization point for source
              * admission, scaling and RTP degradation preference. Direct touch
              * activates it immediately; measured passive encoder pressure may
              * independently keep the same freshness-first path alive.
+             *
+             * If passive queue freshness was already active, the boolean mode
+             * will not transition when the finger goes down. Reset only the
+             * staleness epoch so the first direct-manipulation sample gets a
+             * fresh bootstrap admission instead of inheriting an old drop timer.
              */
+            if (active && freshnessWasAlreadyActive) {
+                capture.restartRealtimeFreshnessEpoch()
+            }
             applyVideoPolicy(profile)
             val freshnessActive = freshnessPriorityActive()
             val policy =
