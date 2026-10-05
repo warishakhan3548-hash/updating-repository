@@ -203,7 +203,7 @@ class VideoCadenceGovernor(
 
         val overloaded =
             codecPressure || receiverDrops || congestion || presentationPressure ||
-                cpuPressure
+                cpuPressure || senderDeliveryCollapse
 
         if (overloaded) {
             healthy = 0
