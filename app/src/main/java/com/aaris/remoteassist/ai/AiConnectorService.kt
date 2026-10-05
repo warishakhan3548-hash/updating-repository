@@ -245,6 +245,11 @@ class AiConnectorService : Service() {
                         val currentLease = lease ?: return@withTimeout failure("NOT_CONNECTED")
                         val (width, height) = engine.geometry()
                         val action = args.getString("action")
+                        val responseQuality =
+                            args.optString("responseQuality", "auto")
+                        val inheritMotion =
+                            responseQuality == "auto" &&
+                                engine.prefersMotionFollowUp(args)
                         engine.ledger.consume() // Even a refused/no-op action consumes its observation.
                         outcomes[id] = failure("OUTCOME_UNKNOWN", null)
                         dispatched = true; applied = null
@@ -282,15 +287,16 @@ class AiConnectorService : Service() {
                             withTimeout(3500) { done.await() }
                         }
                         engine.invalidate()
-                        val responseQuality =
-                            args.optString("responseQuality", "auto")
                         val observation =
                             engine.observe(
                                 detail = responseQuality == "detail",
                                 preferSemantic =
                                     applied == true &&
-                                        responseQuality == "auto",
-                                motion = responseQuality == "motion"
+                                        responseQuality == "auto" &&
+                                        !inheritMotion,
+                                motion =
+                                    responseQuality == "motion" ||
+                                        inheritMotion
                             )
                         observation.put("applied", applied).put("actionId", id)
                         if (applied != true && !observation.has("error")) {

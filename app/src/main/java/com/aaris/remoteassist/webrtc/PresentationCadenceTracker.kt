@@ -22,10 +22,11 @@ data class PresentationCadenceWindow(
 }
 
 /**
- * Converts real EGL swaps into short bounded feedback windows. A 300 ms default
- * exposes visible 60/45 fps compositor stalls materially sooner than the slower
- * RTC stats loop, while a 15 fps receiver still accumulates enough swaps for the
- * host governor once the elapsed window crosses the threshold.
+ * Converts real EGL swaps into short bounded feedback windows. The default is
+ * deliberately hybrid: elapsed time may qualify at 160 ms, but at least five
+ * completed swap intervals are required. Healthy 45/60 Hz presentation therefore
+ * reports materially sooner than the slower RTC stats loop, while a 15 fps
+ * receiver keeps sampling until its FPS estimate has enough evidence.
  *
  * ReceiverVideoFeedback aggregates consecutive windows until the host consumes
  * them. That preserves a stable cadence estimate and the worst observed swap
@@ -36,11 +37,13 @@ data class PresentationCadenceWindow(
  * thread.
  */
 class PresentationCadenceTracker(
-    private val minWindowMs: Long = 300L,
+    private val minWindowMs: Long = 160L,
+    private val minRenderedFrames: Int = 5,
     private val maxGapMs: Long = 6_000L
 ) {
     init {
-        require(minWindowMs in 250L..3_000L)
+        require(minWindowMs in 120L..3_000L)
+        require(minRenderedFrames in 2..120)
         require(maxGapMs in minWindowMs..6_000L)
     }
 
@@ -61,7 +64,12 @@ class PresentationCadenceTracker(
         ) {
             windowStartMs = nowMs
             lastFrameMs = nowMs
-            frames = 1
+            /*
+             * This frame is the timing anchor, not a completed presentation
+             * interval. Counting it would overstate FPS in the first window
+             * because elapsed time starts at this exact swap.
+             */
+            frames = 0
             largestGapMs = 0L
             return null
         }
@@ -71,7 +79,13 @@ class PresentationCadenceTracker(
         frames += 1
 
         val elapsed = nowMs - windowStartMs
-        if (elapsed < minWindowMs) return null
+        /*
+         * Use a hybrid time + evidence window. Fast 45/60 Hz rendering reports
+         * in ~160 ms, while low-cadence paths wait until enough real swap
+         * intervals exist to make the FPS estimate trustworthy. This avoids both
+         * slow hitch detection and tiny-sample false alarms.
+         */
+        if (elapsed < minWindowMs || frames < minRenderedFrames) return null
 
         val sample = PresentationCadenceWindow(
             intervalMs = elapsed.coerceIn(1L, 6_000L).toInt(),
