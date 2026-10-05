@@ -1,6 +1,7 @@
 package com.aaris.remoteassist.ai
 
 import android.graphics.Rect
+import com.aaris.remoteassist.capture.AiImageRegion
 import com.aaris.remoteassist.capture.AiRawFrame
 import com.aaris.remoteassist.capture.CaptureProfile
 import com.aaris.remoteassist.capture.CaptureTier
@@ -26,6 +27,7 @@ class AiObservationEngineTest {
     private var encodedFrames = 0
     private var pauseCalls = 0
     private var lastEncodeLongEdge = 0
+    private var lastEncodeRegion: AiImageRegion? = null
     private var lastRequestedCaptureLongEdge = 0
     private val engine = AiObservationEngine("aaris", { profile }, { ui }, { requestedLongEdge ->
         lastRequestedCaptureLongEdge = requestedLongEdge
@@ -33,9 +35,10 @@ class AiObservationEngineTest {
     }, { clock }, {
         pauseCalls++
         clock += it
-    }, { frame, longEdge, _, _, _, _ ->
+    }, { frame, longEdge, _, _, _, _, region ->
         encodedFrames++
         lastEncodeLongEdge = longEdge
+        lastEncodeRegion = region
         // JVM YuvImage does not implement JPEG encoding. All pixels, target
         // validation, event races and dispatch checks still use production code.
         FrameImageEncoder.Encoded(byteArrayOf(1), frame.width, frame.height)
@@ -86,6 +89,48 @@ class AiObservationEngineTest {
         assertTrue(observed.has("image"))
     }
 
+    @Test fun regionObservationForcesPixelsAndKeepsFullDisplaySafetyCoordinates() = runBlocking {
+        ui = ui!!.copy(
+            hints = JSONArray().put(
+                JSONObject()
+                    .put("text", "ChatGPT")
+                    .put("clickable", true)
+                    .put("bounds", JSONArray().put(84).put(168).put(108).put(216))
+            )
+        )
+        val region =
+            AiImageRegion(
+                left = 0.25,
+                top = 0.25,
+                right = 0.50,
+                bottom = 0.50
+            )
+
+        val observed =
+            engine.observe(
+                preferSemantic = true,
+                region = region
+            )
+
+        assertFalse(observed.has("error"))
+        assertTrue(observed.has("image"))
+        assertFalse(observed.has("visualDelivery"))
+        assertEquals(2400, lastRequestedCaptureLongEdge)
+        assertEquals(region, lastEncodeRegion)
+
+        val metadata = observed.getJSONObject("imageRegion")
+        assertEquals(0.25, metadata.getDouble("left"), 0.0001)
+        assertEquals(0.50, metadata.getDouble("right"), 0.0001)
+        assertEquals(
+            "full-upright-display-normalized-0-to-1",
+            metadata.getString("coordinateSpace")
+        )
+
+        // Authorization still uses the full-screen ticket/fingerprint. The crop
+        // changes only what pixels are delivered to the model.
+        assertNull(engine.validate(action(observed)).error)
+    }
+
     @Test fun motionObservationCarriesOnlyItsLiveTicketIntoAutoFollowUp() = runBlocking {
         val motion = engine.observe(motion = true)
         val motionAction = action(motion)
@@ -101,6 +146,20 @@ class AiObservationEngineTest {
         assertTrue(engine.prefersMotionFollowUp(nextAction))
         engine.ledger.consume()
         assertFalse(engine.prefersMotionFollowUp(nextAction))
+    }
+
+    @Test fun privacyHiddenDetailObservationSkipsUselessImageEncoding() = runBlocking {
+        ui = ui!!.copy(sensitiveFocus = true)
+        val before = encodedFrames
+
+        val observed = engine.observe(detail = true)
+
+        assertFalse(observed.has("error"))
+        assertFalse(observed.has("image"))
+        assertEquals("semantic-only", observed.getString("visualDelivery"))
+        assertTrue(observed.getBoolean("imageEncodingSkipped"))
+        assertEquals(before, encodedFrames)
+        assertTrue(observed.getBoolean("redacted"))
     }
 
     @Test fun semanticObservationSkipsJpegButKeepsFreshValidationTicket() = runBlocking {
@@ -221,9 +280,11 @@ class AiObservationEngineTest {
 
         ui = ui!!.copy(sensitiveFocus = true)
         val privateScreen = engine.observe()
-        assertTrue(privateScreen.has("image"))
+        assertFalse(privateScreen.has("image"))
         assertFalse(privateScreen.has("sameVisualAsObservationId"))
-        assertEquals(encodedAfterFirst + 1, encodedFrames)
+        assertEquals("semantic-only", privateScreen.getString("visualDelivery"))
+        assertTrue(privateScreen.getBoolean("redacted"))
+        assertEquals(encodedAfterFirst, encodedFrames)
     }
 
     @Test fun continuouslyUpdatingChatStillIssuesUsableHomeAndTapTickets() = runBlocking {

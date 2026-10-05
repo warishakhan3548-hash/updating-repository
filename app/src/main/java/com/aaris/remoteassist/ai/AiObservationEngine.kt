@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Base64
 import com.aaris.remoteassist.accessibility.AssistAccessibilityService
+import com.aaris.remoteassist.capture.AiImageRegion
 import com.aaris.remoteassist.capture.AiRawFrame
 import com.aaris.remoteassist.capture.AiSnapshotProvider
 import com.aaris.remoteassist.capture.CaptureProfile
@@ -27,7 +28,7 @@ class AiObservationEngine internal constructor(
     private val freshFrame: suspend (Int) -> AiRawFrame,
     private val now: () -> Long = SystemClock::elapsedRealtime,
     private val pause: suspend (Long) -> Unit = { delay(it) },
-    private val encodeFrame: (AiRawFrame, Int, List<android.graphics.Rect>, Int, Int, Boolean) -> FrameImageEncoder.Encoded = FrameImageEncoder::encode
+    private val encodeFrame: (AiRawFrame, Int, List<android.graphics.Rect>, Int, Int, Boolean, AiImageRegion?) -> FrameImageEncoder.Encoded = FrameImageEncoder::encode
 ) {
     constructor(context: Context, snapshots: AiSnapshotProvider) : this(
         context.packageName, { CaptureProfile.current(context, CaptureTier.BALANCED) },
@@ -70,7 +71,8 @@ class AiObservationEngine internal constructor(
         detail: Boolean = false,
         preferSemantic: Boolean = false,
         motion: Boolean = false,
-        compactMotionFollowUp: Boolean = false
+        compactMotionFollowUp: Boolean = false,
+        region: AiImageRegion? = null
     ): JSONObject {
         repeat(2) { attempt ->
             /*
@@ -101,7 +103,11 @@ class AiObservationEngine internal constructor(
              * the stale-target safety check. Detail remains full fidelity.
              */
             val captureLongEdgePx =
-                maxOf(
+                region?.requiredSourceLongEdge(
+                    deliveryLongEdgePx = visualLongEdgePx,
+                    analysisLongEdgePx = ANALYSIS_LONG_EDGE_PX,
+                    sourceLongEdgeCapPx = DETAIL_LONG_EDGE_PX
+                ) ?: maxOf(
                     visualLongEdgePx,
                     ANALYSIS_LONG_EDGE_PX
                 )
@@ -138,15 +144,22 @@ class AiObservationEngine internal constructor(
 
             val hints = if (hideAll) JSONArray() else publishedHints(ui)
             val stableBeforeEncode = revision == ledger.eventRevision
+            /*
+             * A fully privacy-hidden frame contains no usable visual signal.
+             * Skip JPEG/Base64 work for every quality mode, not only semantic
+             * mode. Older Workers already treat these pixels as non-actionable;
+             * avoiding the encode also saves device CPU, uplink bytes and image
+             * tokens. Region requests do not override this privacy fast path.
+             */
+            val privacyOnly = hideAll && hints.length() == 0
             val semanticOnly =
-                preferSemantic &&
+                privacyOnly ||
                     (
-                        (hideAll && hints.length() == 0) ||
-                            (
-                                stableBeforeEncode &&
-                                    !ui.truncated &&
-                                    hasActionableHint(hints)
-                                )
+                        region == null &&
+                            preferSemantic &&
+                            stableBeforeEncode &&
+                            !ui.truncated &&
+                            hasActionableHint(hints)
                         )
             /*
              * Semantic-first and motion observations may reuse the previously
@@ -160,6 +173,7 @@ class AiObservationEngine internal constructor(
              */
             val reusableVisualObservationId =
                 if (
+                    region == null &&
                     (preferSemantic || motion) &&
                     !detail &&
                     !semanticOnly &&
@@ -188,7 +202,8 @@ class AiObservationEngine internal constructor(
                                 ui.masks,
                                 geometry.displayWidthPx,
                                 geometry.displayHeightPx,
-                                hideAll
+                                hideAll,
+                                region
                             )
                         }
                     /*
@@ -218,7 +233,7 @@ class AiObservationEngine internal constructor(
             issuedCaptureLongEdgePx =
                 maxOf(frame.width, frame.height)
             lastFingerprint = fingerprint
-            if (encoded != null) {
+            if (encoded != null && region == null) {
                 lastDeliveredVisualDigest = visualDigest.copyOf()
                 lastDeliveredVisualObservationId = id
                 lastDeliveredVisualUi = ui
@@ -250,6 +265,20 @@ class AiObservationEngine internal constructor(
                                     )
                                 )
                         )
+                        if (region != null) {
+                            put(
+                                "imageRegion",
+                                JSONObject()
+                                    .put("left", region.left)
+                                    .put("top", region.top)
+                                    .put("right", region.right)
+                                    .put("bottom", region.bottom)
+                                    .put(
+                                        "coordinateSpace",
+                                        "full-upright-display-normalized-0-to-1"
+                                    )
+                            )
+                        }
                     } else if (semanticOnly) {
                         put("visualDelivery", "semantic-only")
                         put("imageEncodingSkipped", true)

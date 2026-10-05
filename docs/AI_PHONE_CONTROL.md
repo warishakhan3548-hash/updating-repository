@@ -29,13 +29,18 @@ There is no boot receiver, hidden capture, unattended restart or permission bypa
 
 - `phone_status`: online/sharing state and a setup, connecting, stopped or
   disconnected explanation; no command is queued for an offline phone.
-- `phone_observe({quality: "semantic" | "motion" | "standard" | "detail"})`:
+- `phone_observe({quality: "semantic" | "motion" | "standard" | "detail", region?})`:
   fresh display state, compact UI hints, `screenVersion` and single-use
   `observationId`. `semantic` can omit redundant pixels on stable native UI;
   `motion` skips the optional quiet-window wait and uses a compact 960px visual
   budget for games/video/canvas; once that motion context is established, automatic
   post-action follow-ups may use an 800px delivery budget while retaining a 1280px
-  validation capture. Standard/detail remain clarity-first.
+  validation capture. Optional `region={left,top,right,bottom}` requests a bounded
+  full-display 0..1 crop for closer inspection. The phone increases the source
+  capture budget before cropping (up to the existing 2400px ceiling), applies
+  privacy masks before the crop, and returns `imageRegion` metadata. Action
+  coordinates remain full-display normalized coordinates; a crop never creates a
+  second execution coordinate system. Standard/detail remain clarity-first.
 - `phone_action`: exactly one validated tap, long press, swipe, drag,
   two-finger gesture, type, back, home, recents or app launch. Optional
   `responseQuality` selects `auto`, `motion`, `standard` or `detail` for
@@ -170,8 +175,10 @@ frame backlog or screenshot archive. Explicit motion observations use a
 960-pixel long edge; established automatic game/canvas follow-ups use an
 800-pixel delivery budget while still capturing 1280 pixels for stale-target
 fingerprinting and action validation. Normal images use 1280 pixels, and detail
-requests can use up to the capture source's 2400-pixel long edge. Exact unchanged
-visual follow-ups may reference the prior visual instead of retransmitting
+requests can use up to the capture source's 2400-pixel long edge. Region
+observations can spend that same bounded source budget on a smaller visual area
+instead of paying image tokens for irrelevant full-screen pixels. Exact unchanged
+full-screen follow-ups may reference the prior visual instead of retransmitting
 identical JPEG tokens.
 Low-memory devices use a lower capture ceiling. Source aspect ratio and normalized
 input mapping remain consistent. JPEG output is bounded to 850 KB. Capture and

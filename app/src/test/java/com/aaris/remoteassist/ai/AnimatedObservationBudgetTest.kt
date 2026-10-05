@@ -42,7 +42,7 @@ class AnimatedObservationBudgetTest {
                 // during every settle poll.
                 engine.changed()
             },
-            encodeFrame = { frame, _, _, _, _, _ ->
+            encodeFrame = { frame, _, _, _, _, _, _ ->
                 FrameImageEncoder.Encoded(byteArrayOf(1), frame.width, frame.height)
             }
         )
