@@ -107,14 +107,23 @@ class AiObservationEngineTest {
         )
         assertEquals(encodedAfterFirst, encodedFrames)
 
+        // Token reuse uses an exact full-frame digest, not only the action
+        // fingerprint sampler. A chroma-only byte change must force pixels.
+        pixels = pixels.clone().apply {
+            this[lastIndex] = (this[lastIndex].toInt() + 1).toByte()
+        }
+        val tinyChanged = engine.observe(preferSemantic = true)
+        assertTrue(tinyChanged.has("image"))
+        assertEquals(encodedAfterFirst + 1, encodedFrames)
+
         pixels = ByteArray(pixels.size) { 120 }
         val changed = engine.observe(preferSemantic = true)
         assertTrue(changed.has("image"))
-        assertEquals(encodedAfterFirst + 1, encodedFrames)
+        assertEquals(encodedAfterFirst + 2, encodedFrames)
 
         val detailed = engine.observe(detail = true, preferSemantic = true)
         assertTrue(detailed.has("image"))
-        assertEquals(encodedAfterFirst + 2, encodedFrames)
+        assertEquals(encodedAfterFirst + 3, encodedFrames)
     }
 
     @Test fun privacyContextChangeNeverReusesPriorVisual() = runBlocking {
