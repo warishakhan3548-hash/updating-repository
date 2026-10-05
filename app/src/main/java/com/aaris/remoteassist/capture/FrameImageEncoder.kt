@@ -30,8 +30,59 @@ object FrameImageEncoder {
     }
 
     data class Encoded(val bytes: ByteArray, val width: Int, val height: Int)
+
+    internal fun canUseDirectNv21Path(
+        frame: AiRawFrame,
+        maxSide: Int,
+        masks: List<Rect>,
+        hideAll: Boolean
+    ): Boolean =
+        frame.rotation == 0 &&
+            !hideAll &&
+            masks.isEmpty() &&
+            maxOf(frame.width, frame.height) <= maxSide
+
     fun encode(frame: AiRawFrame, maxSide: Int, masks: List<Rect>, displayWidth: Int, displayHeight: Int, hideAll: Boolean): Encoded {
         val out = ByteArrayOutputStream()
+
+        /*
+         * The common no-transform visual path does not need Bitmap at all.
+         * Previously it encoded NV21 at quality 94, decoded that JPEG into a
+         * Bitmap, then encoded the same pixels again at 88/80/72. Besides the
+         * extra CPU/allocation cost, that was an unnecessary lossy transcode.
+         *
+         * Keep the direct path deliberately strict. Rotation, scaling and every
+         * privacy operation still use the existing Bitmap path below.
+         */
+        if (canUseDirectNv21Path(frame, maxSide, masks, hideAll)) {
+            val yuv =
+                YuvImage(
+                    frame.nv21,
+                    ImageFormat.NV21,
+                    frame.width,
+                    frame.height,
+                    null
+                )
+            for (quality in OUTPUT_JPEG_QUALITIES) {
+                out.reset()
+                check(
+                    yuv.compressToJpeg(
+                        Rect(0, 0, frame.width, frame.height),
+                        quality,
+                        out
+                    )
+                )
+                if (out.size() <= MAX_ENCODED_BYTES) {
+                    return Encoded(
+                        out.toByteArray(),
+                        frame.width,
+                        frame.height
+                    )
+                }
+            }
+            error("IMAGE_TOO_LARGE")
+        }
+
         check(YuvImage(frame.nv21, ImageFormat.NV21, frame.width, frame.height, null)
             .compressToJpeg(Rect(0, 0, frame.width, frame.height), 94, out))
         var bitmap = checkNotNull(BitmapFactory.decodeByteArray(out.toByteArray(), 0, out.size()))
@@ -57,11 +108,19 @@ object FrameImageEncoder {
                     (rect.right + 4) * bitmap.width.toFloat() / displayWidth,
                     (rect.bottom + 4) * bitmap.height.toFloat() / displayHeight, paint)
             }
-            for (quality in intArrayOf(88, 80, 72)) {
-                out.reset(); check(bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out))
-                if (out.size() <= 850_000) return Encoded(out.toByteArray(), bitmap.width, bitmap.height)
+            for (quality in OUTPUT_JPEG_QUALITIES) {
+                out.reset()
+                check(bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out))
+                if (out.size() <= MAX_ENCODED_BYTES) {
+                    return Encoded(out.toByteArray(), bitmap.width, bitmap.height)
+                }
             }
             error("IMAGE_TOO_LARGE")
-        } finally { bitmap.recycle() }
+        } finally {
+            bitmap.recycle()
+        }
     }
+
+    private val OUTPUT_JPEG_QUALITIES = intArrayOf(88, 80, 72)
+    private const val MAX_ENCODED_BYTES = 850_000
 }
