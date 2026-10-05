@@ -24,10 +24,16 @@ class AiObservationEngineTest {
     private var profile = CaptureProfile(120, 240, 120, 240, 8, 1_000_000, CaptureTier.BALANCED)
     private var onFrame: () -> Unit = {}
     private var encodedFrames = 0
+    private var pauseCalls = 0
+    private var lastEncodeLongEdge = 0
     private val engine = AiObservationEngine("aaris", { profile }, { ui }, {
         onFrame(); AiRawFrame(pixels.clone(), 120, 240, 0, clock)
-    }, { clock }, { clock += it }, { frame, _, _, _, _, _ ->
+    }, { clock }, {
+        pauseCalls++
+        clock += it
+    }, { frame, longEdge, _, _, _, _ ->
         encodedFrames++
+        lastEncodeLongEdge = longEdge
         // JVM YuvImage does not implement JPEG encoding. All pixels, target
         // validation, event races and dispatch checks still use production code.
         FrameImageEncoder.Encoded(byteArrayOf(1), frame.width, frame.height)
@@ -38,6 +44,22 @@ class AiObservationEngineTest {
     private fun animateOtherRegion() {
         pixels = pixels.clone().apply { for (y in 0 until 55) for (x in 0 until 60) this[y * 120 + x] = 125 }
         engine.changed()
+    }
+
+    @Test fun motionObservationSkipsQuietWaitAndUsesCompactVisualBudget() = runBlocking {
+        engine.changed()
+        pauseCalls = 0
+
+        val observed = engine.observe(motion = true)
+
+        assertFalse(observed.has("error"))
+        assertEquals("motion", observed.getString("observationMode"))
+        assertEquals(0, pauseCalls)
+        assertEquals(960, lastEncodeLongEdge)
+        assertTrue(observed.has("image"))
+
+        engine.observe(detail = true)
+        assertEquals(2400, lastEncodeLongEdge)
     }
 
     @Test fun semanticObservationSkipsJpegButKeepsFreshValidationTicket() = runBlocking {
