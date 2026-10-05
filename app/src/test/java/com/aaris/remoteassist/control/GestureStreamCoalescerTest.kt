@@ -68,13 +68,13 @@ class GestureStreamCoalescerTest {
         val first = command(
             sequence = 20L,
             phase = GestureStreamPhase.CONTINUE,
-            values = (0..15).map(Int::toFloat),
+            values = (0..15).map { it.toFloat() },
             durationMs = 80L
         )
         val second = command(
             sequence = 21L,
             phase = GestureStreamPhase.CONTINUE,
-            values = (16..31).map(Int::toFloat),
+            values = (16..31).map { it.toFloat() },
             durationMs = 80L
         )
         val incoming = command(
