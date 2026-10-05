@@ -148,6 +148,20 @@ class AiObservationEngineTest {
         assertFalse(engine.prefersMotionFollowUp(nextAction))
     }
 
+    @Test fun privacyHiddenDetailObservationSkipsUselessImageEncoding() = runBlocking {
+        ui = ui!!.copy(sensitiveFocus = true)
+        val before = encodedFrames
+
+        val observed = engine.observe(detail = true)
+
+        assertFalse(observed.has("error"))
+        assertFalse(observed.has("image"))
+        assertEquals("semantic-only", observed.getString("visualDelivery"))
+        assertTrue(observed.getBoolean("imageEncodingSkipped"))
+        assertEquals(before, encodedFrames)
+        assertTrue(observed.getBoolean("redacted"))
+    }
+
     @Test fun semanticObservationSkipsJpegButKeepsFreshValidationTicket() = runBlocking {
         ui = ui!!.copy(
             hints = JSONArray().put(
