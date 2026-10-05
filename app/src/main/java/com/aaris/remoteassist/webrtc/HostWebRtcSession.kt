@@ -68,7 +68,10 @@ class HostWebRtcSession(
     private val encoderResidenceGovernor =
         EncoderResidenceGovernor(
             maxFps = profile.motionFps,
-            initialCap = profile.fps
+            // This guard must be transparent until measured encoder residence
+            // proves pressure. Existing presentation/cadence governors own the
+            // conservative startup probe; do not impose a second startup cap.
+            initialCap = profile.motionFps
         )
     private val receiverFeedback = ReceiverVideoFeedback()
     private var lastSlowVideoCheckMs = 0L
