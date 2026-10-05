@@ -3,10 +3,9 @@ package com.aaris.remoteassist.backend
 import android.content.Context
 import java.io.IOException
 import java.util.concurrent.TimeUnit
-import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 
 internal class CloudflareBackendException(
@@ -18,17 +17,25 @@ internal class CloudflareBackendException(
 internal object CloudflareBackend {
     const val BASE_URL =
         "https://aaris-remote-ice.aaris-remote-wk3548.workers.dev"
+    private const val FALLBACK_URL = "https://aaris-remote-connect.pages.dev"
 
-    val httpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(6, TimeUnit.SECONDS)
+    private val transport = BackendTransport(OkHttpClient.Builder()
+        .fastFallback(true)
+        .connectTimeout(4, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
         .writeTimeout(8, TimeUnit.SECONDS)
+        .callTimeout(12, TimeUnit.SECONDS)
         .pingInterval(20, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
-        .build()
+        .build(), listOf(BASE_URL.toHttpUrl(), FALLBACK_URL.toHttpUrl()))
 
-    private val jsonMediaType =
-        "application/json; charset=utf-8".toMediaType()
+    val httpClient: OkHttpClient get() = transport.httpClient
+
+    fun socketConnected(request: Request) = transport.connected(request.url)
+
+    fun socketFailed(request: Request, error: Throwable) {
+        if (error is IOException) transport.connectionFailed(request.url, error)
+    }
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(
@@ -59,9 +66,9 @@ internal object CloudflareBackend {
         method: String,
         path: String,
         body: JSONObject? = null
-    ): JSONObject = execute(
+    ): JSONObject = transport.execute(
         method = method,
-        url = BASE_URL + path,
+        path = path,
         token = null,
         body = body
     )
@@ -81,9 +88,9 @@ internal object CloudflareBackend {
                 "Session credentials are missing."
             )
         val suffix = if (action.isBlank()) "" else "/$action"
-        return execute(
+        return transport.execute(
             method = method,
-            url = "$BASE_URL/v1/sessions/$sessionId$suffix",
+            path = "/v1/sessions/$sessionId$suffix",
             token = token,
             body = body
         )
@@ -101,7 +108,8 @@ internal object CloudflareBackend {
                 "missing_session_token",
                 "Session credentials are missing."
             )
-        val wsBase = BASE_URL.replaceFirst("https://", "wss://")
+        val wsBase = transport.currentOrigin().toString()
+            .trimEnd('/').replaceFirst("https://", "wss://")
         return Request.Builder()
             .url(
                 "$wsBase/v1/sessions/$sessionId/socket" +
@@ -112,70 +120,5 @@ internal object CloudflareBackend {
             .build()
     }
 
-    private fun execute(
-        method: String,
-        url: String,
-        token: String?,
-        body: JSONObject?
-    ): JSONObject {
-        val requestBody = if (method.equals("GET", ignoreCase = true)) {
-            null
-        } else {
-            (body ?: JSONObject())
-                .toString()
-                .toRequestBody(jsonMediaType)
-        }
-
-        val builder = Request.Builder()
-            .url(url)
-            .header("Accept", "application/json")
-            .header("Cache-Control", "no-store")
-
-        if (!token.isNullOrBlank()) {
-            builder.header("Authorization", "Bearer $token")
-        }
-
-        builder.method(method.uppercase(), requestBody)
-
-        httpClient.newCall(builder.build()).execute().use { response ->
-            val raw = response.body?.string().orEmpty()
-            if (raw.length > MAX_RESPONSE_CHARS) {
-                throw CloudflareBackendException(
-                    502,
-                    "response_too_large",
-                    "Aaris Remote returned an invalid response."
-                )
-            }
-
-            val root = if (raw.isBlank()) {
-                JSONObject()
-            } else {
-                runCatching { JSONObject(raw) }.getOrElse {
-                    if (response.isSuccessful) {
-                        throw CloudflareBackendException(
-                            502,
-                            "invalid_response",
-                            "Aaris Remote returned invalid data."
-                        )
-                    }
-                    JSONObject()
-                }
-            }
-
-            if (!response.isSuccessful) {
-                throw CloudflareBackendException(
-                    statusCode = response.code,
-                    backendCode = root.optString("error", "backend_error"),
-                    message = root.optString(
-                        "message",
-                        "Aaris Remote request failed."
-                    )
-                )
-            }
-            return root
-        }
-    }
-
     private val SESSION_ID = Regex("^[a-f0-9]{64}$")
-    private const val MAX_RESPONSE_CHARS = 1024 * 1024
 }

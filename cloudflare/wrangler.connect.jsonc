@@ -1,0 +1,8 @@
+{
+  "name": "aaris-remote-connect",
+  "pages_build_output_dir": "./connect-gateway",
+  "compatibility_date": "2026-10-02",
+  "services": [
+    { "binding": "CORE", "service": "aaris-remote-ice" }
+  ]
+}
