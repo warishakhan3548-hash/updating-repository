@@ -70,13 +70,16 @@ class PresentationFeedbackTest {
         assertNull(tracker.onPresented(8_000))
     }
 
-    @Test fun presentationPacketRoundTripsAndRejectsMalformedWindows() {
-        val packet = ControlPacket.PresentationFeedback(42, 3, 7, 1000, 55, 41)
+    @Test fun presentationPacketRoundTripsAtFastFeedbackCadenceAndRejectsMalformedWindows() {
+        val packet = ControlPacket.PresentationFeedback(42, 3, 7, 160, 10, 41)
         val bytes = ControlProtocol.encode(packet)
         assertEquals(34, bytes.size)
         assertEquals(packet, ControlProtocol.decode(bytes))
         assertNull(ControlProtocol.toRemoteCommand("session", packet, 1080, 2400))
         assertNull(ControlProtocol.decode(bytes.copyOf(bytes.size - 1)))
+        assertThrows(IllegalArgumentException::class.java) {
+            ControlProtocol.encode(packet.copy(intervalMs = 119))
+        }
         assertThrows(IllegalArgumentException::class.java) {
             ControlProtocol.encode(packet.copy(renderedFrames = 0))
         }
