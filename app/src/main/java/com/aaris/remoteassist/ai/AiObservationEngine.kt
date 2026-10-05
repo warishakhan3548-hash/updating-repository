@@ -64,9 +64,20 @@ class AiObservationEngine internal constructor(
         }
     }
 
-    suspend fun observe(detail: Boolean = false, preferSemantic: Boolean = false): JSONObject {
+    suspend fun observe(
+        detail: Boolean = false,
+        preferSemantic: Boolean = false,
+        motion: Boolean = false
+    ): JSONObject {
         repeat(2) { attempt ->
-            settle()
+            /*
+             * Continuous games/video may never become Accessibility-quiet. In
+             * motion mode, waiting for a quiet window only turns current pixels
+             * into old pixels. Skip that optional UX settling delay, while
+             * retaining every privacy/window/geometry check below and the same
+             * fresh-pixel action validation path.
+             */
+            if (!motion) settle()
             val epoch = ledger.invalidationGeneration
             val revision = ledger.eventRevision
             val before = uiSnapshot() ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
@@ -149,7 +160,11 @@ class AiObservationEngine internal constructor(
                         withContext(Dispatchers.Default) {
                             encodeFrame(
                                 frame,
-                                if (detail) 2400 else 1280,
+                                when {
+                                    detail -> DETAIL_LONG_EDGE_PX
+                                    motion -> MOTION_LONG_EDGE_PX
+                                    else -> STANDARD_LONG_EDGE_PX
+                                },
                                 ui.masks,
                                 geometry.displayWidthPx,
                                 geometry.displayHeightPx,
@@ -190,6 +205,7 @@ class AiObservationEngine internal constructor(
             ledger.issue(id, now())
             return JSONObject().put("observationId", id).put("screenVersion", ledger.version)
                 .put("capturedAtElapsedMs", frame.receivedAtMs).put("settled", stable)
+                .put("observationMode", if (motion) "motion" else if (detail) "detail" else if (preferSemantic) "semantic" else "standard")
                 .put("currentPackage", ui.packageName).put("uiHints", hints)
                 .put("treeTruncated", ui.truncated).put("redacted", hideAll || ui.masks.isNotEmpty())
                 .put("display", JSONObject().put("width", width).put("height", height)
@@ -514,6 +530,9 @@ class AiObservationEngine internal constructor(
         private const val QUIET_WINDOW_MS = 100L
         private const val MAX_ANIMATED_SETTLE_MS = 220L
         private const val SETTLE_POLL_MS = 40L
+        private const val MOTION_LONG_EDGE_PX = 960
+        private const val STANDARD_LONG_EDGE_PX = 1280
+        private const val DETAIL_LONG_EDGE_PX = 2400
         private const val TAP_NEAR_MISS_RADIUS = 0.035
         private const val TAP_NEAR_MISS_RADIUS_SQ = TAP_NEAR_MISS_RADIUS * TAP_NEAR_MISS_RADIUS
     }
