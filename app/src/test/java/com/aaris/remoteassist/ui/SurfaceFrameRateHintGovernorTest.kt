@@ -58,9 +58,10 @@ class SurfaceFrameRateHintGovernorTest {
         assertNull(governor.observe(fortyFive, 1_700L))
         assertEquals(60, governor.currentHintFps())
 
-        assertNull(governor.observe(fortyFive, 3_600L))
-        assertNull(governor.observe(fortyFive, 3_800L))
-        assertEquals(45, governor.observe(fortyFive, 4_000L))
+        // Evidence is retained while the switch interval is closed. Once the
+        // interval opens, the next clean 45-fps window may apply immediately;
+        // requiring three brand-new windows would add avoidable display lag.
+        assertEquals(45, governor.observe(fortyFive, 3_600L))
         assertEquals(45, governor.currentHintFps())
     }
 
