@@ -165,6 +165,31 @@ class AiObservationEngineTest {
         assertEquals(encodedAfterFirst + 3, encodedFrames)
     }
 
+    @Test fun motionModeReusesOnlyByteIdenticalVisuals() = runBlocking {
+        val first = engine.observe(motion = true)
+        assertTrue(first.has("image"))
+        val encodedAfterFirst = encodedFrames
+
+        val unchanged = engine.observe(motion = true)
+        assertFalse(unchanged.has("image"))
+        assertEquals("reused", unchanged.getString("visualDelivery"))
+        assertTrue(unchanged.getBoolean("imageEncodingSkipped"))
+        assertEquals(
+            first.getString("observationId"),
+            unchanged.getString("sameVisualAsObservationId")
+        )
+        assertEquals(encodedAfterFirst, encodedFrames)
+
+        // Motion mode has the same exact-digest contract as semantic fallback:
+        // even a single chroma byte change requires a fresh visual.
+        pixels = pixels.clone().apply {
+            this[lastIndex] = (this[lastIndex].toInt() + 1).toByte()
+        }
+        val changed = engine.observe(motion = true)
+        assertTrue(changed.has("image"))
+        assertEquals(encodedAfterFirst + 1, encodedFrames)
+    }
+
     @Test fun privacyContextChangeNeverReusesPriorVisual() = runBlocking {
         val first = engine.observe()
         assertTrue(first.has("image"))
