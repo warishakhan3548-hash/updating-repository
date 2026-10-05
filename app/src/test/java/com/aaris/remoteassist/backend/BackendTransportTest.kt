@@ -15,6 +15,8 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import javax.net.SocketFactory
 import javax.net.ssl.SSLPeerUnverifiedException
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -191,7 +193,9 @@ class BackendTransportTest {
                 override fun createSocket(host: InetAddress, port: Int, local: InetAddress, localPort: Int) =
                     createSocket().apply { bind(InetSocketAddress(local, localPort)); connect(InetSocketAddress(host, port)) }
             }
-            val client = CloudflareBackend.httpClient.newBuilder().proxy(Proxy.NO_PROXY).socketFactory(socketFactory)
+            val client = CloudflareBackend.httpClient.newBuilder()
+                .dispatcher(Dispatcher()).connectionPool(ConnectionPool())
+                .proxy(Proxy.NO_PROXY).socketFactory(socketFactory)
                 .dns { listOf(blocked, InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))) }
                 .build()
             val before = System.nanoTime()
