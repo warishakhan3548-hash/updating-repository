@@ -51,6 +51,9 @@ unused native frame-forwarding path and reduces projection pixels.
 
 Controller heartbeats use one owned scheduler instead of the UI Looper. Channel
 closure cannot permanently cancel its recurring task. A sticky controller service
+drains an active heartbeat before disposing the pinned SDK's native channel.
+The send and scheduling locks are separate to avoid blocking an RTC HELLO
+callback behind a send waiting for that callback's thread. The service
 can restore its persisted session/token; explicit STOP clears that owner. Crash
 reporting no longer closes an otherwise recoverable controller session. Android
 11+ system exit records distinguish reported low memory, native crashes and ANRs;

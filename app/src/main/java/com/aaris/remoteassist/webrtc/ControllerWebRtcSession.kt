@@ -52,6 +52,7 @@ class ControllerWebRtcSession(
     private val gestureStreamIds = AtomicLong(0L)
     private val handler = Handler(Looper.getMainLooper())
     private val heartbeatLock = Any()
+    private val heartbeatSendLock = Any()
     private val heartbeatExecutor = ScheduledThreadPoolExecutor(1) { task ->
         Thread(task, "AarisControlHeartbeat").apply { isDaemon = true }
     }.apply { removeOnCancelPolicy = true }
@@ -95,20 +96,15 @@ class ControllerWebRtcSession(
 
     private val heartbeat = object : Runnable {
         override fun run() {
-            if (closed.get()) return
-
-            val lease = leaseSecret
-            if (lease != null) {
-                // A closing native channel must not cancel all future scheduled
-                // heartbeats. Transport recovery owns the bounded retry window.
+            val failure = synchronized(heartbeatSendLock) {
+                if (closed.get()) return
+                val lease = leaseSecret ?: return
+                // A closing channel must not cancel all future scheduled ticks.
                 runCatching {
-                    peer.sendControl(
-                        ControlProtocol.encode(ControlPacket.Heartbeat(lease))
-                    )
-                }.onFailure { error ->
-                    if (!closed.get()) listener.onRecoverableError(error)
-                }
+                    peer.sendControl(ControlProtocol.encode(ControlPacket.Heartbeat(lease)))
+                }.exceptionOrNull()
             }
+            if (failure != null && !closed.get()) listener.onRecoverableError(failure)
         }
     }
 
@@ -693,6 +689,11 @@ class ControllerWebRtcSession(
             heartbeatTask = null
             heartbeatExecutor.shutdownNow()
         }
+        // The pinned SDK predates native lifecycle guards. Drain any active
+        // heartbeat before disposal. This lock is separate from scheduling:
+        // an RTC HELLO callback must never wait behind a native send which may
+        // itself be waiting for that callback's thread.
+        synchronized(heartbeatSendLock) { }
         inboundVideoLiveness.reset()
         if (notifyRemote) {
             runCatching {
