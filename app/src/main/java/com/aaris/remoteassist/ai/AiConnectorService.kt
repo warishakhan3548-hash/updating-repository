@@ -240,7 +240,9 @@ class AiConnectorService : Service() {
                             detail = quality == "detail",
                             preferSemantic = quality == "semantic",
                             motion = quality == "motion",
-                            region = region
+                            region = region,
+                            knownUiHintsObservationId = args.optString("knownUiHintsObservationId")
+                                .takeIf { it.isNotBlank() }
                         )
                     }
                     "phone_action" -> {
@@ -317,7 +319,10 @@ class AiConnectorService : Service() {
                                  */
                                 compactMotionFollowUp =
                                     inheritMotion &&
-                                        responseQuality == "auto"
+                                        responseQuality == "auto",
+                                knownUiHintsObservationId =
+                                    if (applied == true) args.optString("knownUiHintsObservationId")
+                                        .takeIf { it.isNotBlank() } else null
                             )
                         observation.put("applied", applied).put("actionId", id)
                         if (applied != true && !observation.has("error")) {

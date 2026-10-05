@@ -56,6 +56,17 @@ class AiObservationEngine internal constructor(
     private var lastDeliveredVisualFrameWidth = 0
     private var lastDeliveredVisualFrameHeight = 0
     private var lastDeliveredVisualRotation = 0
+    private data class PublishedHints(
+        val json: String,
+        val observationId: String,
+        val packageName: String,
+        val windowId: Int,
+        val displayWidth: Int,
+        val displayHeight: Int,
+        val rotation: Int,
+        val deliveredAtMs: Long
+    )
+    private var lastPublishedHints: PublishedHints? = null
     private var issuedUi: AiUiSnapshot? = null
     private var issuedMotionObservation = false
     private var issuedCaptureLongEdgePx = 0
@@ -85,7 +96,8 @@ class AiObservationEngine internal constructor(
         preferSemantic: Boolean = false,
         motion: Boolean = false,
         compactMotionFollowUp: Boolean = false,
-        region: AiImageRegion? = null
+        region: AiImageRegion? = null,
+        knownUiHintsObservationId: String? = null
     ): JSONObject {
         repeat(2) { attempt ->
             /*
@@ -265,6 +277,33 @@ class AiObservationEngine internal constructor(
 
             val stable = revision == ledger.eventRevision
             val id = UUID.randomUUID().toString()
+            /*
+             * Reuse only a large, exactly equal hint list the caller explicitly
+             * acknowledges having received. This avoids references to results
+             * lost in transit or belonging to another MCP client's context.
+             * Full internal nodes/fingerprints remain fresh and authorize the
+             * new ticket; this only omits repeated model-facing text.
+             */
+            val hintJson = hints.toString()
+            val mayRememberHints = stable && region == null && !ui.truncated &&
+                !hideAll && ui.masks.isEmpty() && hintJson.length >= MIN_REUSABLE_HINT_CHARS
+            val rememberedHints = lastPublishedHints
+            val reusableHintsId = rememberedHints?.takeIf {
+                mayRememberHints && !detail && (preferSemantic || motion) &&
+                    knownUiHintsObservationId == it.observationId &&
+                    hintJson == it.json && ui.packageName == it.packageName &&
+                    ui.windowId == it.windowId &&
+                    geometry.displayWidthPx == it.displayWidth &&
+                    geometry.displayHeightPx == it.displayHeight &&
+                    frame.rotation == it.rotation &&
+                    now() - it.deliveredAtMs in 0L..MAX_HINT_REUSE_AGE_MS
+            }?.observationId
+            if (reusableHintsId == null) {
+                lastPublishedHints = if (mayRememberHints) {
+                    PublishedHints(hintJson, id, ui.packageName, ui.windowId,
+                        geometry.displayWidthPx, geometry.displayHeightPx, frame.rotation, now())
+                } else null
+            }
             width = geometry.displayWidthPx; height = geometry.displayHeightPx; rotation = frame.rotation
             issuedUi = ui
             issuedMotionObservation = motion
@@ -284,11 +323,16 @@ class AiObservationEngine internal constructor(
             return JSONObject().put("observationId", id).put("screenVersion", ledger.version)
                 .put("capturedAtElapsedMs", frame.receivedAtMs).put("settled", stable)
                 .put("observationMode", if (motion) "motion" else if (detail) "detail" else if (preferSemantic) "semantic" else "standard")
-                .put("currentPackage", ui.packageName).put("uiHints", hints)
+                .put("currentPackage", ui.packageName)
+                .put("uiHints", if (reusableHintsId == null) hints else JSONArray())
                 .put("treeTruncated", ui.truncated).put("redacted", hideAll || ui.masks.isNotEmpty())
                 .put("display", JSONObject().put("width", width).put("height", height)
                     .put("coordinateSpace", "full-upright-display-normalized-0-to-1"))
                 .apply {
+                    if (reusableHintsId != null) {
+                        put("uiHintsDelivery", "reused")
+                        put("sameUiHintsAsObservationId", reusableHintsId)
+                    }
                     if (encoded != null) {
                         put(
                             "image",
@@ -707,6 +751,8 @@ class AiObservationEngine internal constructor(
     companion object {
         private const val MAX_AI_DRAG_POINTS = 24
         private const val MAX_TARGET_ID_CHARS = 256
+        private const val MIN_REUSABLE_HINT_CHARS = 512
+        private const val MAX_HINT_REUSE_AGE_MS = 60_000L
         private const val QUIET_WINDOW_MS = 100L
         private const val MAX_ANIMATED_SETTLE_MS = 220L
         private const val SETTLE_POLL_MS = 40L

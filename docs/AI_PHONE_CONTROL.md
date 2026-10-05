@@ -1,4 +1,13 @@
-# AI phone control (v1.9.3)
+# AI phone control
+
+In v1.9.10, `phone_observe` and `phone_action` accept optional
+`knownUiHintsObservationId`: the ID of a full hint list already received by your
+AI client. When fresh hints are exactly unchanged, the response may include
+`uiHintsDelivery=reused` and `sameUiHintsAsObservationId` instead of retransmitting
+that list. Use the referenced hints with the NEW observation ticket for actions.
+Omit the acknowledgement to fetch full hints again without requiring a larger
+image. Standard/detail, region, privacy-hidden, masked, truncated and uncertain
+observations keep complete delivery. Fresh screen/target validation still runs.
 
 Tap **Connect Phone with AI** below Connect/Share. The app registers a random,
 device-specific MCP link, copies it automatically, and displays it below the

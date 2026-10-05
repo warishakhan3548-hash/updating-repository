@@ -86,6 +86,7 @@ class HostWebRtcSession(
     private val thermalVideoGovernor =
         ThermalVideoGovernor(profile.motionFps)
     private val receiverFeedback = ReceiverVideoFeedback()
+    private val captureCadence = PresentationCadenceTracker()
     private var lastSlowVideoCheckMs = 0L
 
     @Volatile
@@ -228,6 +229,10 @@ class HostWebRtcSession(
         )
 
     private val captureProbe = VideoSink {
+        // VideoTrack sinks see source-admitted frames before encoder/network
+        // pressure. Reuse the bounded timing sampler without retaining pixels
+        // or adding getStats/JNI polling to the fast presentation path.
+        captureCadence.onPresented(android.os.SystemClock.elapsedRealtime())
         if (localCaptureFrameSeen.compareAndSet(false, true)) {
             listener.onDiagnostic("MediaProjection produced first capture frame")
             displayHandler.removeCallbacks(captureFrameWatchdog)
@@ -763,7 +768,8 @@ class HostWebRtcSession(
                     fastPresentationGovernor.observe(
                         window = presentation,
                         desiredFps = desiredCaptureFps(profile),
-                        nowMs = now
+                        nowMs = now,
+                        suppliedFps = captureCadence.recent(now)?.fps
                     )
                 ) {
                     applyVideoPolicy(profile)

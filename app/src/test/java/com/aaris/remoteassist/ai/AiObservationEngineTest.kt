@@ -51,6 +51,147 @@ class AiObservationEngineTest {
         engine.changed()
     }
 
+    private fun richHints() {
+        val hints = JSONArray().put(JSONObject()
+            .put("text", "ChatGPT").put("clickable", true)
+            .put("bounds", JSONArray(listOf(84, 168, 108, 216))))
+        repeat(6) { index -> hints.put(JSONObject()
+            .put("text", "A sufficiently descriptive native screen label $index")
+            .put("role", "TextView").put("clickable", false)
+            .put("bounds", JSONArray(listOf(0, index * 20, 70, index * 20 + 16)))) }
+        ui = ui!!.copy(hints = hints)
+    }
+
+    @Test fun acknowledgedExactHintsSaveTextAndKeepFreshActionValidation() = runBlocking {
+        richHints()
+        val first = engine.observe(preferSemantic = true)
+        val base = first.getString("observationId")
+        val next = engine.observe(preferSemantic = true, knownUiHintsObservationId = base)
+        assertEquals("reused", next.getString("uiHintsDelivery"))
+        assertEquals(base, next.getString("sameUiHintsAsObservationId"))
+        assertEquals(0, next.getJSONArray("uiHints").length())
+        assertNotEquals(base, next.getString("observationId"))
+        assertNotNull(engine.validate(action(first)).error)
+        assertNull(engine.validate(action(next)).error)
+        pixels = pixels.clone().apply {
+            for (y in 175 until 210) for (x in 85 until 107) this[y * 120 + x] = 180.toByte()
+        }
+        assertNotNull(engine.validate(action(next)).error)
+    }
+
+    @Test fun hintReuseKeepsOneExplicitFullBaseRatherThanAReferenceChain() = runBlocking {
+        richHints()
+        val first = engine.observe(preferSemantic = true)
+        val base = first.getString("observationId")
+        repeat(4) {
+            val next = engine.observe(preferSemantic = true, knownUiHintsObservationId = base)
+            assertEquals(base, next.getString("sameUiHintsAsObservationId"))
+        }
+    }
+
+    @Test fun callerWithoutTheFullBaseAlwaysReceivesCompleteHints() = runBlocking {
+        richHints()
+        engine.observe(preferSemantic = true)
+        for (known in listOf(null, "unknown-observation-000001")) {
+            val result = engine.observe(preferSemantic = true, knownUiHintsObservationId = known)
+            assertTrue(result.getJSONArray("uiHints").length() > 0)
+            assertFalse(result.has("sameUiHintsAsObservationId"))
+        }
+    }
+
+    @Test fun changedHintTextOrVerifiedMotorStateForcesFullDelivery() = runBlocking {
+        richHints()
+        val first = engine.observe(preferSemantic = true)
+        ui!!.hints.getJSONObject(1).put("text", "Changed label")
+        val changed = engine.observe(preferSemantic = true,
+            knownUiHintsObservationId = first.getString("observationId"))
+        assertFalse(changed.has("sameUiHintsAsObservationId"))
+        ui = ui!!.copy(nodes = listOf(icon.copy(focused = true, enabled = false)))
+        val disabled = engine.observe(preferSemantic = true,
+            knownUiHintsObservationId = changed.getString("observationId"))
+        assertFalse(disabled.has("sameUiHintsAsObservationId"))
+        assertFalse(disabled.getJSONArray("uiHints").getJSONObject(0).getBoolean("enabled"))
+    }
+
+    @Test fun explicitVisualAndRegionModesPublishCompleteHints() = runBlocking {
+        richHints()
+        val first = engine.observe(preferSemantic = true)
+        val base = first.getString("observationId")
+        val standard = engine.observe(knownUiHintsObservationId = base)
+        assertFalse(standard.has("sameUiHintsAsObservationId"))
+        val detail = engine.observe(detail = true, preferSemantic = true,
+            knownUiHintsObservationId = standard.getString("observationId"))
+        assertFalse(detail.has("sameUiHintsAsObservationId"))
+        val crop = engine.observe(preferSemantic = true, region = AiImageRegion(0.0, 0.0, 1.0, 1.0),
+            knownUiHintsObservationId = detail.getString("observationId"))
+        assertFalse(crop.has("sameUiHintsAsObservationId"))
+        assertTrue(crop.getJSONArray("uiHints").length() > 0)
+    }
+
+    @Test fun changedWindowOrDisplayGeometryCannotReuseHints() = runBlocking {
+        richHints()
+        val first = engine.observe(preferSemantic = true)
+        ui = ui!!.copy(windowId = 4)
+        val moved = engine.observe(preferSemantic = true,
+            knownUiHintsObservationId = first.getString("observationId"))
+        assertFalse(moved.has("sameUiHintsAsObservationId"))
+        profile = profile.copy(displayWidthPx = 240, displayHeightPx = 480)
+        val resized = engine.observe(preferSemantic = true,
+            knownUiHintsObservationId = moved.getString("observationId"))
+        assertFalse(resized.has("sameUiHintsAsObservationId"))
+    }
+
+    @Test fun privacyTruncationAndUnstableCaptureClearHintReuse() = runBlocking {
+        richHints()
+        var current = engine.observe(preferSemantic = true)
+        for (unsafe in listOf(
+            ui!!.copy(masks = listOf(Rect(0, 0, 12, 12))),
+            ui!!.copy(truncated = true),
+            ui!!.copy(sensitiveFocus = true)
+        )) {
+            val clean = ui
+            ui = unsafe
+            val refused = engine.observe(preferSemantic = true,
+                knownUiHintsObservationId = current.getString("observationId"))
+            assertFalse(refused.has("sameUiHintsAsObservationId"))
+            ui = clean
+            current = engine.observe(preferSemantic = true,
+                knownUiHintsObservationId = current.getString("observationId"))
+            assertFalse(current.has("sameUiHintsAsObservationId"))
+        }
+        onFrame = { engine.changed() }
+        val animated = engine.observe(preferSemantic = true,
+            knownUiHintsObservationId = current.getString("observationId"))
+        assertFalse(animated.getBoolean("settled"))
+        assertFalse(animated.has("sameUiHintsAsObservationId"))
+    }
+
+    @Test fun hintReuseExpiresAndDoesNotExpandSmallResponses() = runBlocking {
+        richHints()
+        val first = engine.observe(preferSemantic = true)
+        clock += 60_001L
+        val expired = engine.observe(preferSemantic = true,
+            knownUiHintsObservationId = first.getString("observationId"))
+        assertFalse(expired.has("sameUiHintsAsObservationId"))
+        ui = ui!!.copy(hints = JSONArray().put(JSONObject().put("text", "Short").put("clickable", true)))
+        val small = engine.observe(preferSemantic = true)
+        val repeated = engine.observe(preferSemantic = true,
+            knownUiHintsObservationId = small.getString("observationId"))
+        assertFalse(repeated.has("sameUiHintsAsObservationId"))
+        assertEquals(1, repeated.getJSONArray("uiHints").length())
+    }
+
+    @Test fun reusedHintsNeverSuppressChangedGamePixels() = runBlocking {
+        richHints()
+        val first = engine.observe(motion = true)
+        pixels = pixels.clone().apply { this[lastIndex] = 81 }
+        val next = engine.observe(motion = true,
+            knownUiHintsObservationId = first.getString("observationId"))
+        assertEquals("reused", next.getString("uiHintsDelivery"))
+        assertTrue(next.has("image"))
+        assertFalse(next.has("sameVisualAsObservationId"))
+    }
+
     @Test fun fullFrameDigestRunsOnlyWhenItCanSeedOrVerifyVisualReuse() {
         assertTrue(
             needsFullFrameVisualDigest(
