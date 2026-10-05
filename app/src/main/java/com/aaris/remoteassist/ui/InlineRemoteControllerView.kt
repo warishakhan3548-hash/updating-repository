@@ -548,6 +548,11 @@ class InlineRemoteControllerView(
          * remain ordinary Views above it.
          */
         surfaceView.setZOrderOnTop(false)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            surfaceView.setSurfaceLifecycle(
+                SurfaceView.SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT
+            )
+        }
         surfaceView.holder.addCallback(
             object : SurfaceHolder.Callback {
                 override fun surfaceCreated(holder: SurfaceHolder) {
