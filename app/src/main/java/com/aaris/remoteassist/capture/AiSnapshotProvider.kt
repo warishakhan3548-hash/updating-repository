@@ -45,7 +45,13 @@ class AiSnapshotProvider(private val track: ScreenCaptureTrack) : AutoCloseable 
             return@VideoSink
         }
 
-        val i420 = scaled.toI420()
+        val i420 = runCatching {
+            scaled.toI420()
+        }.getOrElse { error ->
+            scaled.release()
+            waiter.completeExceptionally(error)
+            return@VideoSink
+        }
         scaled.release()
 
         if (i420 == null) {
