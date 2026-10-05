@@ -43,6 +43,7 @@ class AiObservationEngine internal constructor(
     private var lastDeliveredVisualFrameHeight = 0
     private var lastDeliveredVisualRotation = 0
     private var issuedUi: AiUiSnapshot? = null
+    private var issuedMotionObservation = false
     private var width = 0
     private var height = 0
     private var rotation = 0
@@ -193,7 +194,9 @@ class AiObservationEngine internal constructor(
             val stable = revision == ledger.eventRevision
             val id = UUID.randomUUID().toString()
             width = geometry.displayWidthPx; height = geometry.displayHeightPx; rotation = frame.rotation
-            issuedUi = ui; lastFingerprint = fingerprint
+            issuedUi = ui
+            issuedMotionObservation = motion
+            lastFingerprint = fingerprint
             if (encoded != null) {
                 lastDeliveredVisualDigest = visualDigest.copyOf()
                 lastDeliveredVisualObservationId = id
@@ -323,6 +326,20 @@ class AiObservationEngine internal constructor(
         }
         return result
     }
+
+    /**
+     * Auto follow-ups preserve an explicitly selected motion observation only
+     * while that exact single-use observation ticket is still current. This
+     * keeps games/canvas loops on the no-settle compact visual path without
+     * turning ordinary native UI into permanent low-detail mode.
+     */
+    fun prefersMotionFollowUp(args: JSONObject): Boolean =
+        issuedMotionObservation &&
+            ledger.valid(
+                args.getString("observationId"),
+                args.getLong("screenVersion"),
+                now()
+            )
 
     suspend fun validate(args: JSONObject): AiActionValidation {
         fun refused(reason: String) = AiActionValidation(reason)
