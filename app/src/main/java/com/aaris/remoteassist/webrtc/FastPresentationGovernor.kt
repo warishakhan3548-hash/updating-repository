@@ -31,10 +31,17 @@ internal class FastPresentationGovernor(
     fun observe(
         window: PresentationCadenceWindow,
         desiredFps: Int,
-        nowMs: Long
+        nowMs: Long,
+        suppliedFps: Double? = null
     ): Boolean {
         val desired = desiredFps.coerceIn(MIN_CAP_FPS, maxFps)
-        val expected = minOf(desired, cap)
+        val ceiling = minOf(desired, cap).toDouble()
+        // A ceiling does not manufacture frames. A healthy 24/30-fps source
+        // must not be mistaken for receiver overload at a 45/60-fps ceiling.
+        // Source supply is measured before encoding, so slow decode/network
+        // delivery cannot lower its own reference and hide real pressure.
+        val supplied = suppliedFps?.takeIf { it.isFinite() && it >= 0.0 }
+        val expected = minOf(ceiling, supplied ?: ceiling)
         if (
             expected < MIN_EXPECTED_FPS ||
             window.renderedFrames < MIN_PRESENTED_FRAMES
@@ -44,8 +51,8 @@ internal class FastPresentationGovernor(
             return false
         }
 
-        val budgetMs = 1_000.0 / expected.toDouble()
-        val deliveryRatio = window.fps / expected.toDouble()
+        val budgetMs = 1_000.0 / expected
+        val deliveryRatio = window.fps / expected
         val softGapMs = maxOf(
             MIN_SOFT_GAP_MS,
             budgetMs * SOFT_GAP_FRAME_MULTIPLIER
@@ -120,7 +127,11 @@ internal class FastPresentationGovernor(
         val healthy =
             deliveryRatio >= HEALTHY_DELIVERY_RATIO &&
                 window.maxGapMs < healthyGapMs
-        healthyWindows = if (healthy) healthyWindows + 1 else 0
+        // Receiving every source frame proves correctness at the source rate,
+        // not headroom for a higher capture rate. Probe only when the current
+        // ceiling is actually exercised; source-limited video keeps its cap.
+        val ceilingExercised = supplied == null || supplied >= ceiling * HEALTHY_DELIVERY_RATIO
+        healthyWindows = if (healthy && ceilingExercised) healthyWindows + 1 else 0
 
         if (
             healthyWindows < HEALTHY_WINDOWS_TO_PROBE ||

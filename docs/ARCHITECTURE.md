@@ -46,8 +46,8 @@ mature remote-access systems:
   - caches live geometry/video track/connection state for late UI attachment.
 - `ui/InlineRemoteControllerView.kt`
   - full-screen presentation/control surface inside `MainActivity`;
-  - uses a TextureView-backed EGL renderer in the same Android view hierarchy
-    as controls;
+  - uses a direct SurfaceView-backed EGL renderer with controls overlaid in
+    the Android view hierarchy;
   - lazily attaches the service-owned remote video track;
   - aspect-fits remote pixels and uses the same geometry contract for touch
     mapping;
@@ -129,6 +129,9 @@ Authoritative backend flow:
   - refreshes the interaction-policy watchdog from live gesture traffic so a
     long drag does not fall back to idle video policy mid-gesture;
   - drives capture-tier adaptation from outbound WebRTC telemetry.
+  - samples source-admitted VideoTrack cadence before encoding and compares
+    short controller presentation windows with that fresh supply, so ordinary
+    24/30 fps source content does not masquerade as receiver overload.
 
 ### Screen capture / adaptive quality
 

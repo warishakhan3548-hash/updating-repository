@@ -32,6 +32,36 @@ async function fixture(storage = new Storage()) {
 }
 const result = async response => JSON.parse((await response.json()).result.content[0].text);
 
+test('hint reuse requires a bounded explicit base acknowledgement on observe and action', () => {
+  const knownUiHintsObservationId = 'observation-with-full-hints-000001';
+  for (const [name, parameters] of [['phone_observe', {}], ['phone_action', args]]) {
+    assert.equal(validateArguments(name, { ...parameters, knownUiHintsObservationId }), true);
+    for (const bad of [null, 123, '', 'short', 'x'.repeat(97), 'has spaces in observation', 'x'.repeat(20) + '\n']) {
+      assert.equal(validateArguments(name, { ...parameters, knownUiHintsObservationId: bad }), false);
+    }
+  }
+  assert.equal(validateArguments('phone_status', { knownUiHintsObservationId }), false);
+  assert.equal(TOOLS[1].inputSchema.properties.knownUiHintsObservationId.maxLength, 96);
+  assert.equal(TOOLS[2].inputSchema.properties.knownUiHintsObservationId.minLength, 16);
+});
+
+test('acknowledged hint reuse preserves fresh tickets and changed game images through MCP', async () => {
+  const fx = await fixture(); fx.connect();
+  const knownUiHintsObservationId = 'full-hints-observation-000001';
+  const pending = fx.call('phone_observe', { quality: 'motion', knownUiHintsObservationId });
+  await fx.complete({ observationId: 'fresh-observation-000002', screenVersion: 12, settled: true,
+    redacted: false, uiHints: [], uiHintsDelivery: 'reused', sameUiHintsAsObservationId: knownUiHintsObservationId,
+    image: { mimeType: 'image/jpeg', width: 960, height: 540, data: 'AA==' } });
+  assert.equal(fx.sent[0].arguments.knownUiHintsObservationId, knownUiHintsObservationId);
+  const response = await (await pending).json();
+  const metadata = JSON.parse(response.result.content[0].text);
+  assert.equal(metadata.observationId, 'fresh-observation-000002');
+  assert.equal(metadata.screenVersion, 12);
+  assert.equal(metadata.sameUiHintsAsObservationId, knownUiHintsObservationId);
+  assert.equal(response.result.content[1].type, 'image');
+  assert.equal(response.result.isError, false);
+});
+
 test('strict arguments reject nonfinite, missing and out of range coordinates, unknown fields and oversized text', () => {
   assert.ok(validateArguments('phone_action', args));
   for (const bad of [{ ...args, x: NaN }, { ...args, x: 1.001 }, { ...args, y: undefined }, { ...args, x: '0.4' }, { ...args, shell: 'anything' }, { ...args, screenVersion: -1 }, { ...args, action: 'swipe' }, { ...args, action: 'type', text: 'a'.repeat(1001) }]) assert.equal(validateArguments('phone_action', bad), false);

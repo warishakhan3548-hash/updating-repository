@@ -51,6 +51,8 @@ class PresentationCadenceTracker(
     private var lastFrameMs = -1L
     private var frames = 0
     private var largestGapMs = 0L
+    private var latestWindow: PresentationCadenceWindow? = null
+    private var latestWindowAtMs = -1L
 
     @Synchronized
     fun onPresented(nowMs: Long): PresentationCadenceWindow? {
@@ -71,6 +73,8 @@ class PresentationCadenceTracker(
              */
             frames = 0
             largestGapMs = 0L
+            latestWindow = null
+            latestWindowAtMs = -1L
             return null
         }
 
@@ -98,7 +102,17 @@ class PresentationCadenceTracker(
         windowStartMs = nowMs
         frames = 0
         largestGapMs = 0L
+        latestWindow = sample
+        latestWindowAtMs = nowMs
         return sample
+    }
+
+    /** A bounded, non-consuming view for comparing source supply with presentation. */
+    @Synchronized
+    fun recent(nowMs: Long, maxAgeMs: Long = 750L): PresentationCadenceWindow? {
+        require(maxAgeMs >= 0L)
+        if (latestWindowAtMs < 0L || nowMs - latestWindowAtMs !in 0L..maxAgeMs) return null
+        return latestWindow
     }
 
     @Synchronized
@@ -107,5 +121,7 @@ class PresentationCadenceTracker(
         lastFrameMs = -1L
         frames = 0
         largestGapMs = 0L
+        latestWindow = null
+        latestWindowAtMs = -1L
     }
 }

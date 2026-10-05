@@ -6,6 +6,58 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FastPresentationGovernorTest {
+    @Test
+    fun healthyLowerRateContentDoesNotLoseItsInteractiveCeiling() {
+        for (sourceFps in listOf(15, 24, 30)) {
+            val governor = FastPresentationGovernor(maxFps = 60, initialCap = 60)
+            val sample = PresentationCadenceWindow(1_000, sourceFps, 1_000 / sourceFps + 1)
+            repeat(12) { index ->
+                assertFalse(governor.observe(sample, 60, 1_000L * (index + 1), sourceFps.toDouble()))
+            }
+            assertEquals(60, governor.cap)
+            assertEquals(0, governor.highCadenceFailureCountForTest())
+        }
+    }
+
+    @Test
+    fun lowRateContentDoesNotProveHeadroomForSixtyFps() {
+        val governor = FastPresentationGovernor(maxFps = 60, initialCap = 45)
+        repeat(12) { index ->
+            assertFalse(governor.observe(PresentationCadenceWindow(500, 15, 34), 60,
+                500L * (index + 1), suppliedFps = 30.0))
+        }
+        assertEquals(45, governor.cap)
+        repeat(3) { index ->
+            assertFalse(governor.observe(healthy45, 60, 7_000L + index * 500L, suppliedFps = 45.0))
+        }
+        assertTrue(governor.observe(healthy45, 60, 8_500L, suppliedFps = 45.0))
+        assertEquals(60, governor.cap)
+    }
+
+    @Test
+    fun trueReceiverShortfallStillGetsFastReliefWithSourceMeasurement() {
+        val governor = FastPresentationGovernor(maxFps = 60, initialCap = 60)
+        assertTrue(governor.observe(pressured60, 60, 1_000L, suppliedFps = 60.0))
+        assertEquals(45, governor.cap)
+        assertEquals(1, governor.highCadenceFailureCountForTest())
+
+        val stalled = FastPresentationGovernor(maxFps = 60, initialCap = 60)
+        assertTrue(stalled.observe(PresentationCadenceWindow(500, 15, 180), 60, 1_000L, 60.0))
+        assertEquals(30, stalled.cap)
+    }
+
+    @Test
+    fun sparseSourceAndInvalidSourceEvidenceDoNotInventHealthyRecovery() {
+        val sparse = FastPresentationGovernor(maxFps = 60, initialCap = 45)
+        assertFalse(sparse.observe(PresentationCadenceWindow(1_000, 5, 200), 60, 1_000L, 5.0))
+        assertEquals(45, sparse.cap)
+        for (bad in listOf(Double.NaN, Double.POSITIVE_INFINITY, -1.0)) {
+            val governor = FastPresentationGovernor(maxFps = 60, initialCap = 60)
+            assertTrue(governor.observe(pressured60, 60, 1_000L, bad))
+            assertEquals(45, governor.cap)
+        }
+    }
+
     private val healthy45 = PresentationCadenceWindow(
         intervalMs = 500,
         renderedFrames = 23,

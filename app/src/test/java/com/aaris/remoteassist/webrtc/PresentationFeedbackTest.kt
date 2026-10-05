@@ -6,6 +6,30 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PresentationFeedbackTest {
+    @Test fun sourceSupplySnapshotExpiresAndResetCannotRetainOldCadence() {
+        val tracker = PresentationCadenceTracker()
+        assertNull(tracker.recent(1_000))
+        for (time in 1_000L..1_160L step 16L) tracker.onPresented(time)
+        val source = checkNotNull(tracker.recent(1_160))
+        assertEquals(62.5, source.fps, 0.001)
+        assertEquals(source, tracker.recent(1_910))
+        assertNull(tracker.recent(1_911))
+        assertNull(tracker.recent(1_159))
+        tracker.reset()
+        assertNull(tracker.recent(1_160))
+    }
+
+    @Test fun sourceSupplyIsClearedAfterCaptureClockOrLongGapReset() {
+        val tracker = PresentationCadenceTracker()
+        for (time in 1_000L..1_160L step 16L) tracker.onPresented(time)
+        tracker.onPresented(900)
+        assertNull(tracker.recent(900))
+        for (time in 916L..1_076L step 16L) tracker.onPresented(time)
+        assertNotNull(tracker.recent(1_076))
+        tracker.onPresented(8_000)
+        assertNull(tracker.recent(8_000))
+    }
+
     @Test fun trackerMeasuresActualSwapCadenceAndLargestGap() {
         val tracker = PresentationCadenceTracker(minWindowMs = 500)
         assertNull(tracker.onPresented(1_000))
