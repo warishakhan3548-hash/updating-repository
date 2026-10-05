@@ -253,6 +253,7 @@ class InlineRemoteControllerView(
                 if (!attached) return
 
                 if (!rawFrameSeen.get() || android.os.SystemClock.elapsedRealtime() - lastRawFrameAtMs > FIRST_FRAME_DEADLINE_MS) {
+                    clearSurfaceFrameRateHintIfNeeded()
                     if (
                         mediaRecoveryAttempts <
                             MAX_MEDIA_RECOVERY_ATTEMPTS
@@ -337,6 +338,7 @@ class InlineRemoteControllerView(
                         rawFrameSeen.set(false)
                         renderedFrameSeen.set(false)
                         presentationCadence.reset()
+                        clearSurfaceFrameRateHintIfNeeded()
                         frameWidth = 0
                         frameHeight = 0
                         latestObservedFrameWidth = 0
@@ -376,6 +378,7 @@ class InlineRemoteControllerView(
                 presentationCadence.reset()
                 mainHandler.post {
                     if (attached) {
+                        clearSurfaceFrameRateHintIfNeeded()
                         mainHandler.removeCallbacks(mediaWatchdog)
                         mainHandler.postDelayed(mediaWatchdog, MEDIA_RECOVERY_RETRY_MS)
                     }
@@ -1290,8 +1293,21 @@ class InlineRemoteControllerView(
      * is correct here rather than FIXED_SOURCE. Never request a disruptive
      * display-mode switch while the user is actively controlling another phone.
      */
+    private fun clearSurfaceFrameRateHintIfNeeded() {
+        if (surfaceFrameRateHints.reset()) {
+            /*
+             * Android explicitly defines 0 Hz as "clear this Surface's frame
+             * rate preference". Do this when a still-visible remote surface has
+             * stopped producing frames or is switching to a new track, otherwise
+             * the display scheduler may keep honoring a cadence that no longer
+             * describes the producer during recovery.
+             */
+            applySurfaceFrameRateHint(0)
+        }
+    }
+
     private fun applySurfaceFrameRateHint(fps: Int) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || fps <= 0) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || fps < 0) return
 
         val surface = surfaceView.holder.surface
         if (!surface.isValid) return
