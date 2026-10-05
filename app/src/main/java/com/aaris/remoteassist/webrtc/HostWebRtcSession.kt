@@ -802,7 +802,14 @@ class HostWebRtcSession(
     }
 
     private fun desiredCaptureFps(target: CaptureProfile): Int =
-        if (interactionActive) target.motionFps else target.fps
+        /*
+         * Always expose the device's motion ceiling to the fast presentation
+         * governor. Its initial cap is still the conservative idle fps, so a
+         * passive screen reaches the higher cadence only after repeated healthy
+         * controller EGL windows. This lets 60 Hz video/animation probe upward
+         * without forcing every idle/static screen to 60 fps.
+         */
+        target.motionFps
 
     private fun effectiveCaptureProfile(
         target: CaptureProfile

@@ -9,6 +9,7 @@ import com.aaris.remoteassist.capture.AiSnapshotProvider
 import com.aaris.remoteassist.capture.CaptureProfile
 import com.aaris.remoteassist.capture.CaptureTier
 import com.aaris.remoteassist.capture.FrameImageEncoder
+import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -35,6 +36,12 @@ class AiObservationEngine internal constructor(
 
     val ledger = AiScreenLedger()
     private var lastFingerprint: ByteArray? = null
+    private var lastDeliveredVisualDigest: ByteArray? = null
+    private var lastDeliveredVisualObservationId: String? = null
+    private var lastDeliveredVisualUi: AiUiSnapshot? = null
+    private var lastDeliveredVisualFrameWidth = 0
+    private var lastDeliveredVisualFrameHeight = 0
+    private var lastDeliveredVisualRotation = 0
     private var issuedUi: AiUiSnapshot? = null
     private var width = 0
     private var height = 0
@@ -80,13 +87,13 @@ class AiObservationEngine internal constructor(
              * target validation bound to the exact captured frame while avoiding
              * JPEG encode/Base64/network work on stable native Android screens.
              */
-            val fingerprint = withContext(Dispatchers.Default) {
+            val (fingerprint, visualDigest) = withContext(Dispatchers.Default) {
                 AiVisualFingerprint.sample(
                     frame.nv21,
                     frame.width,
                     frame.height,
                     frame.rotation
-                )
+                ) to MessageDigest.getInstance("SHA-256").digest(frame.nv21)
             }
             val after = uiSnapshot() ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
             if (epoch != ledger.invalidationGeneration) return error("OBSERVATION_INVALIDATED")
@@ -107,9 +114,35 @@ class AiObservationEngine internal constructor(
                                     hasActionableHint(hints)
                                 )
                         )
+            /*
+             * Successful actions ask for a semantic-first follow-up. Canvas and
+             * game screens normally still need pixels, but retransmitting an
+             * exactly unchanged sampled frame only burns JPEG/vision tokens.
+             * Reuse is deliberately stricter than action validation: exact
+             * fingerprint equality, stable event revision, same privacy context,
+             * and never for an explicit detail request. Any visual change falls
+             * straight back to a fresh JPEG.
+             */
+            val reusableVisualObservationId =
+                if (
+                    preferSemantic &&
+                    !detail &&
+                    !semanticOnly &&
+                    stableBeforeEncode &&
+                    !ui.truncated &&
+                    lastDeliveredVisualFrameWidth == frame.width &&
+                    lastDeliveredVisualFrameHeight == frame.height &&
+                    lastDeliveredVisualRotation == frame.rotation &&
+                    lastDeliveredVisualDigest?.contentEquals(visualDigest) == true &&
+                    lastDeliveredVisualUi?.let { samePrivacyContext(it, ui) } == true
+                ) {
+                    lastDeliveredVisualObservationId
+                } else {
+                    null
+                }
 
             val encoded =
-                if (semanticOnly) {
+                if (semanticOnly || reusableVisualObservationId != null) {
                     null
                 } else {
                     val value =
@@ -146,6 +179,14 @@ class AiObservationEngine internal constructor(
             val id = UUID.randomUUID().toString()
             width = geometry.displayWidthPx; height = geometry.displayHeightPx; rotation = frame.rotation
             issuedUi = ui; lastFingerprint = fingerprint
+            if (encoded != null) {
+                lastDeliveredVisualDigest = visualDigest.copyOf()
+                lastDeliveredVisualObservationId = id
+                lastDeliveredVisualUi = ui
+                lastDeliveredVisualFrameWidth = frame.width
+                lastDeliveredVisualFrameHeight = frame.height
+                lastDeliveredVisualRotation = frame.rotation
+            }
             ledger.issue(id, now())
             return JSONObject().put("observationId", id).put("screenVersion", ledger.version)
                 .put("capturedAtElapsedMs", frame.receivedAtMs).put("settled", stable)
@@ -169,9 +210,16 @@ class AiObservationEngine internal constructor(
                                     )
                                 )
                         )
-                    } else {
+                    } else if (semanticOnly) {
                         put("visualDelivery", "semantic-only")
                         put("imageEncodingSkipped", true)
+                    } else {
+                        put("visualDelivery", "reused")
+                        put("imageEncodingSkipped", true)
+                        put(
+                            "sameVisualAsObservationId",
+                            checkNotNull(reusableVisualObservationId)
+                        )
                     }
                     if (!stable) put("note", "Animation is present. Actions remain available; their target is rechecked against a fresh frame.")
                     if (ui.packageName == ownPackage) put("note", "Connector setup is hidden to protect the access link. Use home to open the phone launcher.")

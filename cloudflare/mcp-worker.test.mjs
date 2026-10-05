@@ -103,6 +103,24 @@ test('semantic observe and settled action results suppress only redundant image 
   assert.equal(shouldAttachImage('phone_observe', { ...semantic, treeTruncated: true }, { quality: 'semantic' }), true);
 });
 
+test('exact unchanged visual reuse stays metadata-only without hiding changed game frames', () => {
+  const reused = toolResult({
+    applied: true,
+    observationId: 'fresh-observation-0002',
+    screenVersion: 6,
+    settled: true,
+    treeTruncated: false,
+    uiHints: [],
+    visualDelivery: 'reused',
+    imageEncodingSkipped: true,
+    sameVisualAsObservationId: 'fresh-observation-0001'
+  }, 'phone_action');
+  assert.equal(reused.content.length, 1);
+  const metadata = JSON.parse(reused.content[0].text);
+  assert.equal(metadata.visualDelivery, 'reused');
+  assert.equal(metadata.sameVisualAsObservationId, 'fresh-observation-0001');
+});
+
 test('canvas games, animation and stale recovery keep visual action output', () => {
   const baseResult = {
     applied: true,
