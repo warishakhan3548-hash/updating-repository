@@ -1,6 +1,7 @@
 package com.aaris.remoteassist.ai
 
 import android.graphics.Rect
+import com.aaris.remoteassist.capture.AiImageRegion
 import com.aaris.remoteassist.capture.AiRawFrame
 import com.aaris.remoteassist.capture.CaptureProfile
 import com.aaris.remoteassist.capture.CaptureTier
@@ -26,6 +27,7 @@ class AiObservationEngineTest {
     private var encodedFrames = 0
     private var pauseCalls = 0
     private var lastEncodeLongEdge = 0
+    private var lastEncodeRegion: AiImageRegion? = null
     private var lastRequestedCaptureLongEdge = 0
     private val engine = AiObservationEngine("aaris", { profile }, { ui }, { requestedLongEdge ->
         lastRequestedCaptureLongEdge = requestedLongEdge
@@ -33,9 +35,10 @@ class AiObservationEngineTest {
     }, { clock }, {
         pauseCalls++
         clock += it
-    }, { frame, longEdge, _, _, _, _ ->
+    }, { frame, longEdge, _, _, _, _, region ->
         encodedFrames++
         lastEncodeLongEdge = longEdge
+        lastEncodeRegion = region
         // JVM YuvImage does not implement JPEG encoding. All pixels, target
         // validation, event races and dispatch checks still use production code.
         FrameImageEncoder.Encoded(byteArrayOf(1), frame.width, frame.height)
@@ -84,6 +87,48 @@ class AiObservationEngineTest {
         // Stale-target validation still fingerprints a 1280-class capture.
         assertEquals(1280, lastRequestedCaptureLongEdge)
         assertTrue(observed.has("image"))
+    }
+
+    @Test fun regionObservationForcesPixelsAndKeepsFullDisplaySafetyCoordinates() = runBlocking {
+        ui = ui!!.copy(
+            hints = JSONArray().put(
+                JSONObject()
+                    .put("text", "ChatGPT")
+                    .put("clickable", true)
+                    .put("bounds", JSONArray().put(84).put(168).put(108).put(216))
+            )
+        )
+        val region =
+            AiImageRegion(
+                left = 0.25,
+                top = 0.25,
+                right = 0.50,
+                bottom = 0.50
+            )
+
+        val observed =
+            engine.observe(
+                preferSemantic = true,
+                region = region
+            )
+
+        assertFalse(observed.has("error"))
+        assertTrue(observed.has("image"))
+        assertFalse(observed.has("visualDelivery"))
+        assertEquals(2400, lastRequestedCaptureLongEdge)
+        assertEquals(region, lastEncodeRegion)
+
+        val metadata = observed.getJSONObject("imageRegion")
+        assertEquals(0.25, metadata.getDouble("left"), 0.0001)
+        assertEquals(0.50, metadata.getDouble("right"), 0.0001)
+        assertEquals(
+            "full-upright-display-normalized-0-to-1",
+            metadata.getString("coordinateSpace")
+        )
+
+        // Authorization still uses the full-screen ticket/fingerprint. The crop
+        // changes only what pixels are delivered to the model.
+        assertNull(engine.validate(action(observed)).error)
     }
 
     @Test fun motionObservationCarriesOnlyItsLiveTicketIntoAutoFollowUp() = runBlocking {
