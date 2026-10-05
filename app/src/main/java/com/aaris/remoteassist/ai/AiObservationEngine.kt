@@ -127,17 +127,18 @@ class AiObservationEngine internal constructor(
                                 )
                         )
             /*
-             * Successful actions ask for a semantic-first follow-up. Canvas and
-             * game screens normally still need pixels, but retransmitting an
-             * exactly unchanged sampled frame only burns JPEG/vision tokens.
-             * Reuse is deliberately stricter than action validation: exact
-             * fingerprint equality, stable event revision, same privacy context,
-             * and never for an explicit detail request. Any visual change falls
-             * straight back to a fresh JPEG.
+             * Semantic-first and motion observations may reuse the previously
+             * delivered visual only when the FULL NV21 frame digest is identical.
+             * This matters for fast game/canvas loops where a no-op or already
+             * completed action would otherwise spend JPEG/vision tokens on the
+             * same pixels. Reuse remains stricter than action validation: stable
+             * event revision, unchanged geometry/privacy context, non-truncated
+             * semantics, and never an explicit detail request. One changed byte
+             * falls straight back to a fresh JPEG.
              */
             val reusableVisualObservationId =
                 if (
-                    preferSemantic &&
+                    (preferSemantic || motion) &&
                     !detail &&
                     !semanticOnly &&
                     stableBeforeEncode &&
