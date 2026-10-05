@@ -2,7 +2,9 @@ package com.aaris.remoteassist.ui
 
 import com.aaris.remoteassist.webrtc.PresentationCadenceWindow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SurfaceFrameRateHintGovernorTest {
@@ -63,6 +65,29 @@ class SurfaceFrameRateHintGovernorTest {
         // requiring three brand-new windows would add avoidable display lag.
         assertEquals(45, governor.observe(fortyFive, 3_600L))
         assertEquals(45, governor.currentHintFps())
+    }
+
+    @Test
+    fun resetReportsOnlyAnEstablishedHintAndRequiresFreshEvidenceAgain() {
+        val governor =
+            SurfaceFrameRateHintGovernor(
+                initialWindows = 2,
+                switchWindows = 2,
+                minSwitchIntervalMs = 0L
+            )
+        val sixty = window(167, 10, 18)
+
+        assertFalse(governor.reset())
+        assertNull(governor.observe(sixty, 1_000L))
+        assertEquals(60, governor.observe(sixty, 1_200L))
+        assertTrue(governor.reset())
+        assertEquals(0, governor.currentHintFps())
+        assertFalse(governor.reset())
+
+        // A recovered/replaced stream must prove its cadence again rather than
+        // inheriting the old Surface preference.
+        assertNull(governor.observe(sixty, 1_400L))
+        assertEquals(60, governor.observe(sixty, 1_600L))
     }
 
     @Test
