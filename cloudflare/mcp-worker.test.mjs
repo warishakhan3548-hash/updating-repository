@@ -47,8 +47,14 @@ test('strict arguments reject nonfinite, missing and out of range coordinates, u
   assert.equal(validateArguments('phone_observe', { quality: 'auto' }), true);
   assert.equal(validateArguments('phone_observe', { quality: 'semantic' }), true);
   assert.equal(validateArguments('phone_observe', { quality: 'motion' }), true);
+  const region = { left: 0.2, top: 0.25, right: 0.8, bottom: 0.75 };
+  assert.equal(validateArguments('phone_observe', { quality: 'auto', region }), true);
+  assert.equal(validateArguments('phone_observe', { region: { ...region, right: 0.22 } }), false);
+  assert.equal(validateArguments('phone_observe', { region: { ...region, right: 1.1 } }), false);
+  assert.equal(validateArguments('phone_observe', { region: { ...region, extra: 1 } }), false);
   assert.equal(validateArguments('phone_observe', { quality: 'invalid' }), false);
   assert.equal(TOOLS[1].inputSchema.properties.quality.default, 'auto');
+  assert.equal(TOOLS[1].inputSchema.properties.region.required.length, 4);
   assert.equal(validateArguments('phone_action', { ...args, responseQuality: 'motion' }), true);
   assert.equal(validateArguments('phone_action', { ...args, responseQuality: 'cinematic' }), false);
 });
@@ -111,6 +117,22 @@ test('semantic observe and settled action results suppress only redundant image 
   assert.equal(shouldAttachImage('phone_observe', semantic, { quality: 'motion' }), true);
 
   assert.equal(shouldAttachImage('phone_observe', semantic, { quality: 'semantic' }), false);
+  assert.equal(
+    shouldAttachImage(
+      'phone_observe',
+      { ...semantic, imageRegion: { left: 0.2, top: 0.2, right: 0.6, bottom: 0.6 } },
+      { quality: 'semantic', region: { left: 0.2, top: 0.2, right: 0.6, bottom: 0.6 } }
+    ),
+    true
+  );
+  assert.equal(
+    shouldAttachImage(
+      'phone_observe',
+      { ...semantic, redacted: true, uiHints: [] },
+      { quality: 'semantic', region: { left: 0.2, top: 0.2, right: 0.6, bottom: 0.6 } }
+    ),
+    false
+  );
   const semanticObserve = toolResult(semantic, 'phone_observe', { quality: 'semantic' });
   assert.equal(semanticObserve.content.length, 1);
   assert.match(JSON.parse(semanticObserve.content[0].text).nextVisual, /quality=standard or detail/);
