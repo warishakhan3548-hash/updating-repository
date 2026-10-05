@@ -92,6 +92,43 @@ class AiObservationEngineTest {
         assertTrue(encodedFrames > afterSparse)
     }
 
+    @Test fun unchangedCanvasFollowUpReusesVisualButChangesAndDetailStillEncode() = runBlocking {
+        val first = engine.observe()
+        assertTrue(first.has("image"))
+        val encodedAfterFirst = encodedFrames
+
+        val unchanged = engine.observe(preferSemantic = true)
+        assertFalse(unchanged.has("image"))
+        assertEquals("reused", unchanged.getString("visualDelivery"))
+        assertTrue(unchanged.getBoolean("imageEncodingSkipped"))
+        assertEquals(
+            first.getString("observationId"),
+            unchanged.getString("sameVisualAsObservationId")
+        )
+        assertEquals(encodedAfterFirst, encodedFrames)
+
+        pixels = ByteArray(pixels.size) { 120 }
+        val changed = engine.observe(preferSemantic = true)
+        assertTrue(changed.has("image"))
+        assertEquals(encodedAfterFirst + 1, encodedFrames)
+
+        val detailed = engine.observe(detail = true, preferSemantic = true)
+        assertTrue(detailed.has("image"))
+        assertEquals(encodedAfterFirst + 2, encodedFrames)
+    }
+
+    @Test fun privacyContextChangeNeverReusesPriorVisual() = runBlocking {
+        val first = engine.observe()
+        assertTrue(first.has("image"))
+        val encodedAfterFirst = encodedFrames
+
+        ui = ui!!.copy(sensitiveFocus = true)
+        val privateScreen = engine.observe()
+        assertTrue(privateScreen.has("image"))
+        assertFalse(privateScreen.has("sameVisualAsObservationId"))
+        assertEquals(encodedAfterFirst + 1, encodedFrames)
+    }
+
     @Test fun continuouslyUpdatingChatStillIssuesUsableHomeAndTapTickets() = runBlocking {
         onFrame = { engine.changed() }
         val observed = engine.observe()
