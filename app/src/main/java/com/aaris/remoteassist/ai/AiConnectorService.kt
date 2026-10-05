@@ -103,11 +103,11 @@ class AiConnectorService : Service() {
                 try {
                     credential = withContext(Dispatchers.IO) {
                         val saved = checkNotNull(AiConnectorStore(this@AiConnectorService).load()) { "Create an AI link first" }
-                        WebRtcRuntime.initialize(applicationContext)
+                        WebRtcRuntime.captureEglBase(applicationContext)
                         saved
                     }
                     if (stopping) return@launch
-                    capture = ScreenCaptureTrack(this@AiConnectorService, ProjectionGrant(ownerId, Activity.RESULT_OK, data)) {
+                    capture = ScreenCaptureTrack(this@AiConnectorService, ProjectionGrant(ownerId, Activity.RESULT_OK, data), publishLiveVideo = false) {
                         scope.launch { stopNow("Screen sharing stopped. Tap Connect Phone with AI to resume.") }
                     }
                     snapshots = AiSnapshotProvider(checkNotNull(capture))
@@ -139,8 +139,9 @@ class AiConnectorService : Service() {
     }
 
     private fun profile(): CaptureProfile {
-        val tier = if (CaptureProfile.recommendedTier(this) == CaptureTier.LOW) CaptureTier.BALANCED else CaptureTier.STANDARD
-        // Capture remains live, but expensive conversion and uploads happen only on demand.
+        val tier = if (CaptureProfile.recommendedTier(this) == CaptureTier.LOW) CaptureTier.LOW else CaptureTier.BALANCED
+        // Bounded projection pixels; no peer/encoder pipeline. CPU conversion
+        // and image encoding remain strictly on demand through AiSnapshotProvider.
         return CaptureProfile.current(this, tier).copy(fps = 8, motionFps = 8)
     }
     override fun onConfigurationChanged(newConfig: Configuration) {

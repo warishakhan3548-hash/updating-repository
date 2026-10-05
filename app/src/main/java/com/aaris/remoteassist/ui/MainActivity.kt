@@ -193,13 +193,12 @@ class MainActivity : ComponentActivity() {
         ConnectionFlightRecorder.addListener(
             hostDiagnosticListener
         )
-        val previousControllerCrash =
-            showPreviousCrashIfAny()
+        showPreviousCrashIfAny()
         installBackHandler()
 
         val restoredHostSession = recoverPersistedHostSession()
         val restoredControllerSession =
-            if (!restoredHostSession && !previousControllerCrash) {
+            if (!restoredHostSession) {
                 recoverPersistedControllerSession()
             } else {
                 false
@@ -219,29 +218,15 @@ class MainActivity : ComponentActivity() {
         handleIncomingJoin(intent)
     }
 
-    private fun showPreviousCrashIfAny(): Boolean {
+    private fun showPreviousCrashIfAny() {
         val crash = CrashRecorder.consume(this)
             ?.replace(Regex("""(?i)\b(?:https?|wss?)://[^\s<>"']+"""), "[redacted URL]")
-            ?: return false
-        val pendingController = prefs.getString(
-            KEY_PENDING_CONTROLLER_SESSION,
-            null
-        )
-
-        if (pendingController != null) {
-            prefs.edit()
-                .remove(KEY_PENDING_CONTROLLER_SESSION)
-                .apply()
-            pendingControllerSessionId = null
-            BackendSessionCloser.close(this, pendingController)
-            SessionCoordinator.close(pendingController)
-        }
+            ?: return
 
         AlertDialog.Builder(this)
             .setTitle("Aaris Remote stopped unexpectedly")
             .setMessage(
                 "The previous app run stopped unexpectedly. " +
-                    (if (pendingController != null) "Its old controller session was closed. " else "") +
                     "You can copy this report to help diagnose the failure.\n\n" +
                     crash.take(2_500)
             )
@@ -250,8 +235,6 @@ class MainActivity : ComponentActivity() {
             }
             .setPositiveButton("OK", null)
             .show()
-
-        return pendingController != null
     }
 
     override fun onNewIntent(intent: Intent) {

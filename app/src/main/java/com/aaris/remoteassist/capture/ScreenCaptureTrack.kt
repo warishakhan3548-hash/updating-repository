@@ -31,11 +31,12 @@ data class StalenessShadowSnapshot(
 class ScreenCaptureTrack(
     context: Context,
     grant: ProjectionGrant,
+    private val publishLiveVideo: Boolean = true,
     private val onProjectionStopped: () -> Unit
 ) : Closeable {
     private val appContext = context.applicationContext
-    private val factory = WebRtcRuntime.factory(appContext)
-    private val eglBase = WebRtcRuntime.eglBase(appContext)
+    private val factory = if (publishLiveVideo) WebRtcRuntime.factory(appContext) else null
+    private val eglBase = WebRtcRuntime.captureEglBase(appContext)
     private val closed = AtomicBoolean(false)
     private val snapshotSinks = CopyOnWriteArraySet<VideoSink>()
     private val sampleClock = CaptureSampleClock()
@@ -70,8 +71,7 @@ class ScreenCaptureTrack(
             }
         )
 
-    private val videoSource: VideoSource =
-        factory.createVideoSource(true)
+    private val videoSource: VideoSource? = factory?.createVideoSource(true)
 
     private val surfaceTextureHelper =
         checkNotNull(
@@ -81,11 +81,13 @@ class ScreenCaptureTrack(
             )
         )
 
-    val videoTrack: VideoTrack =
-        factory.createVideoTrack(
+    private val liveVideoTrack: VideoTrack? =
+        videoSource?.let { source -> factory?.createVideoTrack(
             "aaris-screen-video",
-            videoSource
-        )
+            source
+        ) }
+
+    val videoTrack: VideoTrack get() = checkNotNull(liveVideoTrack) { "Snapshot-only capture has no RTP track" }
 
     @Volatile
     private var started = false
@@ -98,14 +100,20 @@ class ScreenCaptureTrack(
             appContext,
             object : CapturerObserver {
                 override fun onCapturerStarted(success: Boolean) {
-                    videoSource.capturerObserver.onCapturerStarted(success)
+                    videoSource?.capturerObserver?.onCapturerStarted(success)
                 }
 
                 override fun onCapturerStopped() {
-                    videoSource.capturerObserver.onCapturerStopped()
+                    videoSource?.capturerObserver?.onCapturerStopped()
                 }
 
                 override fun onFrameCaptured(frame: VideoFrame) {
+                    if (!publishLiveVideo) {
+                        // No live-video adaptation, encoder telemetry or native
+                        // frame forwarding in the AI-only background engine.
+                        snapshotSinks.forEach { sink -> runCatching { sink.onFrame(frame) } }
+                        return
+                    }
                     val nowNs = SystemClock.elapsedRealtimeNanos()
                     var admitLiveSample = true
 
@@ -162,7 +170,7 @@ class ScreenCaptureTrack(
                                     System.nanoTime()
                                 )
                             )
-                        videoSource.capturerObserver.onFrameCaptured(sampled)
+                        videoSource?.capturerObserver?.onFrameCaptured(sampled)
                     }
 
                     /*
@@ -177,14 +185,14 @@ class ScreenCaptureTrack(
                 }
             }
         )
-        videoTrack.setEnabled(true)
+        liveVideoTrack?.setEnabled(true)
     }
 
     fun start(profile: CaptureProfile) {
         check(!closed.get())
         if (started) return
         sourceGeometry = StableCaptureGeometry(profile)
-        videoSource.adaptOutputFormat(
+        videoSource?.adaptOutputFormat(
             profile.captureWidthPx,
             profile.captureHeightPx,
             profile.fps
@@ -200,7 +208,7 @@ class ScreenCaptureTrack(
 
     fun update(profile: CaptureProfile) {
         if (closed.get() || !started) return
-        videoSource.adaptOutputFormat(
+        videoSource?.adaptOutputFormat(
             profile.captureWidthPx,
             profile.captureHeightPx,
             profile.fps
@@ -286,13 +294,13 @@ class ScreenCaptureTrack(
             started = false
         }
 
-        runCatching { videoTrack.setEnabled(false) }
-        runCatching { videoTrack.dispose() }
+        runCatching { liveVideoTrack?.setEnabled(false) }
+        runCatching { liveVideoTrack?.dispose() }
 
         // Stop/dispose the producer before its VideoSource observer. This
         // avoids late capturer callbacks targeting an already-disposed source.
         runCatching { capturer.dispose() }
-        runCatching { videoSource.dispose() }
+        runCatching { videoSource?.dispose() }
         runCatching { surfaceTextureHelper.dispose() }
     }
 }

@@ -273,7 +273,40 @@ class HostWebRtcSession(
             !closed.get() &&
             (!peerConnected || !controlOpen)
         ) {
-            listener.onRemoteDisconnect()
+            if (everConnected) {
+                beginTransportRecovery("Control transport interrupted")
+            } else {
+                listener.onTerminalError(IllegalStateException("Initial control connection timed out"))
+            }
+        }
+    }
+
+    private val recoveryWindow = TransportRecoveryWindow()
+    private val recoveryWatchdog = object : Runnable {
+        override fun run() {
+            synchronized(this@HostWebRtcSession) {
+                if (closed.get()) return
+                val remaining = recoveryWindow.remainingMs(android.os.SystemClock.elapsedRealtime()) ?: return
+                if (remaining == 0L) {
+                    listener.onTerminalError(IllegalStateException("Control link did not recover within 45 seconds"))
+                    return
+                }
+                // WebRtcPeer bounds restart frequency and waits for stable signaling.
+                peer.requestIceRestart(forceRelay = remaining <= 30_000L)
+                displayHandler.postDelayed(this, RECOVERY_POLL_MS)
+            }
+        }
+    }
+
+    private fun beginTransportRecovery(reason: String) {
+        displayHandler.post {
+            if (closed.get()) return@post
+            if (transportReady && peerConnected && controlOpen && SessionRuntime.currentLease() != null) return@post
+            transportReady = false
+            if (recoveryWindow.begin(android.os.SystemClock.elapsedRealtime())) {
+                listener.onDiagnostic("$reason • keeping screen sharing alive for bounded recovery")
+                displayHandler.postDelayed(recoveryWatchdog, RECOVERY_POLL_MS)
+            }
         }
     }
 
@@ -344,8 +377,9 @@ class HostWebRtcSession(
                 expected != null &&
                 SessionRuntime.currentLease() == null
             ) {
-                listener.onRemoteDisconnect()
-                return
+                // Expired input stays unauthorized. Keep capture/ICE alive long
+                // enough for a fresh authenticated heartbeat or transport handshake.
+                beginTransportRecovery("Controller heartbeat lease expired")
             }
 
             if (
@@ -537,6 +571,7 @@ class HostWebRtcSession(
             ?.let(listener::onConnectivityChanged)
 
         if (everConnected && !closed.get()) {
+            beginTransportRecovery("WebRTC route interrupted")
             displayHandler.removeCallbacks(iceRestart)
             displayHandler.postDelayed(
                 iceRestart,
@@ -560,12 +595,8 @@ class HostWebRtcSession(
         updateInteractionPriority(false)
         transport.onControlChannelClosed()
             ?.let(listener::onConnectivityChanged)
-        if (!closed.get()) {
-            displayHandler.removeCallbacks(connectionWatchdog)
-            displayHandler.postDelayed(
-                connectionWatchdog,
-                CONTROL_CHANNEL_GRACE_MS
-            )
+        if (!closed.get() && everConnected) {
+            beginTransportRecovery("Control channel interrupted")
         }
     }
 
@@ -577,10 +608,21 @@ class HostWebRtcSession(
                 val currentLease = lease ?: return
                 if (packet.leaseSecret != currentLease.leaseSecret) return
 
-                SessionRuntime.renew(
+                val renewed = SessionRuntime.renew(
                     sessionId = sessionId,
                     leaseSecret = currentLease.leaseSecret
-                )?.let { lease = it }
+                )
+                if (renewed != null) {
+                    lease = renewed
+                } else {
+                    displayHandler.post {
+                        if (!closed.get() && peerConnected && controlOpen &&
+                            recoveryWindow.remainingMs(android.os.SystemClock.elapsedRealtime()) != 0L) {
+                            transportReady = false
+                            ensureLiveHandshake()
+                        }
+                    }
+                }
 
                 displayHandler.post {
                     refreshDisplayProfile()
@@ -849,11 +891,17 @@ class HostWebRtcSession(
             if (now - lastSlowVideoCheckMs < 3000) return@post
             lastSlowVideoCheckMs = now
             listener.onDiagnostic(snapshot.compact())
-            val pressured = snapshot.qualityLimitationReason == "cpu" ||
+            val measuredEncodeMs = snapshot.recent?.takeIf { it.frames >= 3 }?.processingMs
+            val encodeFps = effectiveCaptureProfile(profile).fps
+            val cpuLimited = snapshot.qualityLimitationReason == "cpu" ||
+                measuredEncodeMs?.let { it > 1000.0 / encodeFps } == true
+            val pressured =
                 (snapshot.packetLossRatio ?: 0.0) >= CaptureQualityGovernor.PRESSURE_PACKET_LOSS_RATIO ||
                 (snapshot.roundTripTimeMs ?: 0) >= CaptureQualityGovernor.PRESSURE_RTT_MS
-            // Give cadence reductions time to work before sacrificing text resolution.
-            if (pressured && !cadenceGovernor.mayReduceResolution(now)) return@post
+            // Network pressure can try cadence first. CPU/software pressure
+            // must reduce pixels even when vendor stats omit limitation reason.
+            if (pressured && !cpuLimited && !snapshot.usesSoftwareEncoder &&
+                !cadenceGovernor.mayReduceResolution(now)) return@post
 
             captureQualityGovernor
                 .observeQualityLimitation(
@@ -862,7 +910,10 @@ class HostWebRtcSession(
                     roundTripTimeMs =
                         snapshot.roundTripTimeMs,
                     packetLossRatio =
-                        snapshot.packetLossRatio
+                        snapshot.packetLossRatio,
+                    softwareEncoder = snapshot.usesSoftwareEncoder,
+                    encodeTimeMs = measuredEncodeMs,
+                    requestedFps = encodeFps
                 )
                 ?.let(::applyCaptureTier)
         }
@@ -1002,6 +1053,8 @@ class HostWebRtcSession(
         if (!closed.compareAndSet(false, true)) return
 
         displayHandler.removeCallbacks(connectionWatchdog)
+        displayHandler.removeCallbacks(recoveryWatchdog)
+        recoveryWindow.recovered()
         displayHandler.removeCallbacks(iceRestart)
         displayHandler.removeCallbacks(startupControlRecovery)
         displayHandler.removeCallbacks(captureFrameWatchdog)
@@ -1112,7 +1165,8 @@ class HostWebRtcSession(
             !controlOpen ||
             !localCaptureFrameSeen.get() ||
             closed.get() ||
-            transportReady
+            transportReady ||
+            recoveryWindow.remainingMs(android.os.SystemClock.elapsedRealtime()) == 0L
         ) {
             return
         }
@@ -1135,6 +1189,9 @@ class HostWebRtcSession(
         displayHandler.removeCallbacks(connectionWatchdog)
         transportReady = true
         lease = currentLease
+
+        displayHandler.removeCallbacks(recoveryWatchdog)
+        recoveryWindow.recovered()
 
         displayHandler.removeCallbacks(
             leaseWatchdog
@@ -1173,7 +1230,7 @@ class HostWebRtcSession(
 
     companion object {
         private const val CONNECT_TIMEOUT_MS = 90_000L
-        private const val CONTROL_CHANNEL_GRACE_MS = 5_000L
+        private const val RECOVERY_POLL_MS = 5_000L
         private const val ICE_RESTART_DELAY_MS = 1_500L
         private const val STARTUP_CONTROL_RECOVERY_INITIAL_DELAY_MS = 8_000L
         private const val STARTUP_CONTROL_RECOVERY_INTERVAL_MS = 8_000L

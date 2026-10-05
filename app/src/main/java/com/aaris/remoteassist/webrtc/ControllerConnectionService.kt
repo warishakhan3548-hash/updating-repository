@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.IBinder
+import com.aaris.remoteassist.backend.CloudflareBackend
 import com.aaris.remoteassist.diagnostics.ConnectionFlightRecorder
 import com.aaris.remoteassist.pairing.BackendSessionCloser
 import com.aaris.remoteassist.pairing.CloudflarePairingGateway
@@ -141,7 +142,18 @@ class ControllerConnectionService : Service() {
         flags: Int,
         startId: Int
     ): Int {
-        when (intent?.action) {
+        if (intent == null) {
+            val saved = getSharedPreferences(OWNER_PREFS, MODE_PRIVATE)
+                .getString(OWNER_SESSION, null)
+            if (saved != null && CloudflareBackend.token(this, saved) != null) {
+                startSession(saved)
+                return START_STICKY
+            }
+            getSharedPreferences(OWNER_PREFS, MODE_PRIVATE).edit().clear().apply()
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        when (intent.action) {
             ACTION_START -> {
                 val id =
                     intent.getStringExtra(EXTRA_SESSION_ID)
@@ -195,6 +207,8 @@ class ControllerConnectionService : Service() {
         startVisibleForeground(
             "Waiting for host approval…"
         )
+        getSharedPreferences(OWNER_PREFS, MODE_PRIVATE).edit()
+            .putString(OWNER_SESSION, sessionId).apply()
 
         ConnectionFlightRecorder.reset(
             sessionId,
@@ -415,6 +429,7 @@ class ControllerConnectionService : Service() {
         if (activeSessionId != id) return
 
         activeSessionId = null
+        getSharedPreferences(OWNER_PREFS, MODE_PRIVATE).edit().clear().apply()
         observer?.close()
         observer = null
 
@@ -520,6 +535,8 @@ class ControllerConnectionService : Service() {
     }
 
     companion object {
+        private const val OWNER_PREFS = "controller_connection_owner"
+        private const val OWNER_SESSION = "active_session"
         const val ACTION_START =
             "com.aaris.remoteassist.action.START_CONTROLLER_CONNECTION"
         const val ACTION_STOP =

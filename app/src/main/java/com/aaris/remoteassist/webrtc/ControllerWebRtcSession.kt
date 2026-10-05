@@ -12,6 +12,9 @@ import org.webrtc.VideoTrack
 import java.io.Closeable
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 
 data class RemoteGeometry(
     val generation: Int,
@@ -48,6 +51,12 @@ class ControllerWebRtcSession(
     private var lastVideoLivenessMs = 0L
     private val gestureStreamIds = AtomicLong(0L)
     private val handler = Handler(Looper.getMainLooper())
+    private val heartbeatLock = Any()
+    private val heartbeatSendLock = Any()
+    private val heartbeatExecutor = ScheduledThreadPoolExecutor(1) { task ->
+        Thread(task, "AarisControlHeartbeat").apply { isDaemon = true }
+    }.apply { removeOnCancelPolicy = true }
+    private var heartbeatTask: ScheduledFuture<*>? = null
     private val transport = ControlTransportTracker()
     private val inboundVideoLiveness =
         InboundVideoLivenessMonitor()
@@ -87,19 +96,25 @@ class ControllerWebRtcSession(
 
     private val heartbeat = object : Runnable {
         override fun run() {
-            if (closed.get()) return
-
-            val lease = leaseSecret
-            if (lease != null) {
-                peer.sendControl(
-                    ControlProtocol.encode(
-                        ControlPacket.Heartbeat(lease)
-                    )
-                )
+            val failure = synchronized(heartbeatSendLock) {
+                if (closed.get()) return
+                val lease = leaseSecret ?: return
+                // A closing channel must not cancel all future scheduled ticks.
+                runCatching {
+                    peer.sendControl(ControlProtocol.encode(ControlPacket.Heartbeat(lease)))
+                }.exceptionOrNull()
             }
-
-            handler.postDelayed(this, HEARTBEAT_MS)
+            if (failure != null && !closed.get()) listener.onRecoverableError(failure)
         }
+    }
+
+    private fun startHeartbeat() = synchronized(heartbeatLock) {
+        if (closed.get()) return@synchronized
+        heartbeatTask?.cancel(false)
+        // EGL/view recovery must not delay the authenticated control lease.
+        heartbeatTask = heartbeatExecutor.scheduleWithFixedDelay(
+            heartbeat, 0L, HEARTBEAT_MS, TimeUnit.MILLISECONDS
+        )
     }
 
     fun start() {
@@ -542,8 +557,7 @@ class ControllerWebRtcSession(
                 this.geometry = geometry
                 if (resetLatency) commandLatency.reset()
 
-                handler.removeCallbacks(heartbeat)
-                handler.post(heartbeat)
+                startHeartbeat()
 
                 listener.onLive(geometry)
                 peer.sendControl(
@@ -670,7 +684,16 @@ class ControllerWebRtcSession(
 
         screenReadyArmed.set(false)
         handler.removeCallbacks(helloWatchdog)
-        handler.removeCallbacks(heartbeat)
+        synchronized(heartbeatLock) {
+            heartbeatTask?.cancel(false)
+            heartbeatTask = null
+            heartbeatExecutor.shutdownNow()
+        }
+        // The pinned SDK predates native lifecycle guards. Drain any active
+        // heartbeat before disposal. This lock is separate from scheduling:
+        // an RTC HELLO callback must never wait behind a native send which may
+        // itself be waiting for that callback's thread.
+        synchronized(heartbeatSendLock) { }
         inboundVideoLiveness.reset()
         if (notifyRemote) {
             runCatching {
