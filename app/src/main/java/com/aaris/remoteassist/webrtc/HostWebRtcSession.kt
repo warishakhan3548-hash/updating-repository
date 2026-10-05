@@ -59,7 +59,12 @@ class HostWebRtcSession(
             initialTier = captureTier,
             maxTier = maxCaptureTier
         )
-    private val cadenceGovernor = VideoCadenceGovernor(profile.motionFps)
+    private val cadenceGovernor =
+        VideoCadenceGovernor(
+            maxFps = profile.motionFps,
+            initialCap = minOf(profile.motionFps, STARTUP_VIDEO_FPS_CAP)
+        )
+    private val passiveMotionPriority = PassiveMotionPriority()
     private val receiverFeedback = ReceiverVideoFeedback()
     private var lastSlowVideoCheckMs = 0L
 
@@ -84,7 +89,11 @@ class HostWebRtcSession(
             fallbackStreamer.setInteractionActive(false)
             applyVideoPolicy(profile)
             listener.onDiagnostic(
-                "Remote interaction idle • restoring clarity-first video policy"
+                if (freshnessPriorityActive()) {
+                    "Remote interaction idle • visible screen motion remains freshness-first"
+                } else {
+                    "Remote interaction idle • restoring clarity-first video policy"
+                }
             )
         }
     }
@@ -278,13 +287,14 @@ class HostWebRtcSession(
         captureRecoveryAttempts = 0
         localCaptureFrameSeen.set(false)
 
+        val initialEffective = effectiveCaptureProfile(profile)
         listener.onDiagnostic(
             "Starting MediaProjection capture • " +
-                profile.captureWidthPx +
+                initialEffective.captureWidthPx +
                 "x" +
-                profile.captureHeightPx +
+                initialEffective.captureHeightPx +
                 "@" +
-                profile.fps +
+                initialEffective.fps +
                 " • tier=" +
                 profile.tier.name
         )
@@ -297,11 +307,11 @@ class HostWebRtcSession(
         peer.addLocalVideoTrack(
             track = capture.videoTrack,
             maxBitrateBps = profile.maxVideoBitrateBps,
-            maxFramerate = profile.fps,
+            maxFramerate = initialEffective.fps,
             preserveResolution =
                 initialVideoPolicy.preserveResolution
         )
-        capture.start(profile)
+        capture.start(initialEffective)
 
         displayHandler.removeCallbacks(captureFrameWatchdog)
         displayHandler.postDelayed(
@@ -411,6 +421,7 @@ class HostWebRtcSession(
     override fun onPeerDisconnected() {
         peerConnected = false
         transportReady = false
+        passiveMotionPriority.reset()
         updateInteractionPriority(false)
         displayHandler.removeCallbacks(startupControlRecovery)
         transport.onPeerDisconnected()
@@ -437,6 +448,7 @@ class HostWebRtcSession(
     override fun onControlChannelClosed() {
         controlOpen = false
         transportReady = false
+        passiveMotionPriority.reset()
         updateInteractionPriority(false)
         transport.onControlChannelClosed()
             ?.let(listener::onConnectivityChanged)
@@ -654,29 +666,89 @@ class HostWebRtcSession(
 
             val now = android.os.SystemClock.elapsedRealtime()
             val current = lease
-            val receiver = current?.let { receiverFeedback.consume(it.leaseSecret, it.displayGeneration, now) }
-            if (cadenceGovernor.observe(snapshot, receiver, effectiveCaptureProfile(profile).fps, now)) {
+            val receiver =
+                current?.let {
+                    receiverFeedback.consume(
+                        it.leaseSecret,
+                        it.displayGeneration,
+                        now
+                    )
+                }
+
+            val motionChanged =
+                passiveMotionPriority.observe(
+                    window = snapshot.recent,
+                    nowMs = now
+                )
+            val requestedFps = effectiveCaptureProfile(profile).fps
+            val cadenceChanged =
+                cadenceGovernor.observe(
+                    outbound = snapshot,
+                    receiver = receiver,
+                    requestedFps = requestedFps,
+                    nowMs = now
+                )
+            if (motionChanged || cadenceChanged) {
                 applyVideoPolicy(profile)
-                listener.onDiagnostic("Sustainable video cadence → ${cadenceGovernor.cap}fps ceiling • preserving screen geometry")
             }
+            if (cadenceChanged) {
+                listener.onDiagnostic(
+                    "Sustainable video cadence → ${cadenceGovernor.cap}fps ceiling • preserving screen geometry"
+                )
+            }
+            if (motionChanged) {
+                listener.onDiagnostic(
+                    if (freshnessPriorityActive(now)) {
+                        "Visible screen motion → freshness-first video policy"
+                    } else {
+                        "Visible screen motion settled → clarity-first video policy"
+                    }
+                )
+            }
+
             // Preserve the existing recovery/governor timing despite 1s sampling.
             if (now - lastSlowVideoCheckMs < 3000) return@post
             lastSlowVideoCheckMs = now
             listener.onDiagnostic(snapshot.compact())
-            val pressured = snapshot.qualityLimitationReason == "cpu" ||
-                (snapshot.packetLossRatio ?: 0.0) >= CaptureQualityGovernor.PRESSURE_PACKET_LOSS_RATIO ||
-                (snapshot.roundTripTimeMs ?: 0) >= CaptureQualityGovernor.PRESSURE_RTT_MS
-            // Give cadence reductions time to work before sacrificing text resolution.
-            if (pressured && !cadenceGovernor.mayReduceResolution(now)) return@post
+
+            val sender = snapshot.recent
+            val effectiveRequestedFps = effectiveCaptureProfile(profile).fps
+            val localPipelinePressure =
+                sender?.let {
+                    captureQualityGovernor.hasLocalPipelinePressure(
+                        encodeTimeMs = it.processingMs,
+                        sendQueueMs = it.sendQueueMs,
+                        deliveredFps = it.fps,
+                        requestedFps = effectiveRequestedFps
+                    )
+                } ?: false
+            val pressured =
+                snapshot.qualityLimitationReason == "cpu" ||
+                    (snapshot.packetLossRatio ?: 0.0) >=
+                        CaptureQualityGovernor.PRESSURE_PACKET_LOSS_RATIO ||
+                    (snapshot.roundTripTimeMs ?: 0) >=
+                        CaptureQualityGovernor.PRESSURE_RTT_MS ||
+                    localPipelinePressure
+
+            // Cadence is the cheaper freshness lever. Reduce resolution only
+            // after cadence relief has had a bounded opportunity to drain the
+            // encoder/pacer queue.
+            if (
+                pressured &&
+                !cadenceGovernor.mayReduceResolution(now)
+            ) {
+                return@post
+            }
 
             captureQualityGovernor
                 .observeQualityLimitation(
-                    reason =
-                        snapshot.qualityLimitationReason,
-                    roundTripTimeMs =
-                        snapshot.roundTripTimeMs,
-                    packetLossRatio =
-                        snapshot.packetLossRatio
+                    reason = snapshot.qualityLimitationReason,
+                    roundTripTimeMs = snapshot.roundTripTimeMs,
+                    packetLossRatio = snapshot.packetLossRatio,
+                    encodeTimeMs = sender?.processingMs,
+                    sendQueueMs = sender?.sendQueueMs,
+                    deliveredFps = sender?.fps,
+                    requestedFps = effectiveRequestedFps
                 )
                 ?.let(::applyCaptureTier)
         }
@@ -699,13 +771,16 @@ class HostWebRtcSession(
         if (interactionActive != active) {
             interactionActive = active
             applyVideoPolicy(profile)
+            val freshnessActive = freshnessPriorityActive()
             val policy =
                 InteractiveVideoPolicy.forState(
                     tier = profile.tier,
-                    interactionActive = active
+                    interactionActive = freshnessActive
                 )
             listener.onDiagnostic(
                 when {
+                    !active && freshnessActive ->
+                        "Remote interaction ended • visible motion remains freshness-first"
                     !active ->
                         "Remote interaction ended • restoring clarity-first video policy"
                     policy.motionPriority ->
@@ -731,15 +806,25 @@ class HostWebRtcSession(
         )
     }
 
+    private fun freshnessPriorityActive(
+        nowMs: Long = android.os.SystemClock.elapsedRealtime()
+    ): Boolean =
+        interactionActive ||
+            passiveMotionPriority.isActive(nowMs)
+
     private fun effectiveCaptureProfile(
         target: CaptureProfile
     ): CaptureProfile {
-        val targetFps = minOf(cadenceGovernor.cap,
-            if (interactionActive) {
-                target.motionFps
-            } else {
-                target.fps
-            })
+        val freshnessActive = freshnessPriorityActive()
+        val targetFps =
+            minOf(
+                cadenceGovernor.cap,
+                if (freshnessActive) {
+                    target.motionFps
+                } else {
+                    target.fps
+                }
+            )
 
         return if (targetFps == target.fps) {
             target
@@ -749,10 +834,11 @@ class HostWebRtcSession(
     }
 
     private fun applyVideoPolicy(target: CaptureProfile) {
+        val freshnessActive = freshnessPriorityActive()
         val policy =
             InteractiveVideoPolicy.forState(
                 tier = target.tier,
-                interactionActive = interactionActive
+                interactionActive = freshnessActive
             )
         val effective = effectiveCaptureProfile(target)
 
@@ -801,6 +887,7 @@ class HostWebRtcSession(
         controlOpen = false
         transportReady = false
         interactionActive = false
+        passiveMotionPriority.reset()
         lease = null
     }
 
@@ -881,5 +968,6 @@ class HostWebRtcSession(
         private const val MAX_CAPTURE_RECOVERY_ATTEMPTS = 3
         private const val LEASE_WATCHDOG_MS = 3_000L
         private const val INTERACTION_PRIORITY_TIMEOUT_MS = 3_000L
+        private const val STARTUP_VIDEO_FPS_CAP = 30
     }
 }
