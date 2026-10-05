@@ -37,12 +37,26 @@ class RealtimeMotionPolicyTest {
     }
 
     @Test
-    fun idleImmediatelyRestoresClarityProfile() {
+    fun idleRestoresFullClarityWhileHealthyCadenceProbeCanReachSixty() {
         val base = profile(1080, 2400, 45, 60, CaptureTier.STANDARD)
         val result = RealtimeMotionPolicy.apply(
             base = base,
             interactionActive = false,
             cadenceCap = 60
+        )
+
+        assertEquals(1080, result.captureWidthPx)
+        assertEquals(2400, result.captureHeightPx)
+        assertEquals(60, result.fps)
+    }
+
+    @Test
+    fun idleStartsAtConservativeBaseCadenceUntilGovernorProbesUp() {
+        val base = profile(1080, 2400, 45, 60, CaptureTier.STANDARD)
+        val result = RealtimeMotionPolicy.apply(
+            base = base,
+            interactionActive = false,
+            cadenceCap = 45
         )
 
         assertEquals(base, result)
