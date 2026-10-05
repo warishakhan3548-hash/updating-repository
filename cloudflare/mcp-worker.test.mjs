@@ -115,6 +115,22 @@ test('semantic observe and settled action results suppress only redundant image 
   assert.equal(shouldAttachImage('phone_observe', semantic), true);
   assert.equal(toolResult(semantic, 'phone_observe').content[1].type, 'image');
   assert.equal(shouldAttachImage('phone_observe', semantic, { quality: 'motion' }), true);
+  assert.equal(
+    shouldAttachImage(
+      'phone_observe',
+      { ...semantic, redacted: true, uiHints: [] },
+      { quality: 'standard' }
+    ),
+    false
+  );
+  assert.equal(
+    shouldAttachImage(
+      'phone_observe',
+      { ...semantic, redacted: true, uiHints: [] },
+      { quality: 'detail' }
+    ),
+    false
+  );
 
   assert.equal(shouldAttachImage('phone_observe', semantic, { quality: 'semantic' }), false);
   assert.equal(
