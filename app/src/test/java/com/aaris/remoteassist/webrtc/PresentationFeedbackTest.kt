@@ -15,19 +15,25 @@ class PresentationFeedbackTest {
         }
         val result = checkNotNull(sample)
         assertEquals(500, result.intervalMs)
-        assertEquals(10, result.renderedFrames)
+        assertEquals(9, result.renderedFrames)
         assertEquals(104, result.maxGapMs)
     }
 
-    @Test fun defaultTrackerSurfacesPresentationStateWithinThreeHundredMilliseconds() {
+    @Test fun defaultTrackerSurfacesHighCadenceStateWithinOneHundredSixtyMilliseconds() {
         val tracker = PresentationCadenceTracker()
         assertNull(tracker.onPresented(1_000))
-        assertNull(tracker.onPresented(1_100))
-        assertNull(tracker.onPresented(1_200))
-        val result = checkNotNull(tracker.onPresented(1_300))
-        assertEquals(300, result.intervalMs)
-        assertEquals(4, result.renderedFrames)
-        assertEquals(100, result.maxGapMs)
+        var sample: PresentationCadenceWindow? = null
+        for (time in listOf(
+            1_016L, 1_032L, 1_048L, 1_064L, 1_080L,
+            1_096L, 1_112L, 1_128L, 1_144L, 1_160L
+        )) {
+            sample = tracker.onPresented(time) ?: sample
+        }
+        val result = checkNotNull(sample)
+        assertEquals(160, result.intervalMs)
+        assertEquals(10, result.renderedFrames)
+        assertEquals(16, result.maxGapMs)
+        assertEquals(62.5, result.fps, 0.001)
     }
 
     @Test fun lowCadenceReceiverStillProducesUsableDefaultWindow() {
@@ -39,8 +45,21 @@ class PresentationFeedbackTest {
         }
         val result = checkNotNull(sample)
         assertEquals(335, result.intervalMs)
-        assertEquals(6, result.renderedFrames)
+        assertEquals(5, result.renderedFrames)
         assertEquals(67, result.maxGapMs)
+    }
+
+    @Test fun elapsedTimeAloneDoesNotEmitAnUndersampledWindow() {
+        val tracker = PresentationCadenceTracker()
+        assertNull(tracker.onPresented(1_000))
+        assertNull(tracker.onPresented(1_200))
+        assertNull(tracker.onPresented(1_400))
+        assertNull(tracker.onPresented(1_600))
+        assertNull(tracker.onPresented(1_800))
+        val result = checkNotNull(tracker.onPresented(2_000))
+        assertEquals(1_000, result.intervalMs)
+        assertEquals(5, result.renderedFrames)
+        assertEquals(200, result.maxGapMs)
     }
 
     @Test fun backwardsOrVeryStaleClockResetsInsteadOfInventingJank() {
