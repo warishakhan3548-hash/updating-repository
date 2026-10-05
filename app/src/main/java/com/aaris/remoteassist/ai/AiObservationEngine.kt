@@ -144,16 +144,22 @@ class AiObservationEngine internal constructor(
 
             val hints = if (hideAll) JSONArray() else publishedHints(ui)
             val stableBeforeEncode = revision == ledger.eventRevision
+            /*
+             * A fully privacy-hidden frame contains no usable visual signal.
+             * Skip JPEG/Base64 work for every quality mode, not only semantic
+             * mode. Older Workers already treat these pixels as non-actionable;
+             * avoiding the encode also saves device CPU, uplink bytes and image
+             * tokens. Region requests do not override this privacy fast path.
+             */
+            val privacyOnly = hideAll && hints.length() == 0
             val semanticOnly =
-                region == null &&
-                    preferSemantic &&
+                privacyOnly ||
                     (
-                        (hideAll && hints.length() == 0) ||
-                            (
-                                stableBeforeEncode &&
-                                    !ui.truncated &&
-                                    hasActionableHint(hints)
-                                )
+                        region == null &&
+                            preferSemantic &&
+                            stableBeforeEncode &&
+                            !ui.truncated &&
+                            hasActionableHint(hints)
                         )
             /*
              * Semantic-first and motion observations may reuse the previously
