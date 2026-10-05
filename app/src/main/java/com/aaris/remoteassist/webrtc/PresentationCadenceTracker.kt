@@ -22,10 +22,11 @@ data class PresentationCadenceWindow(
 }
 
 /**
- * Converts real EGL swaps into short bounded feedback windows. A 300 ms default
- * exposes visible 60/45 fps compositor stalls materially sooner than the slower
- * RTC stats loop, while a 15 fps receiver still accumulates enough swaps for the
- * host governor once the elapsed window crosses the threshold.
+ * Converts real EGL swaps into short bounded feedback windows. The default is
+ * deliberately hybrid: elapsed time may qualify at 160 ms, but at least five
+ * completed swap intervals are required. Healthy 45/60 Hz presentation therefore
+ * reports materially sooner than the slower RTC stats loop, while a 15 fps
+ * receiver keeps sampling until its FPS estimate has enough evidence.
  *
  * ReceiverVideoFeedback aggregates consecutive windows until the host consumes
  * them. That preserves a stable cadence estimate and the worst observed swap
