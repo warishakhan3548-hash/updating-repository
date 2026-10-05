@@ -73,10 +73,19 @@ internal class SurfaceFrameRateHintGovernor(
 
     fun currentHintFps(): Int = currentHint
 
-    fun reset() {
+    /**
+     * Forget the established cadence after a stream stop/replacement.
+     *
+     * The return value tells the Surface owner whether Android currently has a
+     * non-zero hint that must also be cleared with setFrameRate(0). Keeping this
+     * edge-triggered avoids repeatedly poking SurfaceFlinger during recovery.
+     */
+    fun reset(): Boolean {
+        val hadHint = currentHint > 0
         currentHint = 0
         lastChangedAtMs = Long.MIN_VALUE / 2
         resetCandidate()
+        return hadHint
     }
 
     private fun stableCadence(
