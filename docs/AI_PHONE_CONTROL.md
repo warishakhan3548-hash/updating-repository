@@ -33,7 +33,9 @@ There is no boot receiver, hidden capture, unattended restart or permission bypa
   fresh display state, compact UI hints, `screenVersion` and single-use
   `observationId`. `semantic` can omit redundant pixels on stable native UI;
   `motion` skips the optional quiet-window wait and uses a compact 960px visual
-  budget for games/video/canvas; standard/detail remain clarity-first.
+  budget for games/video/canvas; once that motion context is established, automatic
+  post-action follow-ups may use an 800px delivery budget while retaining a 1280px
+  validation capture. Standard/detail remain clarity-first.
 - `phone_action`: exactly one validated tap, long press, swipe, drag,
   two-finger gesture, type, back, home, recents or app launch. Optional
   `responseQuality` selects `auto`, `motion`, `standard` or `detail` for
@@ -164,10 +166,13 @@ defects rather than promising an unmeasured latency improvement.
 
 AI uses a live 8 fps capture source but only copies/encodes/uploads frames when
 requested. There is one pending snapshot, one in-flight tool operation and no
-frame backlog or screenshot archive. Motion observations use a 960-pixel long
-edge, normal images use 1280 pixels, and detail requests can use up to the
-capture source's 2400-pixel long edge. Exact unchanged visual follow-ups may
-reference the prior visual instead of retransmitting identical JPEG tokens.
+frame backlog or screenshot archive. Explicit motion observations use a
+960-pixel long edge; established automatic game/canvas follow-ups use an
+800-pixel delivery budget while still capturing 1280 pixels for stale-target
+fingerprinting and action validation. Normal images use 1280 pixels, and detail
+requests can use up to the capture source's 2400-pixel long edge. Exact unchanged
+visual follow-ups may reference the prior visual instead of retransmitting
+identical JPEG tokens.
 Low-memory devices use a lower capture ceiling. Source aspect ratio and normalized
 input mapping remain consistent. JPEG output is bounded to 850 KB. Capture and
 conversion are shared primitives with the human path, while capture ownership is
