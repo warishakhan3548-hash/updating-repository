@@ -41,11 +41,18 @@ class ScreenCaptureTrack(
     private val sampleClock = CaptureSampleClock()
 
     /*
-     * Tier-1 advanced RTC rollout: evaluate bounded-staleness admission using
-     * measured encoder queue pressure, but DO NOT drop frames yet. Real-device
-     * telemetry must prove the thresholds before this gate becomes active.
+     * Queue residence is measured for every frame, but source-level stale-frame
+     * rejection is enabled only during active remote interaction. Passive video
+     * playback therefore keeps the normal WebRTC cadence, while a swipe/drag can
+     * prefer a newer frame over an old frame already waiting behind encoder work.
+     *
+     * BoundedStalenessGate has hysteresis plus a starvation escape, so this is
+     * not an unbounded "drop until healthy" path.
      */
-    private val stalenessShadowGate = BoundedStalenessGate()
+    private val stalenessGate = BoundedStalenessGate()
+
+    @Volatile
+    private var realtimeFreshnessPriority = false
     private val stalenessShadowLock = Any()
     private var shadowEvaluatedFrames = 0L
     private var shadowWouldDropFrames = 0L
@@ -99,11 +106,13 @@ class ScreenCaptureTrack(
 
                 override fun onFrameCaptured(frame: VideoFrame) {
                     val nowNs = SystemClock.elapsedRealtimeNanos()
+                    var admitLiveSample = true
+
                     WebRtcRuntime.latestEncoderTelemetry()
                         ?.queueDelayMs(nowNs)
                         ?.let { queueDelayMs ->
                             val wouldAdmit =
-                                stalenessShadowGate.admit(
+                                stalenessGate.admit(
                                     nowMs = nowNs / 1_000_000L,
                                     queueDelayMs = queueDelayMs
                                 )
@@ -117,33 +126,50 @@ class ScreenCaptureTrack(
                                         queueDelayMs
                                     )
                             }
+
+                            /*
+                             * During direct manipulation, an old screen frame is
+                             * less valuable than the next fresh one. Reject it
+                             * before VideoSource/encoder work only when measured
+                             * queue residence proves staleness. Outside active
+                             * interaction the exact same decision remains
+                             * telemetry-only, preserving smooth passive video.
+                             */
+                            if (
+                                realtimeFreshnessPriority &&
+                                !wouldAdmit
+                            ) {
+                                admitLiveSample = false
+                            }
                         }
 
-                    // Admit the latency-critical RTP sample first. Auxiliary
-                    // sinks are best-effort consumers (fallback recovery / AI
-                    // snapshots); a slow conversion or retain must never hold
-                    // the current live frame behind non-primary work.
-                    //
-                    // forceFrame reuses the SurfaceTexture timestamp on a static
-                    // screen. Give that new sample a monotonic timestamp so the
-                    // native FPS adapter does not discard recovery requests.
-                    //
-                    // The bounded-staleness gate above is SHADOW-ONLY in this
-                    // rollout. Every frame still reaches VideoSource here.
-                    val sampled =
-                        VideoFrame(
-                            frame.buffer,
-                            frame.rotation,
-                            sampleClock.timestamp(
-                                frame.timestampNs,
-                                System.nanoTime()
+                    if (admitLiveSample) {
+                        // Admit the latency-critical RTP sample before auxiliary
+                        // sinks. A slow snapshot conversion must never hold the
+                        // current live frame behind non-primary work.
+                        //
+                        // forceFrame reuses the SurfaceTexture timestamp on a
+                        // static screen. Give that new sample a monotonic
+                        // timestamp so the native FPS adapter does not discard
+                        // recovery requests.
+                        val sampled =
+                            VideoFrame(
+                                frame.buffer,
+                                frame.rotation,
+                                sampleClock.timestamp(
+                                    frame.timestampNs,
+                                    System.nanoTime()
+                                )
                             )
-                        )
-                    videoSource.capturerObserver.onFrameCaptured(sampled)
+                        videoSource.capturerObserver.onFrameCaptured(sampled)
+                    }
 
-                    // These sinks are invoked explicitly for every capturer
-                    // callback, even when WebRTC adaptation elects not to send
-                    // the corresponding RTP frame.
+                    /*
+                     * Snapshot consumers remain independent from RTP admission.
+                     * AI validation and compatibility recovery still receive a
+                     * requested current frame even when the live encoder queue is
+                     * intentionally shedding a stale sample.
+                     */
                     snapshotSinks.forEach { sink ->
                         runCatching { sink.onFrame(frame) }
                     }
@@ -207,6 +233,19 @@ class ScreenCaptureTrack(
             }
         }
 
+    fun setRealtimeFreshnessPriority(active: Boolean) {
+        if (closed.get() || realtimeFreshnessPriority == active) return
+
+        /*
+         * A new interaction epoch must not inherit the previous epoch's drop
+         * state or starvation timer. Reset first, then publish the new mode.
+         * BoundedStalenessGate is synchronized, so reset is safe against the
+         * SurfaceTexture capture callback.
+         */
+        stalenessGate.reset()
+        realtimeFreshnessPriority = active
+    }
+
     fun addSnapshotSink(sink: VideoSink) {
         snapshotSinks += sink
     }
@@ -227,7 +266,8 @@ class ScreenCaptureTrack(
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         snapshotSinks.clear()
-        stalenessShadowGate.reset()
+        realtimeFreshnessPriority = false
+        stalenessGate.reset()
 
         if (started) {
             runCatching { capturer.stopCapture() }
