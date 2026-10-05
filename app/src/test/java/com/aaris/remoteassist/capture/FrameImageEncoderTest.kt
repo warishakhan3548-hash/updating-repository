@@ -20,7 +20,7 @@ class FrameImageEncoderTest {
 
     @Test fun normalizedRegionMapsToBoundedPixelCrop() {
         val rect =
-            FrameImageEncoder.cropRect(
+            FrameImageEncoder.cropBounds(
                 region =
                     AiImageRegion(
                         left = 0.10,
@@ -36,8 +36,8 @@ class FrameImageEncoderTest {
         assertTrue(rect.top == 40)
         assertTrue(rect.right == 61)
         assertTrue(rect.bottom == 163)
-        assertTrue(rect.width() > 0)
-        assertTrue(rect.height() > 0)
+        assertTrue(rect.right > rect.left)
+        assertTrue(rect.bottom > rect.top)
     }
 
     @Test fun directNv21FastPathIsLimitedToTransformFreeFrames() {
