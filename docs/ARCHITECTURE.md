@@ -210,11 +210,14 @@ force the network to carry the configured maximum bitrate.
 
 The encoder wrapper also maintains a low-cost leaky-bucket estimate of encoded
 frame residence at the current encoder target rate. A 500 ms host-side guard
-consumes the existing shadow telemetry and, with hysteresis, lowers only the
-capture FPS ceiling when frames begin accumulating. Severe residence can move
-directly to a <=30 fps relief rung; healthy windows recover one rung at a time.
-The bounded-staleness frame-drop gate remains shadow-only, so this feedback loop
-drains queues without replacing GCC, the WebRTC pacer, or native adaptation.
+consumes that telemetry and has two coordinated responses. First, measured queue
+pressure enables a short-lived freshness-first mode even without an active finger:
+bounded-stale source samples may be skipped, VideoSource can trade some spatial
+detail for freshness, and RTP uses MAINTAIN_FRAMERATE. Second, sustained pressure
+can lower the capture FPS ceiling; severe residence can move directly to a <=30
+fps relief rung. Healthy/static windows release freshness mode and recover cadence
+with hysteresis. GCC and the WebRTC pacer remain authoritative for bandwidth and
+packet pacing.
 
 ## Waiting and retry policy
 

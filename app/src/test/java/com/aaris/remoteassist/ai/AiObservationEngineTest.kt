@@ -66,6 +66,26 @@ class AiObservationEngineTest {
         assertEquals(2400, lastRequestedCaptureLongEdge)
     }
 
+    @Test fun compactMotionFollowUpSavesVisualBudgetWithoutReducingValidationCapture() = runBlocking {
+        engine.changed()
+        pauseCalls = 0
+
+        val observed =
+            engine.observe(
+                motion = true,
+                compactMotionFollowUp = true
+            )
+
+        assertFalse(observed.has("error"))
+        assertEquals("motion", observed.getString("observationMode"))
+        assertEquals(0, pauseCalls)
+        assertEquals(800, lastEncodeLongEdge)
+
+        // Stale-target validation still fingerprints a 1280-class capture.
+        assertEquals(1280, lastRequestedCaptureLongEdge)
+        assertTrue(observed.has("image"))
+    }
+
     @Test fun motionObservationCarriesOnlyItsLiveTicketIntoAutoFollowUp() = runBlocking {
         val motion = engine.observe(motion = true)
         val motionAction = action(motion)

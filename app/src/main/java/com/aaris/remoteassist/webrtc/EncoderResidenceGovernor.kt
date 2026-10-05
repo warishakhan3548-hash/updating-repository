@@ -22,19 +22,55 @@ internal class EncoderResidenceGovernor(
     var cap: Int = initialCap.coerceIn(MIN_CAP_FPS, maxFps)
         private set
 
+    /**
+     * True while measured encoder residence says stale pixels are more expensive
+     * than a temporary spatial-quality trade. The host composes this with direct
+     * user interaction so passive high-motion content (video/game animation) can
+     * enter the same freshness-first path without pretending a finger is down.
+     */
+    @Volatile
+    var freshnessPriority: Boolean = false
+        private set
+
     private var pressureWindows = 0
     private var healthyWindows = 0
     private var changedAtMs = Long.MIN_VALUE / 2
+
+    private var freshnessPressureWindows = 0
+    private var freshnessHealthyWindows = 0
+    private var freshnessSparseWindows = 0
+    private var freshnessChangedAtMs = Long.MIN_VALUE / 2
 
     fun observe(
         snapshot: StalenessShadowSnapshot,
         requestedFps: Int,
         nowMs: Long
     ): Boolean {
+        /*
+         * A sparse/static source is not proof of encoder pressure. It must not
+         * change the cadence cap, but it is useful negative evidence for the
+         * short-lived freshness mode: once video motion stops, return to the
+         * clarity-first policy instead of leaving MAINTAIN_FRAMERATE latched.
+         */
         if (snapshot.evaluatedFrames < MIN_EVALUATED_FRAMES) {
             pressureWindows = 0
+            freshnessPressureWindows = 0
+            freshnessHealthyWindows = 0
+
+            if (freshnessPriority) {
+                freshnessSparseWindows += 1
+                maybeReleaseFreshnessPriority(
+                    nowMs = nowMs,
+                    evidenceWindows = freshnessSparseWindows,
+                    requiredWindows = FRESHNESS_SPARSE_WINDOWS_TO_RELEASE
+                )
+            } else {
+                freshnessSparseWindows = 0
+            }
             return false
         }
+
+        freshnessSparseWindows = 0
 
         val desired = requestedFps.coerceIn(MIN_CAP_FPS, maxFps)
         val expected = minOf(desired, cap).coerceAtLeast(MIN_CAP_FPS)
@@ -59,6 +95,27 @@ internal class EncoderResidenceGovernor(
 
         if (pressured) {
             healthyWindows = 0
+            freshnessHealthyWindows = 0
+            freshnessPressureWindows =
+                (freshnessPressureWindows + if (severe) 2 else 1)
+                    .coerceAtMost(FRESHNESS_PRESSURE_WINDOWS_TO_ENGAGE)
+
+            /*
+             * Enter freshness-first mode before the slower cadence governor has
+             * to reduce FPS. BoundedStalenessGate still owns actual source-frame
+             * rejection, so enabling this mode at the first measured pressure
+             * window cannot blindly drop healthy frames: its own 90/45ms
+             * hysteresis decides admission. This lets passive YouTube/game motion
+             * prefer a newer sample as soon as a real encoder backlog appears.
+             */
+            if (
+                !freshnessPriority &&
+                freshnessPressureWindows >= FRESHNESS_PRESSURE_WINDOWS_TO_ENGAGE
+            ) {
+                freshnessPriority = true
+                freshnessChangedAtMs = nowMs
+            }
+
             pressureWindows =
                 (pressureWindows + if (severe) 2 else 1)
                     .coerceAtMost(PRESSURE_WINDOWS_TO_REDUCE)
@@ -86,6 +143,7 @@ internal class EncoderResidenceGovernor(
         }
 
         pressureWindows = 0
+        freshnessPressureWindows = 0
 
         val healthyThresholdMs =
             maxOf(MIN_HEALTHY_MS, frameBudgetMs * HEALTHY_FRAME_BUDGETS)
@@ -93,6 +151,18 @@ internal class EncoderResidenceGovernor(
             latestMs <= healthyThresholdMs &&
                 maxMs <= healthyThresholdMs * HEALTHY_MAX_MULTIPLIER &&
                 dropRatio <= HEALTHY_SHADOW_DROP_RATIO
+
+        if (freshnessPriority) {
+            freshnessHealthyWindows =
+                if (healthy) freshnessHealthyWindows + 1 else 0
+            maybeReleaseFreshnessPriority(
+                nowMs = nowMs,
+                evidenceWindows = freshnessHealthyWindows,
+                requiredWindows = FRESHNESS_HEALTHY_WINDOWS_TO_RELEASE
+            )
+        } else {
+            freshnessHealthyWindows = 0
+        }
 
         healthyWindows = if (healthy) healthyWindows + 1 else 0
         if (
@@ -111,6 +181,32 @@ internal class EncoderResidenceGovernor(
         changedAtMs = nowMs
         healthyWindows = 0
         return true
+    }
+
+    private fun maybeReleaseFreshnessPriority(
+        nowMs: Long,
+        evidenceWindows: Int,
+        requiredWindows: Int
+    ) {
+        if (
+            freshnessPriority &&
+            evidenceWindows >= requiredWindows &&
+            nowMs - freshnessChangedAtMs >= FRESHNESS_MIN_HOLD_MS
+        ) {
+            freshnessPriority = false
+            freshnessChangedAtMs = nowMs
+            freshnessPressureWindows = 0
+            freshnessHealthyWindows = 0
+            freshnessSparseWindows = 0
+        }
+    }
+
+    fun resetFreshnessPriority() {
+        freshnessPriority = false
+        freshnessPressureWindows = 0
+        freshnessHealthyWindows = 0
+        freshnessSparseWindows = 0
+        freshnessChangedAtMs = Long.MIN_VALUE / 2
     }
 
     private companion object {
@@ -138,6 +234,15 @@ internal class EncoderResidenceGovernor(
 
         const val PRESSURE_WINDOWS_TO_REDUCE = 2
         const val HEALTHY_WINDOWS_TO_RAISE = 8
+
+        // Freshness mode reacts sooner than a cadence reduction, because it
+        // merely changes degradation/admission preference. Recovery is slower
+        // and evidence-based so video playback cannot flap between policies.
+        const val FRESHNESS_PRESSURE_WINDOWS_TO_ENGAGE = 1
+        const val FRESHNESS_HEALTHY_WINDOWS_TO_RELEASE = 4
+        const val FRESHNESS_SPARSE_WINDOWS_TO_RELEASE = 4
+        const val FRESHNESS_MIN_HOLD_MS = 1_500L
+
         const val CHANGE_INTERVAL_MS = 750L
         const val SEVERE_CHANGE_INTERVAL_MS = 500L
         const val RECOVERY_INTERVAL_MS = 5_000L

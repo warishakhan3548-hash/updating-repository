@@ -69,7 +69,8 @@ class AiObservationEngine internal constructor(
     suspend fun observe(
         detail: Boolean = false,
         preferSemantic: Boolean = false,
-        motion: Boolean = false
+        motion: Boolean = false,
+        compactMotionFollowUp: Boolean = false
     ): JSONObject {
         repeat(2) { attempt ->
             /*
@@ -87,13 +88,17 @@ class AiObservationEngine internal constructor(
             val visualLongEdgePx =
                 when {
                     detail -> DETAIL_LONG_EDGE_PX
+                    motion && compactMotionFollowUp ->
+                        MOTION_FOLLOW_UP_LONG_EDGE_PX
                     motion -> MOTION_LONG_EDGE_PX
                     else -> STANDARD_LONG_EDGE_PX
                 }
             /*
-             * Keep action validation slightly sharper than the compact motion
-             * image while avoiding a full 2400px pixel copy for ordinary AI
-             * loops. Detail remains full fidelity.
+             * Keep action validation sharper than the delivered motion image.
+             * Auto game/canvas follow-ups may use an even smaller visual budget,
+             * but the capture/fingerprint used for target validation remains at
+             * ANALYSIS_LONG_EDGE_PX. This saves vision tokens without weakening
+             * the stale-target safety check. Detail remains full fidelity.
              */
             val captureLongEdgePx =
                 maxOf(
@@ -568,6 +573,7 @@ class AiObservationEngine internal constructor(
         private const val MAX_ANIMATED_SETTLE_MS = 220L
         private const val SETTLE_POLL_MS = 40L
         private const val MOTION_LONG_EDGE_PX = 960
+        private const val MOTION_FOLLOW_UP_LONG_EDGE_PX = 800
         private const val STANDARD_LONG_EDGE_PX = 1280
         private const val ANALYSIS_LONG_EDGE_PX = 1280
         private const val DETAIL_LONG_EDGE_PX = 2400
