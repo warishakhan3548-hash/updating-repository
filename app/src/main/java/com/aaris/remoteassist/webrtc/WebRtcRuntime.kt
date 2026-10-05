@@ -19,6 +19,7 @@ object WebRtcRuntime {
 
     @Volatile
     private var initialized = false
+    private var nativeInitialized = false
 
     @Volatile
     private var eglBaseInternal: EglBase? = null
@@ -47,15 +48,7 @@ object WebRtcRuntime {
         synchronized(lock) {
             if (initialized) return
 
-            val appContext = context.applicationContext
-            PeerConnectionFactory.initialize(
-                PeerConnectionFactory.InitializationOptions
-                    .builder(appContext)
-                    .setEnableInternalTracer(false)
-                    .createInitializationOptions()
-            )
-
-            val eglBase = EglBase.create()
+            val eglBase = captureEglBase(context)
 
             /*
              * Keep the same hardware-first/software-fallback behaviour as
@@ -134,6 +127,18 @@ object WebRtcRuntime {
     fun eglBase(context: Context): EglBase {
         initialize(context)
         return checkNotNull(eglBaseInternal)
+    }
+
+    /** Snapshot-only AI capture needs EGL/native buffers, not a peer/codec factory. */
+    fun captureEglBase(context: Context): EglBase = synchronized(lock) {
+        if (!nativeInitialized) {
+            PeerConnectionFactory.initialize(
+                PeerConnectionFactory.InitializationOptions.builder(context.applicationContext)
+                    .setEnableInternalTracer(false).createInitializationOptions()
+            )
+            nativeInitialized = true
+        }
+        eglBaseInternal ?: EglBase.create().also { eglBaseInternal = it }
     }
 
     fun factory(context: Context): PeerConnectionFactory {

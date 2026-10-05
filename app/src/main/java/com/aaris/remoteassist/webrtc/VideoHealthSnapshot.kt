@@ -30,6 +30,11 @@ data class VideoHealthSnapshot(
     val sendDelayTotalSeconds: Double? = null,
     val recent: VideoHealthWindow? = null
 ) {
+    val usesSoftwareEncoder: Boolean
+        get() = direction == "outbound" && codecImplementation?.lowercase()?.let { name ->
+            listOf("libvpx", "libaom", "openh264", "omx.google.", "c2.android.").any(name::contains)
+        } == true
+
     fun compact(): String {
         val primary =
             if (direction == "outbound") {

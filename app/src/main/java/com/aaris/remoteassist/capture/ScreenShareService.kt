@@ -63,6 +63,7 @@ class ScreenShareService : Service() {
         hostSession = null
 
         if (id != null) {
+            ConnectionFlightRecorder.fail(id, "Screen-share foreground service destroyed")
             SessionCoordinator.close(id)
             BackendSessionCloser.close(this, id)
         }
@@ -272,7 +273,7 @@ class ScreenShareService : Service() {
 
                     override fun onProjectionStopped() {
                         mainHandler.post {
-                            stopActiveSession(
+                            if (activeSessionId == sessionId) stopActiveSession(
                                 "screen_projection_stopped"
                             )
                         }
@@ -280,7 +281,7 @@ class ScreenShareService : Service() {
 
                     override fun onRemoteDisconnect() {
                         mainHandler.post {
-                            stopActiveSession(
+                            if (activeSessionId == sessionId) stopActiveSession(
                                 "controller_disconnected"
                             )
                         }
@@ -292,7 +293,7 @@ class ScreenShareService : Service() {
                             "Accessibility control service unavailable"
                         )
                         mainHandler.post {
-                            stopActiveSession(
+                            if (activeSessionId == sessionId) stopActiveSession(
                                 "accessibility_control_unavailable"
                             )
                         }
@@ -329,7 +330,7 @@ class ScreenShareService : Service() {
                                 (error.message ?: error.javaClass.simpleName)
                         )
                         mainHandler.post {
-                            stopActiveSession(
+                            if (activeSessionId == sessionId) stopActiveSession(
                                 "webrtc_transport_failed"
                             )
                         }
@@ -390,6 +391,13 @@ class ScreenShareService : Service() {
 
     private fun stopActiveSession(reason: String) {
         val sessionId = activeSessionId
+        if (sessionId != null) {
+            if (reason == "stopped_by_remote_user" || reason == "controller_disconnected") {
+                ConnectionFlightRecorder.pass(sessionId, "Screen sharing stopped: $reason")
+            } else {
+                ConnectionFlightRecorder.fail(sessionId, "Screen sharing stopped: $reason")
+            }
+        }
         activeSessionId = null
         ScreenShareRuntime.clear(sessionId)
 

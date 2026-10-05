@@ -1,0 +1,39 @@
+name: Sustained session validation
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    paths:
+      - 'app/src/main/java/com/aaris/remoteassist/webrtc/**'
+      - 'app/src/main/java/com/aaris/remoteassist/capture/**'
+      - 'app/src/main/java/com/aaris/remoteassist/ai/**'
+      - 'cloudflare/soak-session.py'
+      - '.github/workflows/session-soak.yml'
+  workflow_dispatch:
+
+jobs:
+  session-soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install virtual WebRTC test clients
+        run: python -m pip install 'aiortc==1.14.0' 'websockets==15.0.1' 'numpy==2.2.6'
+      - name: Run ten-minute production session and local media soak
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u cloudflare/soak-session.py --seconds 600 | tee session-soak.log
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: sustained-session-results
+          path: session-soak.log
+          if-no-files-found: warn

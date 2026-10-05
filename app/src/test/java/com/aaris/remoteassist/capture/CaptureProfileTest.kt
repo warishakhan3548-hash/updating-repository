@@ -35,7 +35,7 @@ class CaptureProfileTest {
     }
 
     @Test
-    fun fourGigabyteClassUsesNativeDetailStandardTier() {
+    fun fourGigabyteClassUsesStandardTier() {
         assertEquals(
             CaptureTier.STANDARD,
             CaptureProfile.recommendedTierForDevice(
@@ -78,13 +78,13 @@ class CaptureProfileTest {
 
         assertEquals(720, profile.captureWidthPx)
         assertEquals(1600, profile.captureHeightPx)
-        assertEquals(45, profile.fps)
-        assertEquals(60, profile.motionFps)
-        assertEquals(10_000_000, profile.maxVideoBitrateBps)
+        assertEquals(30, profile.fps)
+        assertEquals(45, profile.motionFps)
+        assertEquals(4_500_000, profile.maxVideoBitrateBps)
     }
 
     @Test
-    fun standardKeepsNativeModernTallPhoneDetail() {
+    fun standardBoundsTallPhoneCostWhilePreservingTouchGeometry() {
         val profile =
             CaptureProfile.forDisplay(
                 displayWidthPx = 1080,
@@ -92,11 +92,13 @@ class CaptureProfileTest {
                 tier = CaptureTier.STANDARD
             )
 
-        assertEquals(1080, profile.captureWidthPx)
-        assertEquals(2400, profile.captureHeightPx)
-        assertEquals(45, profile.fps)
-        assertEquals(60, profile.motionFps)
-        assertEquals(10_000_000, profile.maxVideoBitrateBps)
+        assertEquals(810, profile.captureWidthPx)
+        assertEquals(1800, profile.captureHeightPx)
+        assertEquals(1080, profile.displayWidthPx)
+        assertEquals(2400, profile.displayHeightPx)
+        assertEquals(30, profile.fps)
+        assertEquals(45, profile.motionFps)
+        assertEquals(4_500_000, profile.maxVideoBitrateBps)
     }
 
     @Test
@@ -116,7 +118,7 @@ class CaptureProfileTest {
     }
 
     @Test
-    fun highTierKeepsFullModernPhoneGeometryWithinWebRtcCeiling() {
+    fun highTierStaysWithinA1920LongSideEncoderBudget() {
         val profile =
             CaptureProfile.forDisplay(
                 displayWidthPx = 1080,
@@ -124,15 +126,15 @@ class CaptureProfileTest {
                 tier = CaptureTier.HIGH
             )
 
-        assertEquals(1080, profile.captureWidthPx)
-        assertEquals(2400, profile.captureHeightPx)
-        assertEquals(60, profile.fps)
-        assertEquals(60, profile.motionFps)
-        assertEquals(12_000_000, profile.maxVideoBitrateBps)
+        assertEquals(864, profile.captureWidthPx)
+        assertEquals(1920, profile.captureHeightPx)
+        assertEquals(30, profile.fps)
+        assertEquals(45, profile.motionFps)
+        assertEquals(6_000_000, profile.maxVideoBitrateBps)
     }
 
     @Test
-    fun highTierPreservesExtraDetailOnQhdClassPhone() {
+    fun qhdPanelCannotOverloadTheEncoderFromRamCapacityAlone() {
         val profile =
             CaptureProfile.forDisplay(
                 displayWidthPx = 1440,
@@ -140,11 +142,11 @@ class CaptureProfileTest {
                 tier = CaptureTier.HIGH
             )
 
-        assertEquals(1152, profile.captureWidthPx)
-        assertEquals(2560, profile.captureHeightPx)
-        assertEquals(60, profile.fps)
-        assertEquals(60, profile.motionFps)
-        assertEquals(12_000_000, profile.maxVideoBitrateBps)
+        assertEquals(864, profile.captureWidthPx)
+        assertEquals(1920, profile.captureHeightPx)
+        assertEquals(30, profile.fps)
+        assertEquals(45, profile.motionFps)
+        assertEquals(6_000_000, profile.maxVideoBitrateBps)
     }
 
     @Test
