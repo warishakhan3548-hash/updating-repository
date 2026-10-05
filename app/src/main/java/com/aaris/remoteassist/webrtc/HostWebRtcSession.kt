@@ -65,6 +65,14 @@ class HostWebRtcSession(
             maxFps = profile.motionFps,
             initialCap = profile.fps
         )
+    private val encoderResidenceGovernor =
+        EncoderResidenceGovernor(
+            maxFps = profile.motionFps,
+            // This guard must be transparent until measured encoder residence
+            // proves pressure. Existing presentation/cadence governors own the
+            // conservative startup probe; do not impose a second startup cap.
+            initialCap = profile.motionFps
+        )
     private val receiverFeedback = ReceiverVideoFeedback()
     private var lastSlowVideoCheckMs = 0L
 
@@ -122,6 +130,38 @@ class HostWebRtcSession(
         grant = projectionGrant,
         onProjectionStopped = listener::onProjectionStopped
     )
+
+    private val encoderResidencePoll = object : Runnable {
+        override fun run() {
+            if (closed.get()) return
+
+            val snapshot = capture.consumeStalenessShadowSnapshot()
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (
+                encoderResidenceGovernor.observe(
+                    snapshot = snapshot,
+                    requestedFps = desiredCaptureFps(profile),
+                    nowMs = now
+                )
+            ) {
+                applyVideoPolicy(profile)
+                listener.onDiagnostic(
+                    "Encoder residence guard → " +
+                        encoderResidenceGovernor.cap +
+                        "fps ceiling • latest=" +
+                        (snapshot.latestQueueDelayMs?.toInt() ?: -1) +
+                        "ms max=" +
+                        (snapshot.maxQueueDelayMs?.toInt() ?: -1) +
+                        "ms"
+                )
+            }
+
+            displayHandler.postDelayed(
+                this,
+                ENCODER_RESIDENCE_POLL_MS
+            )
+        }
+    }
 
     private val fallbackStreamer =
         FallbackScreenStreamer(
@@ -307,6 +347,12 @@ class HostWebRtcSession(
                 initialVideoPolicy.preserveResolution
         )
         capture.start(profile)
+
+        displayHandler.removeCallbacks(encoderResidencePoll)
+        displayHandler.postDelayed(
+            encoderResidencePoll,
+            ENCODER_RESIDENCE_POLL_MS
+        )
 
         displayHandler.removeCallbacks(captureFrameWatchdog)
         displayHandler.postDelayed(
@@ -819,7 +865,8 @@ class HostWebRtcSession(
             interactionActive = interactionActive,
             cadenceCap = minOf(
                 cadenceGovernor.cap,
-                fastPresentationGovernor.cap
+                fastPresentationGovernor.cap,
+                encoderResidenceGovernor.cap
             )
         )
 
@@ -859,6 +906,7 @@ class HostWebRtcSession(
         displayHandler.removeCallbacks(iceRestart)
         displayHandler.removeCallbacks(startupControlRecovery)
         displayHandler.removeCallbacks(captureFrameWatchdog)
+        displayHandler.removeCallbacks(encoderResidencePoll)
         displayHandler.removeCallbacks(interactionPriorityTimeout)
         displayHandler.removeCallbacks(
             leaseWatchdog
@@ -958,6 +1006,7 @@ class HostWebRtcSession(
         private const val CAPTURE_RECOVERY_INTERVAL_MS = 8_000L
         private const val MAX_CAPTURE_RECOVERY_ATTEMPTS = 3
         private const val LEASE_WATCHDOG_MS = 3_000L
+        private const val ENCODER_RESIDENCE_POLL_MS = 500L
         private const val INTERACTION_PRIORITY_TIMEOUT_MS = 3_000L
     }
 }

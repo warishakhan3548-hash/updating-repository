@@ -45,7 +45,10 @@ test('strict arguments reject nonfinite, missing and out of range coordinates, u
   assert.equal(validateArguments('phone_action', { ...args, action: 'open_app' }), false);
   assert.equal(validateArguments('phone_action', { ...args, action: 'open_app', app: '   ' }), false);
   assert.equal(validateArguments('phone_observe', { quality: 'semantic' }), true);
+  assert.equal(validateArguments('phone_observe', { quality: 'motion' }), true);
   assert.equal(validateArguments('phone_observe', { quality: 'invalid' }), false);
+  assert.equal(validateArguments('phone_action', { ...args, responseQuality: 'motion' }), true);
+  assert.equal(validateArguments('phone_action', { ...args, responseQuality: 'cinematic' }), false);
 });
 
 test('drag accepts bounded normalized paths and rejects malformed paths', () => {
@@ -83,6 +86,17 @@ test('semantic observe and settled action results suppress only redundant image 
     image: { mimeType: 'image/jpeg', data: 'jpeg-base64', width: 720, height: 1280 }
   };
   assert.equal(shouldAttachImage('phone_action', semantic), false);
+  assert.equal(shouldAttachImage('phone_action', semantic, { responseQuality: 'motion' }), true);
+  assert.equal(shouldAttachImage('phone_action', semantic, { responseQuality: 'standard' }), true);
+  assert.equal(shouldAttachImage('phone_action', semantic, { responseQuality: 'detail' }), true);
+  assert.equal(
+    shouldAttachImage(
+      'phone_action',
+      { ...semantic, redacted: true, uiHints: [] },
+      { responseQuality: 'motion' }
+    ),
+    false
+  );
   const compact = toolResult(semantic, 'phone_action');
   assert.equal(compact.content.length, 1);
   const metadata = JSON.parse(compact.content[0].text);
@@ -92,6 +106,7 @@ test('semantic observe and settled action results suppress only redundant image 
 
   assert.equal(shouldAttachImage('phone_observe', semantic), true);
   assert.equal(toolResult(semantic, 'phone_observe').content[1].type, 'image');
+  assert.equal(shouldAttachImage('phone_observe', semantic, { quality: 'motion' }), true);
 
   assert.equal(shouldAttachImage('phone_observe', semantic, { quality: 'semantic' }), false);
   const semanticObserve = toolResult(semantic, 'phone_observe', { quality: 'semantic' });

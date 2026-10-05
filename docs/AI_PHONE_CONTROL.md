@@ -29,9 +29,15 @@ There is no boot receiver, hidden capture, unattended restart or permission bypa
 
 - `phone_status`: online/sharing state and a setup, connecting, stopped or
   disconnected explanation; no command is queued for an offline phone.
-- `phone_observe({quality: "standard" | "detail"})`: fresh screenshot, full display
-  geometry, compact UI hints, `screenVersion` and single-use `observationId`.
-- `phone_action`: exactly one tap, long press, swipe, type, back, home or recents.
+- `phone_observe({quality: "semantic" | "motion" | "standard" | "detail"})`:
+  fresh display state, compact UI hints, `screenVersion` and single-use
+  `observationId`. `semantic` can omit redundant pixels on stable native UI;
+  `motion` skips the optional quiet-window wait and uses a compact 960px visual
+  budget for games/video/canvas; standard/detail remain clarity-first.
+- `phone_action`: exactly one validated tap, long press, swipe, drag,
+  two-finger gesture, type, back, home, recents or app launch. Optional
+  `responseQuality` selects `auto`, `motion`, `standard` or `detail` for
+  the fresh post-action observation.
   Include a unique `actionId`, the last observation ID and screen version.
   Coordinates are **0..1 over the entire upright display**, independent of image
   resizing. `type` inserts at the currently focused cursor/selection.
@@ -62,8 +68,9 @@ require the same foreground window but allow animation. Errors include a specifi
 
 Actions carry a 500 ms validation-to-dispatch deadline. Window/target state,
 lease and deadline are checked again inside the actual Accessibility queue,
-including after STOP moves out of the way. After input, the engine waits for a
-bounded quiet interval (at most about 320 ms) and requests a
+including after STOP moves out of the way. Clarity-first observations wait for a
+bounded quiet interval (up to 220 ms); explicit `motion` observations skip that
+optional wait so continuous animation is sampled immediately. Both modes request a
 current SurfaceTexture after the capture barrier, including on a static screen
 that emits no new frames. These checks reduce stale clicks; they do
 not prove a model chose the correct target or eliminate every app/UI race.
@@ -157,8 +164,10 @@ defects rather than promising an unmeasured latency improvement.
 
 AI uses a live 8 fps capture source but only copies/encodes/uploads frames when
 requested. There is one pending snapshot, one in-flight tool operation and no
-frame backlog or screenshot archive. Normal images have a 1280-pixel long edge;
-detail requests can use up to the capture source's 2400-pixel long edge.
+frame backlog or screenshot archive. Motion observations use a 960-pixel long
+edge, normal images use 1280 pixels, and detail requests can use up to the
+capture source's 2400-pixel long edge. Exact unchanged visual follow-ups may
+reference the prior visual instead of retransmitting identical JPEG tokens.
 Low-memory devices use a lower capture ceiling. Source aspect ratio and normalized
 input mapping remain consistent. JPEG output is bounded to 850 KB. Capture and
 conversion are shared primitives with the human path, while capture ownership is

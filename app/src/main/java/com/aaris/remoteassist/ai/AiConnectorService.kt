@@ -227,7 +227,8 @@ class AiConnectorService : Service() {
                         val quality = args.optString("quality")
                         engine.observe(
                             detail = quality == "detail",
-                            preferSemantic = quality == "semantic"
+                            preferSemantic = quality == "semantic",
+                            motion = quality == "motion"
                         )
                     }
                     "phone_action" -> {
@@ -281,9 +282,15 @@ class AiConnectorService : Service() {
                             withTimeout(3500) { done.await() }
                         }
                         engine.invalidate()
+                        val responseQuality =
+                            args.optString("responseQuality", "auto")
                         val observation =
                             engine.observe(
-                                preferSemantic = applied == true
+                                detail = responseQuality == "detail",
+                                preferSemantic =
+                                    applied == true &&
+                                        responseQuality == "auto",
+                                motion = responseQuality == "motion"
                             )
                         observation.put("applied", applied).put("actionId", id)
                         if (applied != true && !observation.has("error")) {
