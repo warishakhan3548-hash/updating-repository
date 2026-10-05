@@ -103,7 +103,7 @@ class AiConnectorService : Service() {
                 try {
                     credential = withContext(Dispatchers.IO) {
                         val saved = checkNotNull(AiConnectorStore(this@AiConnectorService).load()) { "Create an AI link first" }
-                        WebRtcRuntime.initialize(applicationContext)
+                        WebRtcRuntime.captureEglBase(applicationContext)
                         saved
                     }
                     if (stopping) return@launch
