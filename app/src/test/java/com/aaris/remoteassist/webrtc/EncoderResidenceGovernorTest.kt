@@ -87,6 +87,94 @@ class EncoderResidenceGovernorTest {
     }
 
     @Test
+    fun passiveQueuePressureEntersFreshnessModeBeforeCadenceDrops() {
+        val governor = EncoderResidenceGovernor(maxFps = 60, initialCap = 60)
+        val pressured = snapshot(
+            evaluated = 20,
+            wouldDrop = 6,
+            latestMs = 82.0,
+            maxMs = 100.0
+        )
+
+        assertFalse(governor.freshnessPriority)
+        assertFalse(governor.observe(pressured, requestedFps = 60, nowMs = 0))
+
+        // The first measured pressure window switches degradation/admission
+        // preference, while the slower cadence cap still waits for hysteresis.
+        assertTrue(governor.freshnessPriority)
+        assertEquals(60, governor.cap)
+    }
+
+    @Test
+    fun freshnessModeNeedsSustainedHealthyEvidenceToRelease() {
+        val governor = EncoderResidenceGovernor(maxFps = 60, initialCap = 60)
+        val pressured = snapshot(
+            evaluated = 20,
+            wouldDrop = 6,
+            latestMs = 82.0,
+            maxMs = 100.0
+        )
+        val healthy = snapshot(
+            evaluated = 20,
+            wouldDrop = 0,
+            latestMs = 8.0,
+            maxMs = 12.0
+        )
+
+        governor.observe(pressured, requestedFps = 60, nowMs = 0)
+        assertTrue(governor.freshnessPriority)
+
+        repeat(3) { index ->
+            governor.observe(
+                healthy,
+                requestedFps = 60,
+                nowMs = 1_500L + index * 500L
+            )
+            assertTrue(governor.freshnessPriority)
+        }
+
+        governor.observe(
+            healthy,
+            requestedFps = 60,
+            nowMs = 3_000L
+        )
+        assertFalse(governor.freshnessPriority)
+    }
+
+    @Test
+    fun sparseStaticWindowsReleaseFreshnessModeAndResetClearsIt() {
+        val governor = EncoderResidenceGovernor(maxFps = 60, initialCap = 60)
+        val pressured = snapshot(
+            evaluated = 20,
+            wouldDrop = 6,
+            latestMs = 82.0,
+            maxMs = 100.0
+        )
+        val sparse = snapshot(
+            evaluated = 0,
+            wouldDrop = 0,
+            latestMs = 8.0,
+            maxMs = 8.0
+        )
+
+        governor.observe(pressured, requestedFps = 60, nowMs = 0)
+        repeat(4) { index ->
+            governor.observe(
+                sparse,
+                requestedFps = 60,
+                nowMs = 1_500L + index * 500L
+            )
+        }
+        assertFalse(governor.freshnessPriority)
+
+        governor.observe(pressured, requestedFps = 60, nowMs = 4_000L)
+        assertTrue(governor.freshnessPriority)
+        governor.resetFreshnessPriority()
+        assertFalse(governor.freshnessPriority)
+        assertEquals(60, governor.cap)
+    }
+
+    @Test
     fun tinySamplesDoNotChangeCadence() {
         val governor = EncoderResidenceGovernor(maxFps = 60, initialCap = 60)
         val tiny = snapshot(
