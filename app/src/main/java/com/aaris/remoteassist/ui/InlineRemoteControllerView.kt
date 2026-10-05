@@ -534,14 +534,6 @@ class InlineRemoteControllerView(
             visibility = View.GONE
             contentDescription = "Remote screen compatibility video"
         }
-        rendererContainer.addView(
-            fallbackImageView,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            )
-        )
-
         /*
          * SurfaceView stays at the default below-window Z order. Remote video can
          * use Android's direct Surface composition path while fallback/touch/status
@@ -610,6 +602,19 @@ class InlineRemoteControllerView(
         }
         rendererContainer.addView(
             surfaceView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+
+        /*
+         * Recovery pixels must be in the app window above SurfaceView's
+         * below-window surface. Keep this child after the SurfaceView; the touch
+         * overlay is brought to front below.
+         */
+        rendererContainer.addView(
+            fallbackImageView,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
