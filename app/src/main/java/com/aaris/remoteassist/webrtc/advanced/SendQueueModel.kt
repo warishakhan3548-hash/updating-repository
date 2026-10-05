@@ -79,7 +79,13 @@ class BoundedStalenessGate(
     private val maxStarveMs: Long = 250L
 ) {
     private var dropping = false
-    private var lastAdmitMs = 0L
+    /*
+     * Long.MIN_VALUE is an explicit "nothing admitted yet" sentinel. Using 0
+     * here is unsafe because elapsed realtime can legitimately start at zero,
+     * and—more importantly—a gate that engages before its first admitted frame
+     * must still bootstrap one fresh sample before it begins dropping.
+     */
+    private var lastAdmitMs = Long.MIN_VALUE
 
     init {
         require(engageMs > releaseMs && releaseMs >= 0.0)
@@ -96,10 +102,13 @@ class BoundedStalenessGate(
             dropping = false
         }
 
+        val hasAdmitted = lastAdmitMs != Long.MIN_VALUE
         val starving =
-            lastAdmitMs != 0L &&
-                nowMs >= lastAdmitMs &&
-                nowMs - lastAdmitMs >= maxStarveMs
+            !hasAdmitted ||
+                (
+                    nowMs >= lastAdmitMs &&
+                        nowMs - lastAdmitMs >= maxStarveMs
+                    )
         val admit = !dropping || starving
         if (admit) lastAdmitMs = nowMs
         return admit
@@ -108,6 +117,6 @@ class BoundedStalenessGate(
     @Synchronized
     fun reset() {
         dropping = false
-        lastAdmitMs = 0L
+        lastAdmitMs = Long.MIN_VALUE
     }
 }
