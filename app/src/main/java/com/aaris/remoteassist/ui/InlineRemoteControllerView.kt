@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
@@ -119,6 +120,7 @@ class InlineRemoteControllerView(
         ArrayList<LocalTouchPoint>(MAX_LOCAL_GESTURE_POINTS)
     private val gestureStreamPacer = GestureStreamPacer()
     private val presentationCadence = PresentationCadenceTracker()
+    private val surfaceFrameRateHints = SurfaceFrameRateHintGovernor()
 
     private var downX = 0f
     private var downY = 0f
@@ -550,6 +552,10 @@ class InlineRemoteControllerView(
                 override fun surfaceCreated(holder: SurfaceHolder) {
                     ensureRenderer()
                     ensureRendererSurface(holder)
+                    surfaceFrameRateHints
+                        .currentHintFps()
+                        .takeIf { it > 0 }
+                        ?.let(::applySurfaceFrameRateHint)
                     updateRendererAspect(
                         surfaceView.width,
                         surfaceView.height
@@ -1195,8 +1201,10 @@ class InlineRemoteControllerView(
             // after every real EGL swap, so recovery can be confirmed repeatedly.
             renderer.addRenderListener {
                 val generation = recoveryGeneration.get()
+                val presentedAtMs =
+                    android.os.SystemClock.elapsedRealtime()
                 presentationCadence
-                    .onPresented(android.os.SystemClock.elapsedRealtime())
+                    .onPresented(presentedAtMs)
                     ?.let { window ->
                         mainHandler.post {
                             if (
@@ -1204,6 +1212,9 @@ class InlineRemoteControllerView(
                                 eglRenderer === renderer &&
                                 generation == recoveryGeneration.get()
                             ) {
+                                surfaceFrameRateHints
+                                    .observe(window, presentedAtMs)
+                                    ?.let(::applySurfaceFrameRateHint)
                                 session()?.sendPresentationFeedback(window)
                             }
                         }
@@ -1267,6 +1278,38 @@ class InlineRemoteControllerView(
         }.getOrElse {
             rendererSurfaceAttached = false
             false
+        }
+    }
+
+    /**
+     * Tell SurfaceFlinger the cadence that the remote stream has actually
+     * sustained. This is a display-scheduler hint only; WebRTC remains the
+     * producer/pacer authority and Android may ignore the request.
+     *
+     * Remote control is mixed UI/video/game content, so DEFAULT compatibility
+     * is correct here rather than FIXED_SOURCE. Never request a disruptive
+     * display-mode switch while the user is actively controlling another phone.
+     */
+    private fun applySurfaceFrameRateHint(fps: Int) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || fps <= 0) return
+
+        val surface = surfaceView.holder.surface
+        if (!surface.isValid) return
+
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                surface.setFrameRate(
+                    fps.toFloat(),
+                    Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
+                    Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                surface.setFrameRate(
+                    fps.toFloat(),
+                    Surface.FRAME_RATE_COMPATIBILITY_DEFAULT
+                )
+            }
         }
     }
 
