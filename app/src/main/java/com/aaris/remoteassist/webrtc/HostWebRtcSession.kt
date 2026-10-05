@@ -1016,6 +1016,7 @@ class HostWebRtcSession(
         }
     }
 
+    @android.annotation.TargetApi(Build.VERSION_CODES.Q)
     private fun thermalPressureFor(
         status: Int
     ): ThermalVideoGovernor.Pressure =
