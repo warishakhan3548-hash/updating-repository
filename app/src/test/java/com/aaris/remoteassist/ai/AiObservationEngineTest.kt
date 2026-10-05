@@ -280,9 +280,11 @@ class AiObservationEngineTest {
 
         ui = ui!!.copy(sensitiveFocus = true)
         val privateScreen = engine.observe()
-        assertTrue(privateScreen.has("image"))
+        assertFalse(privateScreen.has("image"))
         assertFalse(privateScreen.has("sameVisualAsObservationId"))
-        assertEquals(encodedAfterFirst + 1, encodedFrames)
+        assertEquals("semantic-only", privateScreen.getString("visualDelivery"))
+        assertTrue(privateScreen.getBoolean("redacted"))
+        assertEquals(encodedAfterFirst, encodedFrames)
     }
 
     @Test fun continuouslyUpdatingChatStillIssuesUsableHomeAndTapTickets() = runBlocking {
