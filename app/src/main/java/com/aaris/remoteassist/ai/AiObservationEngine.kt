@@ -9,6 +9,7 @@ import com.aaris.remoteassist.capture.AiSnapshotProvider
 import com.aaris.remoteassist.capture.CaptureProfile
 import com.aaris.remoteassist.capture.CaptureTier
 import com.aaris.remoteassist.capture.FrameImageEncoder
+import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -35,9 +36,12 @@ class AiObservationEngine internal constructor(
 
     val ledger = AiScreenLedger()
     private var lastFingerprint: ByteArray? = null
-    private var lastDeliveredVisualFingerprint: ByteArray? = null
+    private var lastDeliveredVisualDigest: ByteArray? = null
     private var lastDeliveredVisualObservationId: String? = null
     private var lastDeliveredVisualUi: AiUiSnapshot? = null
+    private var lastDeliveredVisualFrameWidth = 0
+    private var lastDeliveredVisualFrameHeight = 0
+    private var lastDeliveredVisualRotation = 0
     private var issuedUi: AiUiSnapshot? = null
     private var width = 0
     private var height = 0
@@ -83,13 +87,13 @@ class AiObservationEngine internal constructor(
              * target validation bound to the exact captured frame while avoiding
              * JPEG encode/Base64/network work on stable native Android screens.
              */
-            val fingerprint = withContext(Dispatchers.Default) {
+            val (fingerprint, visualDigest) = withContext(Dispatchers.Default) {
                 AiVisualFingerprint.sample(
                     frame.nv21,
                     frame.width,
                     frame.height,
                     frame.rotation
-                )
+                ) to MessageDigest.getInstance("SHA-256").digest(frame.nv21)
             }
             val after = uiSnapshot() ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
             if (epoch != ledger.invalidationGeneration) return error("OBSERVATION_INVALIDATED")
@@ -126,7 +130,10 @@ class AiObservationEngine internal constructor(
                     !semanticOnly &&
                     stableBeforeEncode &&
                     !ui.truncated &&
-                    lastDeliveredVisualFingerprint?.contentEquals(fingerprint) == true &&
+                    lastDeliveredVisualFrameWidth == frame.width &&
+                    lastDeliveredVisualFrameHeight == frame.height &&
+                    lastDeliveredVisualRotation == frame.rotation &&
+                    lastDeliveredVisualDigest?.contentEquals(visualDigest) == true &&
                     lastDeliveredVisualUi?.let { samePrivacyContext(it, ui) } == true
                 ) {
                     lastDeliveredVisualObservationId
@@ -173,9 +180,12 @@ class AiObservationEngine internal constructor(
             width = geometry.displayWidthPx; height = geometry.displayHeightPx; rotation = frame.rotation
             issuedUi = ui; lastFingerprint = fingerprint
             if (encoded != null) {
-                lastDeliveredVisualFingerprint = fingerprint.copyOf()
+                lastDeliveredVisualDigest = visualDigest.copyOf()
                 lastDeliveredVisualObservationId = id
                 lastDeliveredVisualUi = ui
+                lastDeliveredVisualFrameWidth = frame.width
+                lastDeliveredVisualFrameHeight = frame.height
+                lastDeliveredVisualRotation = frame.rotation
             }
             ledger.issue(id, now())
             return JSONObject().put("observationId", id).put("screenVersion", ledger.version)
