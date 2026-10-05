@@ -62,6 +62,23 @@ class AiObservationEngineTest {
         assertEquals(2400, lastEncodeLongEdge)
     }
 
+    @Test fun motionObservationCarriesOnlyItsLiveTicketIntoAutoFollowUp() = runBlocking {
+        val motion = engine.observe(motion = true)
+        val motionAction = action(motion)
+
+        assertTrue(engine.prefersMotionFollowUp(motionAction))
+
+        val standard = engine.observe()
+        assertFalse(engine.prefersMotionFollowUp(action(standard)))
+        assertFalse(engine.prefersMotionFollowUp(motionAction))
+
+        val nextMotion = engine.observe(motion = true)
+        val nextAction = action(nextMotion)
+        assertTrue(engine.prefersMotionFollowUp(nextAction))
+        engine.ledger.consume()
+        assertFalse(engine.prefersMotionFollowUp(nextAction))
+    }
+
     @Test fun semanticObservationSkipsJpegButKeepsFreshValidationTicket() = runBlocking {
         ui = ui!!.copy(
             hints = JSONArray().put(
