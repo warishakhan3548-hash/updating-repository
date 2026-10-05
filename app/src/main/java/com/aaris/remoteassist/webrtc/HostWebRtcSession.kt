@@ -149,14 +149,28 @@ class HostWebRtcSession(
 
             val snapshot = capture.consumeStalenessShadowSnapshot()
             val now = android.os.SystemClock.elapsedRealtime()
-            if (
+            val previousFreshnessPriority =
+                encoderResidenceGovernor.freshnessPriority
+            val cadenceChanged =
                 encoderResidenceGovernor.observe(
                     snapshot = snapshot,
                     requestedFps = desiredCaptureFps(profile),
                     nowMs = now
                 )
-            ) {
+            val freshnessChanged =
+                previousFreshnessPriority !=
+                    encoderResidenceGovernor.freshnessPriority
+
+            /*
+             * One measured encoder-residence loop now owns both the cadence cap
+             * and the passive-motion freshness preference. Apply them together so
+             * capture admission, VideoSource scaling and RTP degradation policy
+             * cannot disagree for even one additional polling interval.
+             */
+            if (cadenceChanged || freshnessChanged) {
                 applyVideoPolicy(profile)
+            }
+            if (cadenceChanged) {
                 listener.onDiagnostic(
                     "Encoder residence guard → " +
                         encoderResidenceGovernor.cap +
@@ -165,6 +179,16 @@ class HostWebRtcSession(
                         "ms max=" +
                         (snapshot.maxQueueDelayMs?.toInt() ?: -1) +
                         "ms"
+                )
+            }
+            if (freshnessChanged) {
+                listener.onDiagnostic(
+                    "Encoder freshness priority → " +
+                        if (encoderResidenceGovernor.freshnessPriority) {
+                            "ON • preferring current motion over queued detail"
+                        } else {
+                            "OFF • queue healthy, restoring clarity-first video"
+                        }
                 )
             }
 
@@ -496,7 +520,9 @@ class HostWebRtcSession(
     override fun onPeerDisconnected() {
         peerConnected = false
         transportReady = false
+        encoderResidenceGovernor.resetFreshnessPriority()
         updateInteractionPriority(false)
+        applyVideoPolicy(profile)
         displayHandler.removeCallbacks(startupControlRecovery)
         transport.onPeerDisconnected()
             ?.let(listener::onConnectivityChanged)
@@ -849,21 +875,22 @@ class HostWebRtcSession(
         if (interactionActive != active) {
             interactionActive = active
             /*
-             * Couple source admission to the same authoritative interaction
-             * epoch that controls capture cadence/degradation preference. This
-             * makes the freshness decision at the earliest safe point instead
-             * of waiting for a one-second RTC stats window after the finger has
-             * already started moving.
+             * applyVideoPolicy is the single synchronization point for source
+             * admission, scaling and RTP degradation preference. Direct touch
+             * activates it immediately; measured passive encoder pressure may
+             * independently keep the same freshness-first path alive.
              */
-            capture.setRealtimeFreshnessPriority(active)
             applyVideoPolicy(profile)
+            val freshnessActive = freshnessPriorityActive()
             val policy =
                 InteractiveVideoPolicy.forState(
                     tier = profile.tier,
-                    interactionActive = active
+                    interactionActive = freshnessActive
                 )
             listener.onDiagnostic(
                 when {
+                    !active && encoderResidenceGovernor.freshnessPriority ->
+                        "Remote interaction ended • queued motion remains freshness-first"
                     !active ->
                         "Remote interaction ended • restoring clarity-first video policy"
                     policy.motionPriority ->
@@ -899,12 +926,16 @@ class HostWebRtcSession(
          */
         target.motionFps
 
+    private fun freshnessPriorityActive(): Boolean =
+        interactionActive ||
+            encoderResidenceGovernor.freshnessPriority
+
     private fun effectiveCaptureProfile(
         target: CaptureProfile
     ): CaptureProfile =
         RealtimeMotionPolicy.apply(
             base = target,
-            interactionActive = interactionActive,
+            interactionActive = freshnessPriorityActive(),
             cadenceCap = minOf(
                 cadenceGovernor.cap,
                 fastPresentationGovernor.cap,
@@ -914,17 +945,22 @@ class HostWebRtcSession(
         )
 
     private fun applyVideoPolicy(target: CaptureProfile) {
+        val freshnessActive = freshnessPriorityActive()
         val policy =
             InteractiveVideoPolicy.forState(
                 tier = target.tier,
-                interactionActive = interactionActive
+                interactionActive = freshnessActive
             )
         val effective = effectiveCaptureProfile(target)
 
-        // VideoSource scaling changes the encoder pixel budget without
-        // recreating MediaProjection's stable virtual display. During active
-        // control this deliberately trades a little spatial detail for fresher,
-        // evenly presented motion; idle returns to the clarity-first profile.
+        /*
+         * Keep all freshness levers atomic at the policy boundary. When either
+         * a real finger or measured passive encoder residence asks for freshness,
+         * the source may shed only bounded-stale samples, VideoSource may reduce
+         * the encode pixel budget, and RTP prefers framerate. When pressure clears
+         * all three return to clarity-first behavior together.
+         */
+        capture.setRealtimeFreshnessPriority(freshnessActive)
         capture.update(effective)
         peer.updateInteractiveVideoPolicy(
             maxBitrateBps = target.maxVideoBitrateBps,
