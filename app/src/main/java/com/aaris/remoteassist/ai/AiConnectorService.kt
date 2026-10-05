@@ -296,7 +296,16 @@ class AiConnectorService : Service() {
                                         !inheritMotion,
                                 motion =
                                     responseQuality == "motion" ||
-                                        inheritMotion
+                                        inheritMotion,
+                                /*
+                                 * An explicit motion request is the high-context
+                                 * 960px view. Only an already-established motion
+                                 * loop gets the 800px follow-up budget, while the
+                                 * engine still captures 1280px for validation.
+                                 */
+                                compactMotionFollowUp =
+                                    inheritMotion &&
+                                        responseQuality == "auto"
                             )
                         observation.put("applied", applied).put("actionId", id)
                         if (applied != true && !observation.has("error")) {
