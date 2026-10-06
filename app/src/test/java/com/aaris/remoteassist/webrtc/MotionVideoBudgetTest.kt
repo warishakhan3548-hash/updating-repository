@@ -367,6 +367,98 @@ class MotionVideoBudgetTest {
         assertEquals(720, budget.shortEdge)
     }
 
+    @Test fun receiverTargetPlayoutDebtRelievesSixtyFpsBeforeVisibleStall() {
+        val budget = MotionVideoBudget()
+        assertTrue(budget.primeForMotion(profile, 0L))
+        assertEquals(360, budget.shortEdge)
+
+        /*
+         * Actual jitter is still tiny and presentation is perfect, but WebRTC
+         * has already raised its target playout residence. At 60 Hz the serial
+         * encode + sender queue + playout + decode debt now consumes more than
+         * ~2.5 frame periods. Two clean samples should spend pixels before that
+         * target delay turns into a visible hitch.
+         */
+        val sixtySender =
+            sender(
+                fps = 60,
+                encode = 5.0,
+                queue = 10.0,
+                implementation = "c2.qti.avc.encoder"
+            )
+        val sixtyReceiver =
+            receiver(
+                fps = 60,
+                decode = 5.0,
+                presented = 60
+            ).copy(
+                jitterMs = 5.0,
+                jitterTargetMs = 35.0
+            )
+
+        assertFalse(
+            budget.observe(
+                outbound = sixtySender,
+                receiver = sixtyReceiver,
+                sourceFps = 60.0,
+                motionActive = true,
+                targetFps = 60,
+                nowMs = 1_000L,
+                interactionActive = true
+            )
+        )
+        assertTrue(
+            budget.observe(
+                outbound = sixtySender,
+                receiver = sixtyReceiver,
+                sourceFps = 60.0,
+                motionActive = true,
+                targetFps = 60,
+                nowMs = 2_000L,
+                interactionActive = true
+            )
+        )
+        assertEquals(240, budget.shortEdge)
+
+        /*
+         * The exact same 55 ms serial residence fits comfortably inside the
+         * wider 30 Hz deadline budget. Do not sacrifice clarity there.
+         */
+        val thirty = MotionVideoBudget()
+        assertTrue(thirty.primeForMotion(profile, 0L))
+        val thirtySender =
+            sender(
+                fps = 30,
+                encode = 5.0,
+                queue = 10.0,
+                implementation = "c2.qti.avc.encoder"
+            )
+        val thirtyReceiver =
+            receiver(
+                fps = 30,
+                decode = 5.0,
+                presented = 30
+            ).copy(
+                jitterMs = 5.0,
+                jitterTargetMs = 35.0
+            )
+
+        repeat(3) { index ->
+            assertFalse(
+                thirty.observe(
+                    outbound = thirtySender,
+                    receiver = thirtyReceiver,
+                    sourceFps = 30.0,
+                    motionActive = true,
+                    targetFps = 30,
+                    nowMs = 1_000L + index * 1_000L,
+                    interactionActive = true
+                )
+            )
+        }
+        assertEquals(360, thirty.shortEdge)
+    }
+
     @Test fun provenSixtyFpsCodecPressureGetsBoundedFastPixelRelief() {
         val budget = MotionVideoBudget()
         assertTrue(budget.primeForMotion(profile, 0L))
