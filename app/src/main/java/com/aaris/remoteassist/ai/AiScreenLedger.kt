@@ -49,14 +49,20 @@ object AiVisualFingerprint {
         }
         return result
     }
-    fun materiallyDifferent(a: ByteArray, b: ByteArray, scope: AiActionScope): Boolean {
-        if (a.size != WIDTH * HEIGHT * 3 || b.size != a.size) return true
-        var changed = 0; var samples = 0
+    fun differenceRatio(a: ByteArray, b: ByteArray, scope: AiActionScope? = null): Double? {
+        if (a.size != WIDTH * HEIGHT * 3 || b.size != a.size) return null
+        var changed = 0
+        var samples = 0
         for (i in 0 until WIDTH * HEIGHT) {
-            if (!scope.contains((i % WIDTH + 0.5) / WIDTH, (i / WIDTH + 0.5) / HEIGHT)) continue
+            if (scope != null && !scope.contains((i % WIDTH + 0.5) / WIDTH, (i / WIDTH + 0.5) / HEIGHT)) continue
             samples++
-            if ((0..2).any { channel -> kotlin.math.abs((a[i * 3 + channel].toInt() and 255) - (b[i * 3 + channel].toInt() and 255)) > 24 }) changed++
+            if ((0..2).any { channel ->
+                    kotlin.math.abs((a[i * 3 + channel].toInt() and 255) - (b[i * 3 + channel].toInt() and 255)) > 24
+                }) changed++
         }
-        return samples == 0 || changed > samples / 25 // At most 4% local antialias/caret noise.
+        return if (samples == 0) null else changed.toDouble() / samples
     }
+
+    fun materiallyDifferent(a: ByteArray, b: ByteArray, scope: AiActionScope): Boolean =
+        differenceRatio(a, b, scope)?.let { it > 0.04 } ?: true // At most 4% local antialias/caret noise.
 }
