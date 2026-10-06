@@ -437,7 +437,8 @@ internal class MotionVideoBudget {
 
         fun rungFits(edge: Int): Boolean =
             profileShortEdge >= edge &&
-                profile.maxVideoBitrateBps >= nominalMotionBitrateBps(edge) &&
+                profile.maxVideoBitrateBps.toDouble() >=
+                    nominalMotionBitrateBps(edge) &&
                 bandwidth >=
                     nominalMotionBitrateBps(edge) *
                     WARM_START_BWE_HEADROOM_RATIO
