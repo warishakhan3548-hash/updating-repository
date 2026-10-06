@@ -1,4 +1,4 @@
-# AI phone control (v1.9.21)
+# AI phone control (v1.9.22)
 
 Tap **Connect Phone with AI** below Connect/Share. The app registers a random,
 device-specific MCP link, copies it automatically, and displays it below the
@@ -45,10 +45,29 @@ There is no boot receiver, hidden capture, unattended restart or permission bypa
   compact metadata only; a meaningful whole-screen or optional region change
   returns one fresh screenshot. This is preferred over repeated observe calls
   while waiting for a turn, animation, loading state or asynchronous update.
+- `phone_burst`: a bounded 1-4 step touch-only motor program for tightly
+  coupled same-scene interactions. It supports tap, long-press, swipe, drag and
+  two-finger gestures, runs under a small local time budget, aborts if the
+  foreground/window/geometry or scene changes unexpectedly, and always returns a
+  fresh checkpoint observation. It is disabled on strict/form/sensitive screens.
 - `phone_reflex`: waits locally for a previously remembered benign tap-state to
   leave and reappear, executes that tap exactly once, then returns a fresh
   screenshot. It is short-lived, one-shot and guarded by app/window/geometry,
   local pixels and, when available, Accessibility target identity.
+
+### Guarded short motor bursts
+
+v1.9.22 adds a bounded motor-burst primitive for fast interactive surfaces. The
+model can group a few tightly coupled touch actions into one local execution
+window instead of paying a cloud round-trip between every finger movement. The
+phone validates the first target against the latest observation, rechecks it at
+dispatch time, keeps app/window/geometry/session guards active for every step,
+and takes raw-frame checkpoints between steps. A large scene transition aborts
+the remaining steps and returns control to the model with one fresh screenshot.
+
+Bursts are intentionally not a general scripting engine: only touch gestures are
+allowed, the step count and total motor budget are small, forms/sensitive screens
+are excluded, and consequential actions should remain individually reviewed.
 
 ### Event-driven observation and target-aware progress
 
