@@ -183,8 +183,24 @@ internal class MotionVideoBudget {
             val severe = (queueMs ?: 0.0) >= 150.0 ||
                 (sender.frames >= 2 && sender.fps <= 10.0 && encodePressure) ||
                 severeBandwidthFreshnessPressure
-            val settleMs =
-                if (severeBandwidthFreshnessPressure) BANDWIDTH_FAST_SETTLE_MS else SETTLE_MS
+            /*
+             * A 45/60 Hz stream has a 22.2/16.7 ms frame budget. If two
+             * consecutive telemetry windows prove encode/decode/presentation
+             * work is missing that budget, waiting the legacy 3 seconds lets
+             * obsolete frames accumulate before the cheaper pixel lever acts.
+             *
+             * Give only proven high-cadence pipeline pressure a faster bounded
+             * settle. Generic RTT/jitter still uses the conservative path, and
+             * pressureSamples must still persist before any pixel step.
+             */
+            val highCadencePipelinePressure =
+                goal >= HIGH_CADENCE_FPS &&
+                    (encodePressure || decodePressure || presentationPressure)
+            val settleMs = when {
+                severeBandwidthFreshnessPressure -> BANDWIDTH_FAST_SETTLE_MS
+                highCadencePipelinePressure -> HIGH_CADENCE_FAST_SETTLE_MS
+                else -> SETTLE_MS
+            }
             if ((severe || pressureSamples >= 2) && nowMs - changedAtMs >= settleMs) {
                 val next = when {
                     shortEdge > 540 -> 540
@@ -299,6 +315,8 @@ internal class MotionVideoBudget {
         const val MOTION_WARM_START_SHORT_EDGE = 360
         const val SETTLE_MS = 3_000L
         const val BANDWIDTH_FAST_SETTLE_MS = 1_000L
+        const val HIGH_CADENCE_FPS = 45
+        const val HIGH_CADENCE_FAST_SETTLE_MS = 1_500L
         const val BANDWIDTH_PRESSURE_HOLD_MS = 2_500L
         const val MIN_MOVING_SOURCE_FPS = 8.0
         const val INTERACTION_DELIVERY_RATIO = 0.75
