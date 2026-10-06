@@ -27,15 +27,21 @@ internal class MotionVideoBudget {
     private var lastBandwidthPressureAtMs = Long.MIN_VALUE / 2
 
     /**
-     * New motion should not spend its first one or two telemetry windows trying
-     * to push a full 720-short-edge stream through an unknown encoder/path.
-     * Warm-start STANDARD/HIGH motion at 540, hold 30 fps, then let measured
-     * end-to-end health earn 720 back. Repeated pulses only refresh the hold;
-     * they never knock a continuously healthy stream back down after recovery.
+     * New motion must not blindly pay a MediaCodec resolution restart.
+     *
+     * Unknown / software / pressured paths keep the conservative 360-short-edge
+     * warm start. When the immediately preceding quiet WebRTC sample proves a
+     * fast hardware encoder plus real bandwidth headroom, preserve 540 or 720
+     * instead. That keeps the first controller gesture on the already-running
+     * codec configuration instead of creating a visible touch-down reset.
+     *
+     * Repeated motion pulses only refresh the hold; they never knock a
+     * continuously healthy stream back down after the first decision.
      */
     fun primeForMotion(
         profile: CaptureProfile,
-        nowMs: Long
+        nowMs: Long,
+        warmStartEvidence: VideoHealthSnapshot? = null
     ): Boolean {
         if (nowMs < 0L) return false
 
@@ -50,11 +56,16 @@ internal class MotionVideoBudget {
 
             val profileShortEdge =
                 minOf(profile.captureWidthPx, profile.captureHeightPx)
+            val warmStartShortEdge =
+                motionWarmStartShortEdge(
+                    profile = profile,
+                    evidence = warmStartEvidence
+                )
             if (
-                profileShortEdge > MOTION_WARM_START_SHORT_EDGE &&
-                shortEdge > MOTION_WARM_START_SHORT_EDGE
+                profileShortEdge > warmStartShortEdge &&
+                shortEdge > warmStartShortEdge
             ) {
-                shortEdge = MOTION_WARM_START_SHORT_EDGE
+                shortEdge = warmStartShortEdge
                 changedAtMs = nowMs
             }
         }
@@ -98,7 +109,7 @@ internal class MotionVideoBudget {
         val implementation = outbound.codecImplementation?.lowercase()
         if (!implementation.isNullOrBlank() && (implementation != lastImplementation || enteringMotion)) {
             lastImplementation = implementation
-            if (listOf("libvpx", "libaom", "openh264", "software").any(implementation::contains) && shortEdge > 540) {
+            if (isSoftwareEncoder(implementation) && shortEdge > 540) {
                 shortEdge = 540
                 changedAtMs = nowMs
                 pressureSamples = 0
@@ -375,6 +386,77 @@ internal class MotionVideoBudget {
         return minOf(profile.maxVideoBitrateBps, motionCeiling)
     }
 
+    /**
+     * Decide whether entering motion can keep the encoder's current resolution.
+     *
+     * The evidence is intentionally strict and quiet-only: one clean hardware
+     * encode sample, low RTT/loss/queue and WebRTC's own available-outgoing
+     * bitrate estimate. If any proof is missing we retain the existing safe
+     * 360-pixel warm start.
+     */
+    private fun motionWarmStartShortEdge(
+        profile: CaptureProfile,
+        evidence: VideoHealthSnapshot?
+    ): Int {
+        val profileShortEdge =
+            minOf(profile.captureWidthPx, profile.captureHeightPx)
+        if (profileShortEdge <= MOTION_WARM_START_SHORT_EDGE) {
+            return profileShortEdge
+        }
+
+        val snapshot = evidence ?: return MOTION_WARM_START_SHORT_EDGE
+        val sender = snapshot.recent ?: return MOTION_WARM_START_SHORT_EDGE
+        val implementation =
+            snapshot.codecImplementation
+                ?.lowercase()
+                ?.takeIf(String::isNotBlank)
+                ?: return MOTION_WARM_START_SHORT_EDGE
+
+        if (
+            isSoftwareEncoder(implementation) ||
+            sender.intervalMs !in 500..6000 ||
+            sender.frames !in 1..MAX_WARM_START_QUIET_FRAMES ||
+            sender.processingMs.valid()?.let {
+                it <= WARM_START_MAX_ENCODE_MS
+            } != true ||
+            (sender.sendQueueMs.valid() ?: 0.0) > WARM_START_MAX_QUEUE_MS ||
+            snapshot.qualityLimitationReason?.let {
+                !it.equals("none", ignoreCase = true)
+            } == true ||
+            snapshot.roundTripTimeMs?.let {
+                it in 0..WARM_START_MAX_RTT_MS
+            } != true ||
+            (snapshot.packetLossRatio ?: 0.0) >= WARM_START_MAX_LOSS_RATIO
+        ) {
+            return MOTION_WARM_START_SHORT_EDGE
+        }
+
+        val bandwidth =
+            snapshot.availableOutgoingBitrateBps.valid()
+                ?: return MOTION_WARM_START_SHORT_EDGE
+
+        fun rungFits(edge: Int): Boolean =
+            profileShortEdge >= edge &&
+                profile.maxVideoBitrateBps >= nominalMotionBitrateBps(edge) &&
+                bandwidth >=
+                    nominalMotionBitrateBps(edge) *
+                    WARM_START_BWE_HEADROOM_RATIO
+
+        return when {
+            rungFits(NATIVE_WARM_START_SHORT_EDGE) ->
+                NATIVE_WARM_START_SHORT_EDGE
+            rungFits(MID_WARM_START_SHORT_EDGE) ->
+                MID_WARM_START_SHORT_EDGE
+            else ->
+                MOTION_WARM_START_SHORT_EDGE
+        }
+    }
+
+    private fun isSoftwareEncoder(
+        implementation: String
+    ): Boolean =
+        SOFTWARE_ENCODER_MARKERS.any(implementation::contains)
+
     private fun Double?.valid(): Double? =
         this?.takeIf { it.isFinite() && it >= 0.0 }
 
@@ -390,6 +472,16 @@ internal class MotionVideoBudget {
     private companion object {
         const val MAX_MOTION_TARGET_FPS = 60
         const val MOTION_WARM_START_SHORT_EDGE = 360
+        const val MID_WARM_START_SHORT_EDGE = 540
+        const val NATIVE_WARM_START_SHORT_EDGE = 720
+        const val MAX_WARM_START_QUIET_FRAMES = 3
+        const val WARM_START_MAX_ENCODE_MS = 8.0
+        const val WARM_START_MAX_QUEUE_MS = 15.0
+        const val WARM_START_MAX_RTT_MS = 250
+        const val WARM_START_MAX_LOSS_RATIO = 0.02
+        const val WARM_START_BWE_HEADROOM_RATIO = 1.25
+        val SOFTWARE_ENCODER_MARKERS =
+            arrayOf("libvpx", "libaom", "openh264", "software")
         const val SETTLE_MS = 3_000L
         const val BANDWIDTH_FAST_SETTLE_MS = 1_000L
         const val BWE_PREDICTIVE_SETTLE_MS = 1_000L
