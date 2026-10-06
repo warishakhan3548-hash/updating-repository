@@ -246,21 +246,85 @@ class AiConnectorService : Service() {
                             else -> failure("INVALID_TASK_OPERATION")
                         }
                     }
+                    "phone_wait" -> {
+                        val baseline = engine.createWaitBaseline(
+                            args.getString("observationId"),
+                            args.getLong("screenVersion")
+                        ) ?: return@withTimeout engine.observe()
+                            .put("error", "STALE_SCREEN")
+                            .put("reason", "OBSERVATION_EXPIRED_OR_USED")
+                            .put("taskState", taskMemory.snapshot())
+                        val provider = snapshots ?: return@withTimeout failure("CAPTURE_UNAVAILABLE")
+                        val region = if (args.has("left")) {
+                            AiWaitRegion(
+                                args.getDouble("left"),
+                                args.getDouble("top"),
+                                args.getDouble("right"),
+                                args.getDouble("bottom")
+                            )
+                        } else null
+                        val watcher = AiScreenChangeWatcher(
+                            ownPackage = packageName,
+                            freshFrame = provider::fresh,
+                            display = { CaptureProfile.current(this@AiConnectorService, CaptureTier.BALANCED) },
+                            uiSnapshot = AssistAccessibilityService::aiSnapshot,
+                            now = SystemClock::elapsedRealtime
+                        )
+                        val waited = watcher.awaitChange(
+                            baseline = baseline,
+                            waitMs = args.optLong("waitMs", 5_000L),
+                            minChangeRatio = args.optDouble("minChangeRatio", 0.06),
+                            region = region
+                        )
+                        if (!waited.changed) {
+                            JSONObject()
+                                .put("changed", false)
+                                .put("waitState", waited.reason)
+                                .put("waitedMs", waited.waitedMs)
+                                .put("changeRatio", waited.changeRatio ?: JSONObject.NULL)
+                                .put("screenVersion", engine.ledger.version)
+                                .put("taskState", taskMemory.snapshot())
+                        } else {
+                            engine.invalidate()
+                            engine.observe(args.optString("quality") == "detail")
+                                .put("changed", true)
+                                .put("waitState", waited.reason)
+                                .put("waitedMs", waited.waitedMs)
+                                .put("changeRatio", waited.changeRatio ?: JSONObject.NULL)
+                                .put("taskState", taskMemory.snapshot())
+                        }
+                    }
                     "phone_action" -> {
                         val id = args.getString("actionId").also { require(it.matches(Regex("[a-zA-Z0-9_-]{8,96}"))) }
                         actionId = id
                         outcomes[id]?.let { return@withTimeout JSONObject(it.toString()).put("replayed", true).put("needsObservation", true) }
                         val beforeFingerprint = engine.fingerprintCopy()
+                        val action = args.getString("action")
                         val validation = engine.validate(args)
                         if (validation.error != null) {
                             val code = if (validation.error in setOf("LOCAL_ONLY_SCREEN", "DEVICE_LOCKED_OR_ACCESSIBILITY_OFF", "FOCUSED_FIELD_REQUIRED"))
                                 validation.error else "STALE_SCREEN"
-                            return@withTimeout engine.observe().put("error", code)
+                            val image = engine.observe()
+                            val effect = AiActionEffectAnalyzer.classify(action, false, null, null)
+                            val taskState = taskMemory.recordAction(
+                                actionId = id,
+                                action = action,
+                                rawIntent = args.optString("intent", "").takeIf { it.isNotBlank() },
+                                rawExpectedOutcome = args.optString("expectedOutcome", "").takeIf { it.isNotBlank() },
+                                rawContextNote = args.optString("contextNote", "").takeIf { it.isNotBlank() },
+                                effect = effect,
+                                applied = false,
+                                packageName = image.optString("currentPackage", "").takeIf { it.isNotBlank() },
+                                mode = engine.currentInteractionMode(),
+                                resultCode = validation.error
+                            )
+                            return@withTimeout image.put("error", code)
                                 .put("reason", validation.error).put("applied", false).put("actionId", id)
+                                .put("effect", effect.toJson()).put("taskState", taskState)
                         }
                         val currentLease = lease ?: return@withTimeout failure("NOT_CONNECTED")
                         val (width, height) = engine.geometry()
-                        val action = args.getString("action")
+                        val effectScope = engine.effectScope(args)
                         val reflexId = args.optString("rememberReflexId", "").trim()
                         val reflexCandidate = if (reflexId.isNotEmpty()) {
                             require(reflexId.matches(Regex("[a-zA-Z0-9_-]{4,64}")))
@@ -305,8 +369,14 @@ class AiConnectorService : Service() {
                         }
                         engine.invalidate()
                         val image = engine.observe()
-                        val changeRatio = engine.visualChangeRatioFrom(beforeFingerprint)
-                        val effect = AiActionEffectAnalyzer.classify(action, applied, changeRatio)
+                        val (changeRatio, targetChangeRatio) =
+                            engine.visualChangeRatiosFrom(beforeFingerprint, effectScope)
+                        val effect = AiActionEffectAnalyzer.classify(
+                            action,
+                            applied,
+                            changeRatio,
+                            targetChangeRatio
+                        )
                         if (applied == true && reflexCandidate != null) {
                             reflexes[reflexId] = reflexCandidate
                             while (reflexes.size > MAX_REFLEXES) reflexes.remove(reflexes.keys.first())
@@ -384,8 +454,14 @@ class AiConnectorService : Service() {
                         reflexes.remove(reflexId) // one-shot even when the final dispatch is refused
                         engine.invalidate()
                         val image = engine.observe()
-                        val changeRatio = engine.visualChangeRatioFrom(template.referenceFingerprint)
-                        val effect = AiActionEffectAnalyzer.classify("tap", applied, changeRatio)
+                        val (changeRatio, targetChangeRatio) =
+                            engine.visualChangeRatiosFrom(template.referenceFingerprint, template.scope)
+                        val effect = AiActionEffectAnalyzer.classify(
+                            "tap",
+                            applied,
+                            changeRatio,
+                            targetChangeRatio
+                        )
                         val taskState = taskMemory.recordAction(
                             actionId = id,
                             action = "reflex_tap",
