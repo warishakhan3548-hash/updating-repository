@@ -55,6 +55,7 @@ class AiTaskMemory {
     fun start(rawGoal: String): JSONObject {
         val cleanGoal = bounded(rawGoal, MAX_GOAL_CHARS)
         require(cleanGoal.isNotEmpty())
+        if (taskId != null && status == "running" && goal == cleanGoal) return snapshot()
         taskId = UUID.randomUUID().toString()
         goal = cleanGoal
         subgoal = ""
