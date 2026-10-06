@@ -141,4 +141,89 @@ class MotionVideoBudgetTest {
         }
         assertEquals(30, cadence.cap)
     }
+
+    @Test fun trulyQuietProducerDoesNotReduceCadenceForStaleTransportStats() {
+        val cadence = VideoCadenceGovernor(30, 30)
+        val still = sender(fps = 1).copy(
+            roundTripTimeMs = 1_000,
+            packetLossRatio = 0.20,
+            qualityLimitationReason = "bandwidth"
+        )
+
+        assertFalse(
+            cadence.observe(
+                outbound = still,
+                receiver = null,
+                requestedFps = 30,
+                nowMs = 1_000,
+                producerFps = 0.0
+            )
+        )
+        assertEquals(30, cadence.cap)
+
+        // An active producer still receives the original loss protection.
+        assertTrue(
+            cadence.observe(
+                outbound = sender(30).copy(
+                    roundTripTimeMs = 1_000,
+                    packetLossRatio = 0.20
+                ),
+                receiver = null,
+                requestedFps = 30,
+                nowMs = 2_000,
+                producerFps = 30.0
+            )
+        )
+        assertEquals(24, cadence.cap)
+    }
+
+    @Test fun newMotionRecoversOneRungAfterProvenQuietHealthyPath() {
+        val cadence = VideoCadenceGovernor(30, 30)
+        val congested = sender(30).copy(packetLossRatio = 0.20)
+        assertTrue(cadence.observe(congested, null, 30, 1_000))
+        assertEquals(24, cadence.cap)
+
+        val quiet = sender(1)
+        assertFalse(cadence.tryProbeAfterQuiet(quiet, 0.0, 4_000, 4_500))
+        assertEquals(24, cadence.cap)
+
+        assertTrue(cadence.tryProbeAfterQuiet(quiet, 0.0, 10_500, 11_000))
+        assertEquals(30, cadence.cap)
+        assertFalse(cadence.tryProbeAfterQuiet(quiet, 0.0, 10_500, 11_100))
+    }
+
+    @Test fun idleProbeRejectsStaleOrUnprovenPathAndDoesNotForceRecovery() {
+        val cadence = VideoCadenceGovernor(30, 30)
+        assertTrue(
+            cadence.observe(
+                sender(30).copy(packetLossRatio = 0.20),
+                null,
+                30,
+                1_000
+            )
+        )
+        val quiet = sender(1)
+        assertFalse(cadence.tryProbeAfterQuiet(quiet, 0.0, 5_000, 11_000))
+        assertFalse(cadence.tryProbeAfterQuiet(quiet, 30.0, 10_500, 11_000))
+        assertFalse(cadence.tryProbeAfterQuiet(
+            quiet.copy(roundTripTimeMs = 800),
+            0.0,
+            10_500,
+            11_000
+        ))
+        assertFalse(cadence.tryProbeAfterQuiet(
+            quiet.copy(qualityLimitationReason = "cpu"),
+            0.0,
+            10_500,
+            11_000
+        ))
+        assertFalse(cadence.tryProbeAfterQuiet(
+            quiet.copy(recent = quiet.recent!!.copy(processingMs = 90.0)),
+            0.0,
+            10_500,
+            11_000
+        ))
+        assertEquals(24, cadence.cap)
+    }
+
 }
