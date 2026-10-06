@@ -292,7 +292,16 @@ internal class MotionVideoBudget {
                 else ->
                     SETTLE_MS
             }
-            if ((severe || pressureSamples >= 2) && nowMs - changedAtMs >= settleMs) {
+            /*
+             * predictiveResidencePressure already means two comparable rising
+             * intervals were observed. Do not require two more generic pressure
+             * windows after that proof; the normal settle timer still prevents
+             * rapid successive resolution changes.
+             */
+            if (
+                (severe || predictiveResidencePressure || pressureSamples >= 2) &&
+                nowMs - changedAtMs >= settleMs
+            ) {
                 val next = when {
                     shortEdge > 540 -> 540
                     shortEdge > 360 -> 360
