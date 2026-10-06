@@ -1,4 +1,4 @@
-# AI phone control (v1.9.3)
+# AI phone control (v1.9.20)
 
 Tap **Connect Phone with AI** below Connect/Share. The app registers a random,
 device-specific MCP link, copies it automatically, and displays it below the
@@ -31,11 +31,44 @@ There is no boot receiver, hidden capture, unattended restart or permission bypa
   disconnected explanation; no command is queued for an offline phone.
 - `phone_observe({quality: "standard" | "detail"})`: fresh screenshot, full display
   geometry, compact UI hints, `screenVersion` and single-use `observationId`.
-- `phone_action`: exactly one tap, long press, swipe, type, back, home or recents.
-  Include a unique `actionId`, the last observation ID and screen version.
-  Coordinates are **0..1 over the entire upright display**, independent of image
-  resizing. `type` inserts at the currently focused cursor/selection.
-  The result includes execution outcome and a new screenshot in the same call.
+- `phone_action`: exactly one tap, long press, swipe, drag, two-finger gesture,
+  type, back, home, recents or direct app launch. Include a unique `actionId`,
+  the last observation ID and screen version. Coordinates are **0..1 over the
+  entire upright display**, independent of image resizing. `type` inserts at
+  the currently focused cursor/selection. The result includes execution outcome,
+  a visual effect classification and a new screenshot in the same call.
+- `phone_task`: bounded run-local working memory for the user goal, current
+  subgoal, compact facts, recent actions and stall state. It intentionally does
+  not persist screenshots or typed field contents.
+- `phone_reflex`: waits locally for a previously remembered benign tap-state to
+  leave and reappear, executes that tap exactly once, then returns a fresh
+  screenshot. It is short-lived, one-shot and guarded by app/window/geometry,
+  local pixels and, when available, Accessibility target identity.
+
+### Stateful planning and guarded local reflexes
+
+v1.9.20 adds a bounded agent-state layer instead of treating every screenshot as
+an isolated decision. Multi-step clients should start a `phone_task` with the
+user's goal, attach concise `intent` and `expectedOutcome` fields to actions,
+and use the returned `effect` plus `taskState` to verify progress. Repeated
+no-effect or failed actions raise a stall signal so the model can re-observe or
+change strategy rather than looping blindly.
+
+Observations now include an `interactionMode`. Editable/form-like screens stay
+strict. Low-semantics animated custom canvases can enter `dynamic_canvas`, where
+target-local animation no longer invalidates every coordinate tap; foreground
+window, geometry, privacy, lease and semantic target checks remain enforced.
+This improves games and other custom-rendered apps without weakening sensitive
+form handling.
+
+For a repetitive benign tap, the model may set `rememberReflexId` on a validated
+tap. The phone records only a short-lived visual/semantic guard, not a macro or
+screen archive. A later `phone_reflex` call watches that small local state at the
+capture cadence. The reference must first depart and then reappear before a
+one-shot tap is allowed, preventing immediate double taps. The result returns a
+fresh screenshot so the cloud model can analyze the new value/state before making
+the next decision. Reflexes are cleared on stop/rotation and are not intended for
+sending, deletion, purchases, account/security changes or uncertain targets.
 
 The cloud AI should observe, decide, execute one action and inspect the returned
 image. On network errors, retry using the **same actionId and identical
