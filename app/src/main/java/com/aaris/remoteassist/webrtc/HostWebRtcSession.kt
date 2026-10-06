@@ -817,12 +817,26 @@ class HostWebRtcSession(
                 lastQuietSourceFps = sourceFps
                 lastQuietSampleAtMs = now
             }
+            /*
+             * Resolution pressure must follow the cadence we are actually asking
+             * libwebrtc to deliver. Capping this evidence at 30 fps hid overload
+             * during healthy 45/60 fps trials: the pixel governor could believe
+             * a 30 fps sender was on target while the controller was waiting for
+             * a 60 fps stream. Bind both governors to one temporal target so the
+             * cheaper pixel lever reacts before stale frames build up.
+             */
+            val motionTargetFps =
+                minOf(
+                    cadenceGovernor.cap,
+                    profile.motionFps,
+                    deviceFpsLimit
+                ).coerceAtLeast(1)
             val resolutionChanged = motionVideoBudget.observe(
                 outbound = snapshot,
                 receiver = receiver,
                 sourceFps = sourceFps,
                 motionActive = motionActive,
-                targetFps = minOf(30, profile.motionFps),
+                targetFps = motionTargetFps,
                 nowMs = now,
                 interactionActive = interactionActive,
                 allowResolutionRecovery = !cadenceGovernor.probingHighCadence
