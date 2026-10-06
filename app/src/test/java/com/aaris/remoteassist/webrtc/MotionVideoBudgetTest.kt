@@ -44,7 +44,7 @@ class MotionVideoBudgetTest {
             ).copy(
                 roundTripTimeMs = 80,
                 packetLossRatio = 0.005,
-                availableOutgoingBitrateBps = 9_000_000.0
+                availableOutgoingBitrateBps = 4_500_000.0
             )
 
         assertTrue(
@@ -69,18 +69,57 @@ class MotionVideoBudgetTest {
             ).copy(
                 roundTripTimeMs = 90,
                 packetLossRatio = 0.005,
-                availableOutgoingBitrateBps = 5_000_000.0
+                availableOutgoingBitrateBps = 2_400_000.0
             )
 
         assertTrue(
             budget.primeForMotion(
-                profile = profile.copy(maxVideoBitrateBps = 6_000_000),
+                profile = profile,
                 nowMs = 1_000L,
                 warmStartEvidence = quietHealthyPath
             )
         )
         assertEquals(540, budget.shortEdge)
         assertEquals(540, budget.apply(profile, true).captureWidthPx)
+    }
+
+    @Test fun warmStartBudgetsTheCadenceActuallyRequested() {
+        val capableProfile =
+            profile.copy(maxVideoBitrateBps = 10_000_000)
+        val quietHealthyPath =
+            sender(
+                fps = 1,
+                encode = 5.0,
+                queue = 5.0,
+                implementation = "c2.qti.avc.encoder"
+            ).copy(
+                roundTripTimeMs = 80,
+                packetLossRatio = 0.005,
+                availableOutgoingBitrateBps = 4_500_000.0
+            )
+
+        val thirty = MotionVideoBudget()
+        assertTrue(
+            thirty.primeForMotion(
+                profile = capableProfile,
+                nowMs = 1_000L,
+                warmStartEvidence = quietHealthyPath,
+                targetFps = 30
+            )
+        )
+        assertEquals(720, thirty.shortEdge)
+
+        val sixty = MotionVideoBudget()
+        assertTrue(
+            sixty.primeForMotion(
+                profile = capableProfile,
+                nowMs = 1_000L,
+                warmStartEvidence = quietHealthyPath,
+                targetFps = 60
+            )
+        )
+        // 4.5 Mbps has headroom for 540@60, not the native 720@60 budget.
+        assertEquals(540, sixty.shortEdge)
     }
 
     @Test fun softwareOrUnprovenWarmStartEvidenceKeepsConservativeSafetyRung() {
@@ -346,6 +385,10 @@ class MotionVideoBudgetTest {
     @Test fun sixtyFpsBandwidthPredictionUsesPixelRateNotThirtyFpsRung() {
         val sixty = MotionVideoBudget()
         assertTrue(sixty.primeForMotion(profile, 0L))
+        assertEquals(
+            1_800_000,
+            sixty.bitrateCeiling(profile, true, targetFps = 60)
+        )
         val path =
             sender(
                 fps = 60,
@@ -379,12 +422,20 @@ class MotionVideoBudgetTest {
             )
         )
         assertEquals(240, sixty.shortEdge)
+        assertEquals(
+            1_000_000,
+            sixty.bitrateCeiling(profile, true, targetFps = 60)
+        )
 
         // The same estimate comfortably fits 360-short-edge at 30 fps. A BWE
         // stat by itself must not trigger relief when the requested pixel-rate
         // really has headroom.
         val thirty = MotionVideoBudget()
         assertTrue(thirty.primeForMotion(profile, 0L))
+        assertEquals(
+            900_000,
+            thirty.bitrateCeiling(profile, true, targetFps = 30)
+        )
         val thirtyPath =
             path.copy(
                 recent =
