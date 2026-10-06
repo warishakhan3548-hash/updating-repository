@@ -31,6 +31,60 @@ class MotionVideoBudgetTest {
         assertEquals(360, budget.shortEdge)
     }
 
+    @Test fun sixtyFpsMotionUsesTheRealSixteenMillisecondFrameBudget() {
+        val highCadence = MotionVideoBudget()
+        assertTrue(highCadence.primeForMotion(profile, 0L))
+        assertEquals(360, highCadence.shortEdge)
+
+        /*
+         * 20 ms encode work is comfortable at 30 Hz but cannot sustain 60 Hz.
+         * The motion budget must therefore spend pixels at 60 instead of
+         * pretending the encoder still has a 33.3 ms frame budget.
+         */
+        val stressed = sender(fps = 42, encode = 20.0, queue = 5.0)
+        assertFalse(
+            highCadence.observe(
+                outbound = stressed,
+                receiver = receiver(fps = 42, decode = 5.0, presented = 42),
+                sourceFps = 60.0,
+                motionActive = true,
+                targetFps = 60,
+                nowMs = 1_000L,
+                interactionActive = true
+            )
+        )
+        assertTrue(
+            highCadence.observe(
+                outbound = stressed,
+                receiver = receiver(fps = 42, decode = 5.0, presented = 42),
+                sourceFps = 60.0,
+                motionActive = true,
+                targetFps = 60,
+                nowMs = 2_000L,
+                interactionActive = true
+            )
+        )
+        assertEquals(240, highCadence.shortEdge)
+
+        // The same encoder timing is not overload for a genuine 30 fps target.
+        val thirtyCadence = MotionVideoBudget()
+        assertTrue(thirtyCadence.primeForMotion(profile, 0L))
+        repeat(3) { index ->
+            assertFalse(
+                thirtyCadence.observe(
+                    outbound = stressed,
+                    receiver = receiver(fps = 30, decode = 5.0, presented = 30),
+                    sourceFps = 30.0,
+                    motionActive = true,
+                    targetFps = 30,
+                    nowMs = 1_000L + index * 1_000L,
+                    interactionActive = true
+                )
+            )
+        }
+        assertEquals(360, thirtyCadence.shortEdge)
+    }
+
     @Test fun recordedSoftwareCollapseGetsPixelAndUrgentCadenceRelief() {
         val budget = MotionVideoBudget()
         val cadence = VideoCadenceGovernor(60, 30)
