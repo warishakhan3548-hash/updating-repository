@@ -180,7 +180,7 @@ internal class MotionVideoBudget {
         val bandwidthEstimateBps =
             outbound.availableOutgoingBitrateBps.valid()
         val currentRungBitrateBps =
-            nominalMotionBitrateBps(shortEdge)
+            nominalMotionBitrateBps(shortEdge, goal)
         val bandwidthHeadroomRatio =
             bandwidthEstimateBps?.let { estimate ->
                 estimate / currentRungBitrateBps
@@ -304,7 +304,7 @@ internal class MotionVideoBudget {
             val recoveryBandwidthHealthy =
                 bandwidthEstimateBps?.let { estimate ->
                     estimate >=
-                        nominalMotionBitrateBps(nextRecoveryRung) *
+                        nominalMotionBitrateBps(nextRecoveryRung, goal) *
                         BWE_RECOVERY_HEADROOM_RATIO
                 } ?: true
             val healthy =
@@ -435,13 +435,24 @@ internal class MotionVideoBudget {
             snapshot.availableOutgoingBitrateBps.valid()
                 ?: return MOTION_WARM_START_SHORT_EDGE
 
-        fun rungFits(edge: Int): Boolean =
-            profileShortEdge >= edge &&
-                profile.maxVideoBitrateBps.toDouble() >=
-                    nominalMotionBitrateBps(edge) &&
+        fun rungFits(edge: Int): Boolean {
+            /*
+             * Warm-start admission budgets the motion cadence we are about to
+             * request, not the quiet sample's 1-2 fps cadence. Otherwise a path
+             * that is fine for 720p@30 can be misclassified as safe for
+             * 720p@60 and build stale pacer residence immediately on touch.
+             */
+            val requiredBitrate =
+                nominalMotionBitrateBps(
+                    edge = edge,
+                    targetFps = profile.motionFps
+                )
+            return profileShortEdge >= edge &&
+                profile.maxVideoBitrateBps.toDouble() >= requiredBitrate &&
                 bandwidth >=
-                    nominalMotionBitrateBps(edge) *
+                    requiredBitrate *
                     WARM_START_BWE_HEADROOM_RATIO
+        }
 
         return when {
             rungFits(NATIVE_WARM_START_SHORT_EDGE) ->
@@ -461,17 +472,39 @@ internal class MotionVideoBudget {
     private fun Double?.valid(): Double? =
         this?.takeIf { it.isFinite() && it >= 0.0 }
 
-    private fun nominalMotionBitrateBps(edge: Int): Double =
-        when {
-            edge <= 180 -> 350_000.0
-            edge <= 240 -> 500_000.0
-            edge <= 360 -> 900_000.0
-            edge <= 540 -> 1_800_000.0
-            else -> 3_200_000.0
-        }
+    /**
+     * First-order bandwidth budget for moving screen content.
+     *
+     * Resolution-only budgeting is insufficient for remoting: doubling cadence
+     * doubles the frame deadlines that must cross encoder + pacer without
+     * accumulating stale residence. Scale the established 30 fps rung budgets
+     * by requested cadence. This remains only an early predictor; libwebrtc
+     * GCC/TWCC stays authoritative for actual bitrate and packet pacing.
+     */
+    private fun nominalMotionBitrateBps(
+        edge: Int,
+        targetFps: Int = BASELINE_MOTION_FPS
+    ): Double {
+        val baseline =
+            when {
+                edge <= 180 -> 350_000.0
+                edge <= 240 -> 500_000.0
+                edge <= 360 -> 900_000.0
+                edge <= 540 -> 1_800_000.0
+                else -> 3_200_000.0
+            }
+        val cadenceScale =
+            targetFps
+                .coerceIn(MIN_PREDICTIVE_FPS, MAX_MOTION_TARGET_FPS)
+                .toDouble() /
+                BASELINE_MOTION_FPS.toDouble()
+        return baseline * cadenceScale
+    }
 
     private companion object {
         const val MAX_MOTION_TARGET_FPS = 60
+        const val BASELINE_MOTION_FPS = 30
+        const val MIN_PREDICTIVE_FPS = 15
         const val MOTION_WARM_START_SHORT_EDGE = 360
         const val MID_WARM_START_SHORT_EDGE = 540
         const val NATIVE_WARM_START_SHORT_EDGE = 720
