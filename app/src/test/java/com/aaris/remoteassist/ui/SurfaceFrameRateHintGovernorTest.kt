@@ -83,6 +83,57 @@ class SurfaceFrameRateHintGovernorTest {
     }
 
     @Test
+    fun interactionBurstOverridesLearnedHintAndRestoresNewestMeasuredCadence() {
+        val governor =
+            SurfaceFrameRateHintGovernor(
+                initialWindows = 1,
+                switchWindows = 1,
+                minSwitchIntervalMs = 0L
+            )
+
+        assertEquals(
+            30,
+            governor.observe(
+                window(200, 6, 35),
+                1_000L
+            )
+        )
+
+        assertEquals(60, governor.beginInteraction())
+        assertEquals(60, governor.currentHintFps())
+
+        // Presentation evidence continues to be learned, but it must not
+        // fight the temporary high-refresh Surface request mid-gesture.
+        assertNull(
+            governor.observe(
+                window(178, 8, 24),
+                1_200L
+            )
+        )
+        assertEquals(60, governor.currentHintFps())
+
+        assertEquals(45, governor.endInteraction())
+        assertEquals(45, governor.currentHintFps())
+    }
+
+    @Test
+    fun interactionBurstNeverRequestsAboveRealtimeVideoCeiling() {
+        val governor =
+            SurfaceFrameRateHintGovernor(
+                initialWindows = 1,
+                switchWindows = 1,
+                minSwitchIntervalMs = 0L
+            )
+
+        assertEquals(60, governor.beginInteraction(120))
+        assertEquals(60, governor.currentHintFps())
+        assertNull(governor.beginInteraction(120))
+
+        assertEquals(0, governor.endInteraction())
+        assertEquals(0, governor.currentHintFps())
+    }
+
+    @Test
     fun commonVideoCadencesQuantizeToCaptureLadder() {
         val governor =
             SurfaceFrameRateHintGovernor(
