@@ -28,7 +28,8 @@ data class VideoHealthSnapshot(
     val jitterTotalSeconds: Double? = null,
     val jitterEmittedCount: Long? = null,
     val sendDelayTotalSeconds: Double? = null,
-    val recent: VideoHealthWindow? = null
+    val recent: VideoHealthWindow? = null,
+    val availableOutgoingBitrateBps: Double? = null
 ) {
     fun compact(): String {
         val primary =
@@ -72,6 +73,11 @@ data class VideoHealthSnapshot(
                 append(" rtt=")
                 append(it)
                 append("ms")
+            }
+            availableOutgoingBitrateBps?.let {
+                append(" bwe=")
+                append((it / 1_000.0).roundToInt())
+                append("kbps")
             }
             jitterBufferAverageMs?.let { append(" jitterAvg=${it.roundToInt()}ms") }
             processingAverageMs?.let { append(" codecAvg=${it.roundToInt()}ms") }
@@ -197,6 +203,10 @@ data class VideoHealthSnapshot(
                 )
                     ?.takeIf { it.isFinite() && it >= 0.0 }
                     ?.coerceIn(0.0, 1.0)
+            val availableOutgoingBitrateBps =
+                decimal(
+                    pair?.members?.get("availableOutgoingBitrate")
+                )?.takeIf { it.isFinite() && it > 0.0 }
 
             return if (role == PeerRole.HOST) {
                 VideoHealthSnapshot(
@@ -220,6 +230,7 @@ data class VideoHealthSnapshot(
                     processingAverageMs = meanMs("totalEncodeTime", "framesEncoded"),
                     candidatePath = candidatePath,
                     codecImplementation = members["encoderImplementation"]?.toString(),
+                    availableOutgoingBitrateBps = availableOutgoingBitrateBps,
                     streamId = selected.id, timestampUs = report.timestampUs,
                     processingTotalSeconds = decimal(members["totalEncodeTime"]),
                     sendDelayTotalSeconds = decimal(members["totalPacketSendDelay"])
