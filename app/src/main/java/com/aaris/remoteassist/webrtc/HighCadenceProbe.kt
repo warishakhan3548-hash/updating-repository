@@ -16,6 +16,23 @@ internal class HighCadenceProbe {
     private var candidateSinceMs = 0L
     private var healthyWindows = 0
     private var blockedUntilMs = 0L
+
+    /*
+     * Failed >30-fps experiments are capability evidence, not just transient
+     * congestion. Some Android hardware/driver paths repeatedly fall back to
+     * ~30-fps delivery even when capture can produce 45/60 fps. Re-running the
+     * same doomed trial every few seconds wastes encoder/pacer work and creates
+     * the exact micro-stutter this governor is meant to avoid.
+     *
+     * Keep the two experimental rungs independent: a failed 60-fps trial must
+     * not make a later 45-fps recovery sluggish, and a proven rung immediately
+     * clears its own learned penalty.
+     */
+    private var failed45Trials = 0
+    private var failed60Trials = 0
+    private var retry45AtMs = 0L
+    private var retry60AtMs = 0L
+
     private var trialFrom: Int? = null
     private var trialAtMs = 0L
     private var trialGood = 0
@@ -74,15 +91,26 @@ internal class HighCadenceProbe {
             receiver.dropped == 0 && receiver.freezes == 0
 
         if (trialFrom != null) {
-            if (overloaded) return rollback(currentFps, nowMs)
+            if (overloaded) {
+                return rollback(
+                    currentFps = currentFps,
+                    nowMs = nowMs,
+                    countTrialFailure = true
+                )
+            }
             // Allow one window for reports covering the previous cap to drain.
             if (nowMs - trialAtMs >= 1_000L) {
                 trialGood = if (delivered) trialGood + 1 else 0
                 trialBad = if (delivered) 0 else trialBad + 1
                 if (trialBad >= 2 || nowMs - trialAtMs >= 6_000L) {
-                    return rollback(currentFps, nowMs)
+                    return rollback(
+                        currentFps = currentFps,
+                        nowMs = nowMs,
+                        countTrialFailure = true
+                    )
                 }
                 if (trialGood >= 2) {
+                    clearFailedTrial(currentFps)
                     trialFrom = null
                     healthyWindows = 0
                 }
@@ -93,7 +121,9 @@ internal class HighCadenceProbe {
         val next = when (currentFps) { 30 -> 45; 45 -> 60; else -> null }
         val nextBudget = next?.let { 1_000.0 / it } ?: 0.0
         val eligible = next != null && next <= limit && allowProbe && !overloaded &&
-            nowMs >= blockedUntilMs && delivered &&
+            nowMs >= blockedUntilMs &&
+            !probeRetryBlocked(next, nowMs) &&
+            delivered &&
             producerFps.valid()?.let { it >= next * 0.90 } == true &&
             sender?.processingMs.valid()?.let { it <= nextBudget * 0.70 } == true &&
             receiver?.processingMs.valid()?.let { it <= nextBudget * 0.70 } == true &&
@@ -139,7 +169,16 @@ internal class HighCadenceProbe {
         return next
     }
 
-    private fun rollback(currentFps: Int, nowMs: Long, target: Int? = null): Int {
+    private fun rollback(
+        currentFps: Int,
+        nowMs: Long,
+        target: Int? = null,
+        countTrialFailure: Boolean = false
+    ): Int {
+        if (countTrialFailure && trialFrom != null) {
+            recordFailedTrial(currentFps, nowMs)
+        }
+
         val fallback = minOf(target ?: trialFrom ?: 30, currentFps)
         trialFrom = null
         healthyWindows = 0
@@ -148,11 +187,63 @@ internal class HighCadenceProbe {
         return fallback
     }
 
+    private fun probeRetryBlocked(targetFps: Int, nowMs: Long): Boolean =
+        when (targetFps) {
+            45 -> nowMs < retry45AtMs
+            60 -> nowMs < retry60AtMs
+            else -> false
+        }
+
+    private fun recordFailedTrial(targetFps: Int, nowMs: Long) {
+        val failures =
+            when (targetFps) {
+                45 -> {
+                    failed45Trials = (failed45Trials + 1).coerceAtMost(MAX_TRACKED_TRIAL_FAILURES)
+                    failed45Trials
+                }
+
+                60 -> {
+                    failed60Trials = (failed60Trials + 1).coerceAtMost(MAX_TRACKED_TRIAL_FAILURES)
+                    failed60Trials
+                }
+
+                else -> return
+            }
+
+        val exponent = (failures - 1).coerceIn(0, MAX_PROBE_BACKOFF_EXPONENT)
+        val cooldownMs =
+            (RETRY_COOLDOWN_MS * (1L shl exponent))
+                .coerceAtMost(MAX_RETRY_COOLDOWN_MS)
+        val retryAtMs = nowMs + cooldownMs
+
+        when (targetFps) {
+            45 -> retry45AtMs = retryAtMs
+            60 -> retry60AtMs = retryAtMs
+        }
+    }
+
+    private fun clearFailedTrial(targetFps: Int) {
+        when (targetFps) {
+            45 -> {
+                failed45Trials = 0
+                retry45AtMs = 0L
+            }
+
+            60 -> {
+                failed60Trials = 0
+                retry60AtMs = 0L
+            }
+        }
+    }
+
     private fun Double?.valid(): Double? = this?.takeIf { it.isFinite() && it >= 0.0 }
 
     private companion object {
         const val PROMOTE_TO_45_HEALTHY_WINDOWS = 2
         const val PROMOTE_TO_60_HEALTHY_WINDOWS = 3
         const val RETRY_COOLDOWN_MS = 8_000L
+        const val MAX_PROBE_BACKOFF_EXPONENT = 3
+        const val MAX_TRACKED_TRIAL_FAILURES = MAX_PROBE_BACKOFF_EXPONENT + 1
+        const val MAX_RETRY_COOLDOWN_MS = 64_000L
     }
 }
