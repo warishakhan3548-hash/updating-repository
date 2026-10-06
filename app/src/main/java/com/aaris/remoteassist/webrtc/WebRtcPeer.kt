@@ -1862,14 +1862,10 @@ class WebRtcPeer(
         runCatching {
             val parameters = sender.parameters
             val degradationPreference =
-                when {
-                    motionPriority ->
-                        RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
-                    preserveVideoResolution ->
-                        RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
-                    else ->
-                        RtpParameters.DegradationPreference.BALANCED
-                }
+                RealtimeMediaPolicy.videoDegradationPreference(
+                    motionPriority = motionPriority,
+                    preserveResolution = preserveVideoResolution
+                )
 
             // Interaction/source-activity changes often leave the actual RTP
             // limits unchanged. Do not reconfigure a healthy encoder for them.
