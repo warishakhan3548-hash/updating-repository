@@ -67,6 +67,119 @@ class VideoUrgentFreshnessTest {
     }
 
     @Test
+    fun halfSecondGlassHitchRelievesSixtyBeforeNextStatsWindow() {
+        val governor = VideoCadenceGovernor(60)
+
+        assertTrue(
+            governor.observeFastPresentation(
+                intervalMs = 500,
+                renderedFrames = 22,
+                maxGapMs = 80,
+                requestedFps = 60,
+                interactionActive = true,
+                nowMs = 500
+            )
+        )
+        assertEquals(45, governor.cap)
+    }
+
+    @Test
+    fun ordinaryFortyFiveCadenceVarianceDoesNotCascade() {
+        val governor = VideoCadenceGovernor(60)
+        assertTrue(
+            governor.observeFastPresentation(
+                intervalMs = 500,
+                renderedFrames = 22,
+                maxGapMs = 80,
+                requestedFps = 60,
+                interactionActive = true,
+                nowMs = 500
+            )
+        )
+
+        assertFalse(
+            governor.observeFastPresentation(
+                intervalMs = 500,
+                renderedFrames = 20,
+                maxGapMs = 80,
+                requestedFps = 45,
+                interactionActive = true,
+                nowMs = 1_000
+            )
+        )
+        assertEquals(45, governor.cap)
+    }
+
+    @Test
+    fun severePersistentGlassStallCanTakeSecondBoundedStep() {
+        val governor = VideoCadenceGovernor(60)
+        assertTrue(
+            governor.observeFastPresentation(
+                intervalMs = 500,
+                renderedFrames = 22,
+                maxGapMs = 80,
+                requestedFps = 60,
+                interactionActive = true,
+                nowMs = 500
+            )
+        )
+
+        assertTrue(
+            governor.observeFastPresentation(
+                intervalMs = 500,
+                renderedFrames = 10,
+                maxGapMs = 180,
+                requestedFps = 45,
+                interactionActive = true,
+                nowMs = 1_000
+            )
+        )
+        assertEquals(30, governor.cap)
+    }
+
+    @Test
+    fun presentationFastPathNeedsActiveRecentHighCadenceEvidence() {
+        val inactive = VideoCadenceGovernor(60)
+        assertFalse(
+            inactive.observeFastPresentation(
+                intervalMs = 500,
+                renderedFrames = 10,
+                maxGapMs = 180,
+                requestedFps = 60,
+                interactionActive = false,
+                nowMs = 500
+            )
+        )
+        assertEquals(60, inactive.cap)
+
+        val stale = VideoCadenceGovernor(60)
+        assertFalse(
+            stale.observeFastPresentation(
+                intervalMs = 3_000,
+                renderedFrames = 30,
+                maxGapMs = 180,
+                requestedFps = 60,
+                interactionActive = true,
+                nowMs = 3_000
+            )
+        )
+        assertEquals(60, stale.cap)
+
+        val lowCadence = VideoCadenceGovernor(30)
+        assertFalse(
+            lowCadence.observeFastPresentation(
+                intervalMs = 500,
+                renderedFrames = 5,
+                maxGapMs = 180,
+                requestedFps = 30,
+                interactionActive = true,
+                nowMs = 500
+            )
+        )
+        assertEquals(30, lowCadence.cap)
+    }
+
+    @Test
     fun fastSoftStepCannotImmediatelyCascadeToThirty() {
         val governor = VideoCadenceGovernor(60)
         assertTrue(governor.observe(outbound(queueMs = 120.0), receiver(), 60, 2_000))
