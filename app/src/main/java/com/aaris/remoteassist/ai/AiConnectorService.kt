@@ -106,9 +106,15 @@ class AiConnectorService : Service() {
                         saved
                     }
                     if (stopping) return@launch
-                    capture = ScreenCaptureTrack(this@AiConnectorService, ProjectionGrant(ownerId, Activity.RESULT_OK, data)) {
-                        scope.launch { stopNow("Screen sharing stopped. Tap Connect Phone with AI to resume.") }
-                    }
+                    capture = ScreenCaptureTrack(
+                        context = this@AiConnectorService,
+                        grant = ProjectionGrant(ownerId, Activity.RESULT_OK, data),
+                        onProjectionStopped = {
+                            scope.launch {
+                                stopNow("Screen sharing stopped. Tap Connect Phone with AI to resume.")
+                            }
+                        }
+                    )
                     snapshots = AiSnapshotProvider(checkNotNull(capture))
                     observations = AiObservationEngine(this@AiConnectorService, checkNotNull(snapshots))
                     AiObservationSignals.changed = { observations?.changed() }
