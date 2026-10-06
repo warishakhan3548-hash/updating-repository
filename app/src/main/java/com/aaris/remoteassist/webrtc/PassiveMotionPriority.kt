@@ -23,6 +23,14 @@ internal class PassiveMotionPriority(
         require(tailMs >= 0L)
     }
 
+    fun pulse(nowMs: Long): Boolean {
+        if (nowMs < 0L) return false
+        val before = active
+        active = true
+        lastMotionAtMs = nowMs
+        return active != before
+    }
+
     fun observe(
         window: VideoHealthWindow?,
         nowMs: Long,
