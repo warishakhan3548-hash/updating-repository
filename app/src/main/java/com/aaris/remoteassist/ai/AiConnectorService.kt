@@ -454,8 +454,9 @@ class AiConnectorService : Service() {
                         reflexes.remove(reflexId) // one-shot even when the final dispatch is refused
                         engine.invalidate()
                         val image = engine.observe()
+                        val reflexBefore = match.matchedFingerprint ?: template.referenceFingerprint
                         val (changeRatio, targetChangeRatio) =
-                            engine.visualChangeRatiosFrom(template.referenceFingerprint, template.scope)
+                            engine.visualChangeRatiosFrom(reflexBefore, template.scope)
                         val effect = AiActionEffectAnalyzer.classify(
                             "tap",
                             applied,
