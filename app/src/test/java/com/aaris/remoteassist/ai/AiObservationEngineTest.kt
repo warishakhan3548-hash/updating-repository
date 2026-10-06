@@ -69,18 +69,28 @@ class AiObservationEngineTest {
         assertFalse(validated.stillValid())
     }
 
-    @Test fun lowSemanticDynamicCanvasToleratesAnimationButKeepsWindowGuard() = runBlocking {
+    @Test fun lowSemanticDynamicCanvasToleratesLocalAnimationButKeepsSceneAndWindowGuards() = runBlocking {
         ui = AiUiSnapshot("game.app", JSONArray(), emptyList(), false, false, 9, emptyList())
         val observed = engine.observe()
         assertEquals("dynamic_canvas", observed.getString("interactionMode"))
 
-        pixels = ByteArray(120 * 240 * 3 / 2) { 170.toByte() }
+        pixels = pixels.clone().apply {
+            for (y in 175 until 210) for (x in 85 until 107) this[y * 120 + x] = 170.toByte()
+        }
         val validation = engine.validate(action(observed))
         assertNull(validation.error)
         assertTrue(validation.stillValid())
 
         ui = ui!!.copy(windowId = 10)
         assertFalse(validation.stillValid())
+    }
+
+    @Test fun dynamicCanvasRejectsMajorSameWindowSceneTransition() = runBlocking {
+        ui = AiUiSnapshot("game.app", JSONArray(), emptyList(), false, false, 9, emptyList())
+        val observed = engine.observe()
+        pixels = ByteArray(120 * 240 * 3 / 2) { 170.toByte() }
+
+        assertEquals("TARGET_CHANGED", engine.validate(action(observed)).error)
     }
     @Test fun consumedExpiredRotatedLockedAndSensitiveTargetsStayBlocked() = runBlocking {
         val observed = engine.observe(); val args = action(observed)
