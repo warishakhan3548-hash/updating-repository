@@ -22,6 +22,7 @@ internal class SurfaceFrameRateHintGovernor(
     private var candidateHint = 0
     private var candidateWindows = 0
     private var lastChangedAtMs = Long.MIN_VALUE / 2
+    private var interactionHint = 0
 
     init {
         require(initialWindows >= 1)
@@ -67,10 +68,58 @@ internal class SurfaceFrameRateHintGovernor(
         currentHint = measuredHint
         lastChangedAtMs = nowMs
         resetCandidate()
-        return currentHint
+
+        /*
+         * Keep learning the sustainable presentation cadence while a touch
+         * burst temporarily asks SurfaceFlinger for a 60 Hz-class mode. The
+         * burst owns the Surface hint until finger-up, so measured 30/45 Hz
+         * evidence must not fight the display scheduler in the middle of a
+         * gesture. As soon as interaction ends, the newest learned cadence is
+         * restored without waiting for another multi-window convergence.
+         */
+        return if (interactionHint > 0) null else currentHint
     }
 
-    fun currentHintFps(): Int = currentHint
+    /**
+     * Ask Android for the fastest cadence this app can actually produce while
+     * the user is manipulating the remote screen.
+     *
+     * This is only a Surface scheduling hint. It does not raise WebRTC's
+     * encoder target, create frames, or bypass thermal/network governors. The
+     * video pipeline remains capped at 60 fps, so requesting anything above
+     * that would waste display power without increasing visual freshness.
+     */
+    fun beginInteraction(
+        maxFps: Int = MAX_INTERACTION_HINT_FPS
+    ): Int? {
+        if (maxFps <= 0) return null
+
+        val ceiling = minOf(maxFps, MAX_INTERACTION_HINT_FPS)
+        val target =
+            CADENCE_RUNGS.lastOrNull { it <= ceiling }
+                ?: return null
+        val previous = currentHintFps()
+        interactionHint = target
+        resetCandidate()
+        return target.takeIf { it != previous }
+    }
+
+    /**
+     * Drop the temporary interaction override and immediately restore the
+     * cadence learned from real EGL swaps. Returning 0 tells the Surface owner
+     * to clear an otherwise stale high-refresh request.
+     */
+    fun endInteraction(): Int? {
+        if (interactionHint == 0) return null
+
+        val previous = currentHintFps()
+        interactionHint = 0
+        resetCandidate()
+        return currentHint.takeIf { it != previous }
+    }
+
+    fun currentHintFps(): Int =
+        interactionHint.takeIf { it > 0 } ?: currentHint
 
     /**
      * Forget an established cadence after a stream stop/replacement.
@@ -79,8 +128,9 @@ internal class SurfaceFrameRateHintGovernor(
      * the Surface owner should clear with setFrameRate(0).
      */
     fun reset(): Boolean {
-        val hadHint = currentHint > 0
+        val hadHint = currentHintFps() > 0
         currentHint = 0
+        interactionHint = 0
         lastChangedAtMs = Long.MIN_VALUE / 2
         resetCandidate()
         return hadHint
@@ -131,6 +181,7 @@ internal class SurfaceFrameRateHintGovernor(
     private companion object {
         val CADENCE_RUNGS = intArrayOf(15, 20, 24, 30, 45, 60)
 
+        const val MAX_INTERACTION_HINT_FPS = 60
         const val MIN_PRESENTED_FRAMES = 5
         const val MIN_MEASURED_FPS = 10.0
         const val MAX_MEASURED_FPS = 72.0
