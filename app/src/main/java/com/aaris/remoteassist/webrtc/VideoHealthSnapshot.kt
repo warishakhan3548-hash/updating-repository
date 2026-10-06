@@ -17,6 +17,7 @@ data class VideoHealthSnapshot(
     val roundTripTimeMs: Int?,
     val packetLossRatio: Double?,
     val jitterBufferAverageMs: Double? = null,
+    val jitterBufferTargetAverageMs: Double? = null,
     val processingAverageMs: Double? = null,
     val framesDropped: Long? = null,
     val freezeCount: Long? = null,
@@ -26,6 +27,7 @@ data class VideoHealthSnapshot(
     val timestampUs: Double = 0.0,
     val processingTotalSeconds: Double? = null,
     val jitterTotalSeconds: Double? = null,
+    val jitterTargetTotalSeconds: Double? = null,
     val jitterEmittedCount: Long? = null,
     val sendDelayTotalSeconds: Double? = null,
     val recent: VideoHealthWindow? = null,
@@ -80,6 +82,9 @@ data class VideoHealthSnapshot(
                 append("kbps")
             }
             jitterBufferAverageMs?.let { append(" jitterAvg=${it.roundToInt()}ms") }
+            jitterBufferTargetAverageMs?.let {
+                append(" jitterTarget=${it.roundToInt()}ms")
+            }
             processingAverageMs?.let { append(" codecAvg=${it.roundToInt()}ms") }
             framesDropped?.let { append(" dropped=$it") }
             freezeCount?.let { append(" freezes=$it") }
@@ -254,6 +259,8 @@ data class VideoHealthSnapshot(
                     roundTripTimeMs = roundTripTimeMs,
                     packetLossRatio = null,
                     jitterBufferAverageMs = meanMs("jitterBufferDelay", "jitterBufferEmittedCount"),
+                    jitterBufferTargetAverageMs =
+                        meanMs("jitterBufferTargetDelay", "jitterBufferEmittedCount"),
                     processingAverageMs = meanMs("totalDecodeTime", "framesDecoded"),
                     framesDropped = members["framesDropped"]?.let(::number),
                     freezeCount = members["freezeCount"]?.let(::number),
@@ -262,6 +269,8 @@ data class VideoHealthSnapshot(
                     streamId = selected.id, timestampUs = report.timestampUs,
                     processingTotalSeconds = decimal(members["totalDecodeTime"]),
                     jitterTotalSeconds = decimal(members["jitterBufferDelay"]),
+                    jitterTargetTotalSeconds =
+                        decimal(members["jitterBufferTargetDelay"]),
                     jitterEmittedCount = members["jitterBufferEmittedCount"]?.let(::number)
                 )
             }
