@@ -17,6 +17,24 @@ internal object RealtimeMediaPolicy {
     const val FIELD_TRIALS =
         "WebRTC-ForceSendPlayoutDelay/min_ms:0,max_ms:100/"
 
+    /*
+     * getStats() is diagnostic/adaptation work, not part of the media hot path.
+     * During touch/motion we sample often enough to react before a stale queue
+     * survives a full second. While the screen is quiet, sample less often so
+     * telemetry itself does not become steady-state CPU/battery overhead.
+     */
+    const val VIDEO_STATS_INITIAL_DELAY_MS = 650L
+    const val VIDEO_STATS_FAST_KICK_MS = 100L
+    const val VIDEO_STATS_REALTIME_INTERVAL_MS = 500L
+    const val VIDEO_STATS_IDLE_INTERVAL_MS = 1_500L
+
+    fun videoStatsIntervalMs(realtime: Boolean): Long =
+        if (realtime) {
+            VIDEO_STATS_REALTIME_INTERVAL_MS
+        } else {
+            VIDEO_STATS_IDLE_INTERVAL_MS
+        }
+
     fun threadPriority(interactionActive: Boolean): Int =
         if (interactionActive) {
             Process.THREAD_PRIORITY_DISPLAY
