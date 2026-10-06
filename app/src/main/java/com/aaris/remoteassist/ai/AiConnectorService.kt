@@ -282,7 +282,8 @@ class AiConnectorService : Service() {
                                 .put("waitState", waited.reason)
                                 .put("waitedMs", waited.waitedMs)
                                 .put("changeRatio", waited.changeRatio ?: JSONObject.NULL)
-                                .put("screenVersion", engine.ledger.version)
+                                .put("observationId", args.getString("observationId"))
+                                .put("screenVersion", args.getLong("screenVersion"))
                                 .put("taskState", taskMemory.snapshot())
                         } else {
                             engine.invalidate()
