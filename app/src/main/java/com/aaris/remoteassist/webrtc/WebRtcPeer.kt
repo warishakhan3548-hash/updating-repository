@@ -142,7 +142,6 @@ class WebRtcPeer(
     private val videoHealthWindows = VideoHealthWindowTracker()
     private val videoStatsInFlight = AtomicBoolean(false)
     private val videoStatsEpoch = AtomicLong(0L)
-    private val videoStatsScheduleLock = Any()
     private var videoStatsNextAtMs = Long.MAX_VALUE
 
     @Volatile
@@ -159,9 +158,9 @@ class WebRtcPeer(
      */
     private val videoStatsProbe = object : Runnable {
         override fun run() {
-            synchronized(videoStatsScheduleLock) {
-                videoStatsNextAtMs = Long.MAX_VALUE
-            }
+            // Every schedule/cancel mutation is serialized onto this Handler,
+            // so the due-time state cannot race a policy-thread upshift.
+            videoStatsNextAtMs = Long.MAX_VALUE
             if (closed.get() || !videoStatsEnabled) return
 
             if (videoStatsInFlight.compareAndSet(false, true)) {
@@ -216,29 +215,46 @@ class WebRtcPeer(
         delayMs: Long,
         onlyIfEarlier: Boolean = false
     ) {
+        /*
+         * Host policy runs on AarisRemotePolicy while WebRTC transport callbacks
+         * may arrive on native signaling threads. Serialize deadline ownership
+         * onto one Android Handler before comparing/removing callbacks; otherwise
+         * an already-dequeued periodic probe could race a new urgent deadline.
+         */
+        if (Looper.myLooper() != handler.looper) {
+            handler.post {
+                scheduleVideoStatsProbe(
+                    delayMs = delayMs,
+                    onlyIfEarlier = onlyIfEarlier
+                )
+            }
+            return
+        }
+
         if (closed.get() || !videoStatsEnabled) return
 
         val boundedDelay = delayMs.coerceAtLeast(0L)
         val dueAtMs = monotonicNowMs() + boundedDelay
-        synchronized(videoStatsScheduleLock) {
-            if (
-                onlyIfEarlier &&
-                videoStatsNextAtMs <= dueAtMs
-            ) {
-                return
-            }
-
-            handler.removeCallbacks(videoStatsProbe)
-            videoStatsNextAtMs = dueAtMs
-            handler.postDelayed(videoStatsProbe, boundedDelay)
+        if (
+            onlyIfEarlier &&
+            videoStatsNextAtMs <= dueAtMs
+        ) {
+            return
         }
+
+        handler.removeCallbacks(videoStatsProbe)
+        videoStatsNextAtMs = dueAtMs
+        handler.postDelayed(videoStatsProbe, boundedDelay)
     }
 
     private fun cancelVideoStatsProbe() {
-        synchronized(videoStatsScheduleLock) {
-            handler.removeCallbacks(videoStatsProbe)
-            videoStatsNextAtMs = Long.MAX_VALUE
+        if (Looper.myLooper() != handler.looper) {
+            handler.post { cancelVideoStatsProbe() }
+            return
         }
+
+        handler.removeCallbacks(videoStatsProbe)
+        videoStatsNextAtMs = Long.MAX_VALUE
     }
 
     private val bootstrapRecovery = object : Runnable {
