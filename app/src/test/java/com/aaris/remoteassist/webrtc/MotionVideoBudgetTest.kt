@@ -15,6 +15,20 @@ class MotionVideoBudgetTest {
         VideoHealthWindow(1000, fps, decode, 5.0, 0, 0, presentationIntervalMs = 1000,
             presentedFrames = presented, maxRenderGapMs = 34)
 
+    @Test fun newMotionWarmStartsAtFiveFortyBeforeTelemetryArrives() {
+        val budget = MotionVideoBudget()
+
+        assertTrue(budget.primeForMotion(profile, 1_000L))
+        assertEquals(540, budget.shortEdge)
+        assertEquals(540, budget.apply(profile, true).captureWidthPx)
+        assertEquals(30, budget.cadenceFloor(profile, true, 1_000L))
+
+        // Repeated motion pulses refresh the hold but never keep knocking a
+        // stream down after its first warm-start decision.
+        assertFalse(budget.primeForMotion(profile, 1_500L))
+        assertEquals(540, budget.shortEdge)
+    }
+
     @Test fun recordedSoftwareCollapseReducesPixelsBeforeThirtyFps() {
         val budget = MotionVideoBudget()
         val cadence = VideoCadenceGovernor(60, 30)
