@@ -70,24 +70,22 @@ class AdaptiveScreenSmoothnessTest {
                 displayRefreshRateHz = 60.0
             )
 
-        repeat(4) { index ->
-            assertFalse(
-                governor.observe(
-                    healthySender,
-                    healthyReceiver,
-                    30,
-                    1_000L + index * 1_000L,
-                    producerFps = 60.0
-                )
+        assertFalse(
+            governor.observe(
+                healthySender,
+                healthyReceiver,
+                30,
+                1_000L,
+                producerFps = 60.0
             )
-        }
+        )
 
         assertTrue(
             governor.observe(
                 healthySender,
                 healthyReceiver,
                 30,
-                5_000L,
+                2_000L,
                 producerFps = 60.0
             )
         )
