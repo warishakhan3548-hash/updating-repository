@@ -107,8 +107,28 @@ internal class HighCadenceProbe {
             return null
         }
         if (healthyWindows++ == 0) candidateSinceMs = nowMs
-        val required = if (next == 45) 5 else 8
-        if (healthyWindows < required || nowMs - candidateSinceMs < (required - 1) * 1_000L) return null
+        /*
+         * Promotion already requires end-to-end proof: producer headroom,
+         * encoder + decoder budget, low sender residence, low jitter, clean
+         * loss/RTT, and fresh EGL presentation. Waiting five to eight one-second
+         * windows after all of that makes interaction feel artificially capped.
+         *
+         * Use a short bounded proof instead: two clean windows earn 45 fps and
+         * three earn 60 fps. The trial path below still rolls back after two bad
+         * windows, so speed-up is symmetric with fast failure recovery.
+         */
+        val required =
+            if (next == 45) {
+                PROMOTE_TO_45_HEALTHY_WINDOWS
+            } else {
+                PROMOTE_TO_60_HEALTHY_WINDOWS
+            }
+        if (
+            healthyWindows < required ||
+            nowMs - candidateSinceMs < (required - 1) * 1_000L
+        ) {
+            return null
+        }
 
         trialFrom = currentFps
         trialAtMs = nowMs
@@ -131,6 +151,8 @@ internal class HighCadenceProbe {
     private fun Double?.valid(): Double? = this?.takeIf { it.isFinite() && it >= 0.0 }
 
     private companion object {
-        const val RETRY_COOLDOWN_MS = 15_000L
+        const val PROMOTE_TO_45_HEALTHY_WINDOWS = 2
+        const val PROMOTE_TO_60_HEALTHY_WINDOWS = 3
+        const val RETRY_COOLDOWN_MS = 8_000L
     }
 }
