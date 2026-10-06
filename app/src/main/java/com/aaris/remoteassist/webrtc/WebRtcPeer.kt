@@ -141,6 +141,7 @@ class WebRtcPeer(
 
     private val videoHealthWindows = VideoHealthWindowTracker()
     private val videoStatsInFlight = AtomicBoolean(false)
+    private val videoStatsEpoch = AtomicLong(0L)
 
     @Volatile
     private var realtimeVideoTelemetry = false
@@ -159,11 +160,13 @@ class WebRtcPeer(
             if (closed.get() || !videoStatsEnabled) return
 
             if (videoStatsInFlight.compareAndSet(false, true)) {
+                val epoch = videoStatsEpoch.get()
                 peerConnection.getStats { report ->
                     try {
                         if (
                             closed.get() ||
-                            !videoStatsEnabled
+                            !videoStatsEnabled ||
+                            epoch != videoStatsEpoch.get()
                         ) {
                             return@getStats
                         }
@@ -1091,6 +1094,7 @@ class WebRtcPeer(
         handler.removeCallbacks(bootstrapRecovery)
         handler.removeCallbacks(controllerRelayRefresh)
         reconcileRemoteVideoTrack()
+        videoStatsEpoch.incrementAndGet()
         videoStatsEnabled = true
         handler.removeCallbacks(videoStatsProbe)
         handler.postDelayed(
@@ -1101,6 +1105,7 @@ class WebRtcPeer(
     }
 
     private fun handleTransportDisconnected() {
+        videoStatsEpoch.incrementAndGet()
         videoStatsEnabled = false
         handler.removeCallbacks(videoStatsProbe)
         preLiveDisconnected =
@@ -1122,6 +1127,7 @@ class WebRtcPeer(
     }
 
     private fun handleTransportFailed() {
+        videoStatsEpoch.incrementAndGet()
         videoStatsEnabled = false
         handler.removeCallbacks(videoStatsProbe)
         preLiveDisconnected = false
