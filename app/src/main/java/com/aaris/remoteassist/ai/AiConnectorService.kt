@@ -319,7 +319,7 @@ class AiConnectorService : Service() {
                             rawContextNote = args.optString("contextNote", "").takeIf { it.isNotBlank() },
                             effect = effect,
                             applied = applied,
-                            packageName = image.optString("currentPackage", null),
+                            packageName = image.optString("currentPackage", "").takeIf { it.isNotBlank() },
                             mode = engine.currentInteractionMode()
                         )
                         image.put("applied", applied).put("actionId", id)
@@ -394,7 +394,7 @@ class AiConnectorService : Service() {
                             rawContextNote = args.optString("contextNote", "").takeIf { it.isNotBlank() },
                             effect = effect,
                             applied = applied,
-                            packageName = image.optString("currentPackage", null),
+                            packageName = image.optString("currentPackage", "").takeIf { it.isNotBlank() },
                             mode = engine.currentInteractionMode()
                         )
                         image.put("actionId", id).put("applied", applied)
