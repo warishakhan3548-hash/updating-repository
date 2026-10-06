@@ -583,14 +583,21 @@ class VideoCadenceGovernor(
         const val CODEC_HEADROOM_BUDGET_RATIO = 0.55
         const val FPS_DELIVERY_RATIO = 0.85
 
-        const val MIN_QUEUE_PRESSURE_MS = 55.0
-        const val QUEUE_BUDGET_MULTIPLIER = 2.0
-        const val MIN_JITTER_PRESSURE_MS = 85.0
-        const val JITTER_BUDGET_MULTIPLIER = 2.5
-        const val MIN_PIPELINE_RESIDENCE_PRESSURE_MS = 55.0
-        const val PIPELINE_RESIDENCE_BUDGET_MULTIPLIER = 3.0
-        const val MIN_RENDER_GAP_PRESSURE_MS = 55.0
-        const val RENDER_GAP_BUDGET_MULTIPLIER = 2.5
+        /*
+         * Remote control is freshness-limited, not throughput-limited. At
+         * 60 fps, 55-100 ms of residence already represents several obsolete
+         * visual states. Keep the alarms frame-relative, but tighten their
+         * absolute floor so a fast path sheds work before a visible stale queue
+         * forms. Lower cadences still get proportionally larger budgets.
+         */
+        const val MIN_QUEUE_PRESSURE_MS = 40.0
+        const val QUEUE_BUDGET_MULTIPLIER = 1.5
+        const val MIN_JITTER_PRESSURE_MS = 70.0
+        const val JITTER_BUDGET_MULTIPLIER = 2.0
+        const val MIN_PIPELINE_RESIDENCE_PRESSURE_MS = 45.0
+        const val PIPELINE_RESIDENCE_BUDGET_MULTIPLIER = 2.25
+        const val MIN_RENDER_GAP_PRESSURE_MS = 45.0
+        const val RENDER_GAP_BUDGET_MULTIPLIER = 2.25
         const val PRESENTATION_DELIVERY_RATIO = 0.82
 
         const val PACKET_LOSS_PRESSURE_RATIO = 0.04
@@ -608,10 +615,10 @@ class VideoCadenceGovernor(
         const val SEVERE_OBSERVED_HEADROOM = 1.10
         const val STRONG_RELIEF_MAX_STEP_FPS = 30
 
-        const val URGENT_FRESHNESS_MULTIPLIER = 2.0
-        const val URGENT_FRESHNESS_CHANGE_INTERVAL_MS = 1_500L
+        const val URGENT_FRESHNESS_MULTIPLIER = 1.75
+        const val URGENT_FRESHNESS_CHANGE_INTERVAL_MS = 1_000L
         const val HIGH_CADENCE_FAST_RELIEF_FPS = 60
-        const val HIGH_CADENCE_FAST_RELIEF_CHANGE_INTERVAL_MS = 1_500L
+        const val HIGH_CADENCE_FAST_RELIEF_CHANGE_INTERVAL_MS = 1_000L
 
         const val HEALTHY_RTT_MS = 300
         const val HEALTHY_JITTER_MS = 45.0
