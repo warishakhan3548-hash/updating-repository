@@ -60,8 +60,19 @@ class AiLocalReflexWatcher(
                 return AiReflexMatch(false, "LOCAL_ONLY_SCREEN", lastRatio)
             }
 
-            if (ui.packageName == template.packageName && ui.windowId == template.windowId &&
-                semanticGuardMatches(template, ui)) {
+            if (ui.packageName == template.packageName && ui.windowId == template.windowId) {
+                val semanticMatch = semanticGuardMatches(template, ui)
+                if (template.targetId != null && !semanticMatch) {
+                    // For a semantic button, disappearance inside the same app/window
+                    // is itself strong evidence that the remembered ready-state left.
+                    departed = true
+                    pause(SAMPLE_INTERVAL_MS)
+                    continue
+                }
+                if (!semanticMatch) {
+                    pause(SAMPLE_INTERVAL_MS)
+                    continue
+                }
                 val frame = freshFrame()
                 val uprightWidth = if (frame.rotation % 180 == 0) frame.width else frame.height
                 val uprightHeight = if (frame.rotation % 180 == 0) frame.height else frame.width
