@@ -35,6 +35,48 @@ internal object RealtimeMediaPolicy {
             VIDEO_STATS_IDLE_INTERVAL_MS
         }
 
+    /**
+     * Order cross-layer video reconfiguration so a transition cannot create a
+     * short producer burst that outruns the sender envelope.
+     *
+     * When pixel-rate demand grows, prime RTP/encoder limits first and only
+     * then admit the faster/heavier source. When demand stays flat or shrinks,
+     * reduce the source first so stale work stops entering the pipeline before
+     * sender limits are tightened. This is deliberately a two-actuator ordering
+     * rule, not another queue, encoder, or feedback loop.
+     */
+    fun senderBeforeCaptureForTransition(
+        previousWidthPx: Int,
+        previousHeightPx: Int,
+        previousFps: Int,
+        nextWidthPx: Int,
+        nextHeightPx: Int,
+        nextFps: Int
+    ): Boolean {
+        if (
+            previousWidthPx <= 0 ||
+            previousHeightPx <= 0 ||
+            previousFps <= 0
+        ) {
+            return true
+        }
+
+        val previousPixelRate =
+            previousWidthPx.toLong() *
+                previousHeightPx.toLong() *
+                previousFps.coerceAtLeast(1).toLong()
+        val nextPixelRate =
+            nextWidthPx.coerceAtLeast(1).toLong() *
+                nextHeightPx.coerceAtLeast(1).toLong() *
+                nextFps.coerceAtLeast(1).toLong()
+
+        return nextPixelRate > previousPixelRate ||
+            (
+                nextPixelRate == previousPixelRate &&
+                    nextFps > previousFps
+                )
+    }
+
     fun threadPriority(interactionActive: Boolean): Int =
         if (interactionActive) {
             Process.THREAD_PRIORITY_DISPLAY
