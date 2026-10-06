@@ -26,6 +26,17 @@ internal class MotionVideoBudget {
     private var lastImplementation: String? = null
     private var lastBandwidthPressureAtMs = Long.MIN_VALUE / 2
 
+    /*
+     * Predict freshness debt before it becomes an absolute queue alarm.
+     * These are control-plane scalars only: no frame, texture or packet is
+     * retained. The composition flag prevents a newly available receiver
+     * jitter sample from looking like artificial queue growth.
+     */
+    private var previousResidenceMs: Double? = null
+    private var previousResidenceAtMs = Long.MIN_VALUE / 2
+    private var previousResidenceUsesReceiver = false
+    private var residenceGrowthSamples = 0
+
     /**
      * New motion must not blindly pay a MediaCodec resolution restart.
      *
@@ -54,6 +65,7 @@ internal class MotionVideoBudget {
         if (enteringMotion) {
             pressureSamples = 0
             healthySamples = 0
+            resetResidenceGrowth()
 
             val profileShortEdge =
                 minOf(profile.captureWidthPx, profile.captureHeightPx)
@@ -90,6 +102,7 @@ internal class MotionVideoBudget {
         if (!motionActive) {
             pressureSamples = 0
             healthySamples = 0
+            resetResidenceGrowth()
             if (nowMs - lastMotionAtMs >= IDLE_RESTORE_MS) {
                 lastBandwidthPressureAtMs = Long.MIN_VALUE / 2
                 holdingResolution = false
@@ -103,6 +116,7 @@ internal class MotionVideoBudget {
         if (sender == null) {
             pressureSamples = 0
             healthySamples = 0
+            resetResidenceGrowth()
             return before != (shortEdge to holdingResolution)
         }
 
@@ -116,6 +130,7 @@ internal class MotionVideoBudget {
                 changedAtMs = nowMs
                 pressureSamples = 0
                 healthySamples = 0
+                resetResidenceGrowth()
                 return true
             }
         }
@@ -160,6 +175,27 @@ internal class MotionVideoBudget {
         val sourceProvesMotion =
             measuredSourceFps?.let { it >= MIN_MOVING_SOURCE_FPS } == true
         val motionEvidence = interactionActive || sourceProvesMotion
+
+        /*
+         * Absolute queue thresholds are necessarily reactive. For interactive
+         * remoting, three fresh telemetry points can tell us sooner that media
+         * residence is climbing toward visible staleness. Track the slope of
+         * sender queue + receiver jitter (or sender queue alone when receiver
+         * timing is unavailable), normalized by the frame deadline.
+         *
+         * Active motion is mandatory, the residence composition must remain
+         * comparable, and two consecutive rising intervals are required. This
+         * adds no stats poll, thread, encoder, queue or frame copy.
+         */
+        val predictiveResidencePressure =
+            observeResidenceGrowth(
+                sendQueueMs = queueMs,
+                receiverJitterMs = jitterMs,
+                receiverMeasured = received != null,
+                frameBudgetMs = frameMs,
+                motionEvidence = motionEvidence,
+                nowMs = nowMs
+            )
         val senderLagsMotion =
             if (interactionActive) {
                 sender.fps < goal * INTERACTION_DELIVERY_RATIO
@@ -222,6 +258,7 @@ internal class MotionVideoBudget {
                 presentationPressure ||
                 bandwidthUnderDelivery ||
                 predictiveBandwidthPressure ||
+                predictiveResidencePressure ||
                 outbound.qualityLimitationReason == "cpu"
 
         if (pressured) {
@@ -248,6 +285,8 @@ internal class MotionVideoBudget {
                     BANDWIDTH_FAST_SETTLE_MS
                 predictiveBandwidthPressure ->
                     BWE_PREDICTIVE_SETTLE_MS
+                predictiveResidencePressure ->
+                    RESIDENCE_GROWTH_FAST_SETTLE_MS
                 highCadencePipelinePressure ->
                     HIGH_CADENCE_FAST_SETTLE_MS
                 else ->
@@ -265,7 +304,8 @@ internal class MotionVideoBudget {
                             encodePressure ||
                                 decodePressure ||
                                 bandwidthFreshnessPressure ||
-                                predictiveBandwidthPressure
+                                predictiveBandwidthPressure ||
+                                predictiveResidencePressure
                             ) -> 240
                     // 180 is deliberately reserved for strong bandwidth proof.
                     // A sustained BWE estimate far below the current rung is
@@ -280,6 +320,7 @@ internal class MotionVideoBudget {
                 if (next != shortEdge) {
                     shortEdge = next
                     changedAtMs = nowMs
+                    resetResidenceGrowth()
                 }
                 pressureSamples = 0
             }
@@ -325,6 +366,7 @@ internal class MotionVideoBudget {
                 shortEdge = when { shortEdge < 360 -> 360; shortEdge < 540 -> 540; else -> 720 }
                 changedAtMs = nowMs
                 healthySamples = 0
+                resetResidenceGrowth()
             }
         }
         return before != (shortEdge to holdingResolution)
@@ -479,6 +521,79 @@ internal class MotionVideoBudget {
         }
     }
 
+    private fun observeResidenceGrowth(
+        sendQueueMs: Double?,
+        receiverJitterMs: Double?,
+        receiverMeasured: Boolean,
+        frameBudgetMs: Double,
+        motionEvidence: Boolean,
+        nowMs: Long
+    ): Boolean {
+        val queue = sendQueueMs.valid()
+        if (!motionEvidence || queue == null || nowMs < 0L) {
+            resetResidenceGrowth()
+            return false
+        }
+
+        val jitter = receiverJitterMs.valid()
+        val usesReceiver = receiverMeasured && jitter != null
+        val residenceMs = queue + if (usesReceiver) jitter!! else 0.0
+        val previous = previousResidenceMs
+        val previousAt = previousResidenceAtMs
+        val comparable =
+            previous != null &&
+                previousResidenceUsesReceiver == usesReceiver
+
+        previousResidenceMs = residenceMs
+        previousResidenceAtMs = nowMs
+        previousResidenceUsesReceiver = usesReceiver
+
+        if (!comparable) {
+            residenceGrowthSamples = 0
+            return false
+        }
+
+        val intervalMs = nowMs - previousAt
+        if (intervalMs !in MIN_RESIDENCE_SAMPLE_INTERVAL_MS..MAX_RESIDENCE_SAMPLE_INTERVAL_MS) {
+            residenceGrowthSamples = 0
+            return false
+        }
+
+        val minimumResidenceMs =
+            maxOf(
+                MIN_RESIDENCE_GROWTH_BASE_MS,
+                frameBudgetMs * RESIDENCE_GROWTH_MIN_BUDGET_MULTIPLIER
+            )
+        val minimumGrowthRateMsPerSecond =
+            maxOf(
+                MIN_RESIDENCE_GROWTH_RATE_MS_PER_SECOND,
+                frameBudgetMs * RESIDENCE_GROWTH_RATE_BUDGET_MULTIPLIER
+            )
+        val growthRateMsPerSecond =
+            (residenceMs - previous!!) * 1_000.0 / intervalMs.toDouble()
+        val rising =
+            residenceMs >= minimumResidenceMs &&
+                growthRateMsPerSecond >= minimumGrowthRateMsPerSecond
+
+        residenceGrowthSamples =
+            if (rising) {
+                (residenceGrowthSamples + 1).coerceAtMost(
+                    RESIDENCE_GROWTH_SAMPLES_REQUIRED
+                )
+            } else {
+                0
+            }
+
+        return residenceGrowthSamples >= RESIDENCE_GROWTH_SAMPLES_REQUIRED
+    }
+
+    private fun resetResidenceGrowth() {
+        previousResidenceMs = null
+        previousResidenceAtMs = Long.MIN_VALUE / 2
+        previousResidenceUsesReceiver = false
+        residenceGrowthSamples = 0
+    }
+
     private fun isSoftwareEncoder(
         implementation: String
     ): Boolean =
@@ -537,6 +652,22 @@ internal class MotionVideoBudget {
         const val BWE_PRESSURE_HEADROOM_RATIO = 1.10
         const val BWE_SEVERE_HEADROOM_RATIO = 0.60
         const val BWE_RECOVERY_HEADROOM_RATIO = 1.20
+
+        /*
+         * Rising media residence is predictive, not an emergency. Scale both
+         * the minimum debt and its growth rate with frame duration: 60 Hz reacts
+         * sooner, while 30 Hz gets a wider budget. Two comparable intervals are
+         * required before pixel relief can fire.
+         */
+        const val MIN_RESIDENCE_GROWTH_BASE_MS = 20.0
+        const val RESIDENCE_GROWTH_MIN_BUDGET_MULTIPLIER = 1.25
+        const val MIN_RESIDENCE_GROWTH_RATE_MS_PER_SECOND = 12.0
+        const val RESIDENCE_GROWTH_RATE_BUDGET_MULTIPLIER = 0.75
+        const val RESIDENCE_GROWTH_SAMPLES_REQUIRED = 2
+        const val MIN_RESIDENCE_SAMPLE_INTERVAL_MS = 250L
+        const val MAX_RESIDENCE_SAMPLE_INTERVAL_MS = 2_500L
+        const val RESIDENCE_GROWTH_FAST_SETTLE_MS = 1_000L
+
         const val HIGH_CADENCE_FPS = 45
         const val HIGH_CADENCE_FAST_SETTLE_MS = 1_500L
         const val BANDWIDTH_PRESSURE_HOLD_MS = 2_500L
