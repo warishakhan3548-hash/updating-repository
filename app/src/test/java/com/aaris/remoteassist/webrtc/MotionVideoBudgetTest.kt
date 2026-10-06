@@ -44,7 +44,7 @@ class MotionVideoBudgetTest {
             ).copy(
                 roundTripTimeMs = 80,
                 packetLossRatio = 0.005,
-                availableOutgoingBitrateBps = 4_500_000.0
+                availableOutgoingBitrateBps = 9_000_000.0
             )
 
         assertTrue(
@@ -69,12 +69,12 @@ class MotionVideoBudgetTest {
             ).copy(
                 roundTripTimeMs = 90,
                 packetLossRatio = 0.005,
-                availableOutgoingBitrateBps = 2_400_000.0
+                availableOutgoingBitrateBps = 5_000_000.0
             )
 
         assertTrue(
             budget.primeForMotion(
-                profile = profile,
+                profile = profile.copy(maxVideoBitrateBps = 6_000_000),
                 nowMs = 1_000L,
                 warmStartEvidence = quietHealthyPath
             )
@@ -341,6 +341,72 @@ class MotionVideoBudgetTest {
         )
         assertEquals(240, budget.shortEdge)
         assertEquals(500_000, budget.bitrateCeiling(profile, true))
+    }
+
+    @Test fun sixtyFpsBandwidthPredictionUsesPixelRateNotThirtyFpsRung() {
+        val sixty = MotionVideoBudget()
+        assertTrue(sixty.primeForMotion(profile, 0L))
+        val path =
+            sender(
+                fps = 60,
+                encode = 5.0,
+                queue = 5.0,
+                implementation = "c2.qti.avc.encoder"
+            ).copy(
+                availableOutgoingBitrateBps = 1_200_000.0
+            )
+
+        assertFalse(
+            sixty.observe(
+                path,
+                receiver(fps = 60, decode = 5.0, presented = 60),
+                sourceFps = 60.0,
+                motionActive = true,
+                targetFps = 60,
+                nowMs = 1_000L,
+                interactionActive = true
+            )
+        )
+        assertTrue(
+            sixty.observe(
+                path,
+                receiver(fps = 60, decode = 5.0, presented = 60),
+                sourceFps = 60.0,
+                motionActive = true,
+                targetFps = 60,
+                nowMs = 2_000L,
+                interactionActive = true
+            )
+        )
+        assertEquals(240, sixty.shortEdge)
+
+        // The same estimate comfortably fits 360-short-edge at 30 fps. A BWE
+        // stat by itself must not trigger relief when the requested pixel-rate
+        // really has headroom.
+        val thirty = MotionVideoBudget()
+        assertTrue(thirty.primeForMotion(profile, 0L))
+        val thirtyPath =
+            path.copy(
+                recent =
+                    path.recent!!.copy(
+                        frames = 30,
+                        processingMs = 5.0
+                    )
+            )
+        repeat(3) { index ->
+            assertFalse(
+                thirty.observe(
+                    thirtyPath,
+                    receiver(fps = 30, decode = 5.0, presented = 30),
+                    sourceFps = 30.0,
+                    motionActive = true,
+                    targetFps = 30,
+                    nowMs = 1_000L + index * 1_000L,
+                    interactionActive = true
+                )
+            )
+        }
+        assertEquals(360, thirty.shortEdge)
     }
 
     @Test fun lowBandwidthEstimateCannotBlurAStaticScreen() {
