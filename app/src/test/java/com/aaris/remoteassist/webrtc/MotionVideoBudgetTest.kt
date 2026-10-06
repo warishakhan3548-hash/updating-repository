@@ -101,4 +101,30 @@ class MotionVideoBudgetTest {
         assertTrue(cadence.observe(sender().copy(packetLossRatio = 0.20), null, 30, 1000, minimumFps = 30))
         assertTrue(cadence.cap < 30)
     }
+
+    @Test fun moderateReceiverJitterCannotPinCadenceWhilePixelBudgetIsUnchanged() {
+        val budget = MotionVideoBudget()
+        val cadence = VideoCadenceGovernor(30, 30)
+        val delayed = receiver().copy(jitterMs = 95.0)
+        repeat(2) { index ->
+            val now = (index + 1) * 1000L
+            budget.observe(sender(), delayed, 30.0, true, 30, now)
+            cadence.observe(sender(), delayed, 30, now, budget.cadenceFloor(profile, true, now))
+        }
+        // This delay is below the pixel governor threshold but above cadence's
+        // freshness budget. The old permanent 30-FPS floor blocked all relief.
+        assertEquals(720, budget.shortEdge)
+        assertEquals(24, cadence.cap)
+    }
+
+    @Test fun thirtyFpsSessionRecoversWithoutProbingFortyFiveOrSixty() {
+        val cadence = VideoCadenceGovernor(30, 30)
+        assertTrue(cadence.observe(sender(6, 60.0, 200.0), null, 30, 1000))
+        assertTrue(cadence.cap < 30)
+        repeat(40) { index ->
+            cadence.observe(sender(), receiver(), cadence.cap, 4000L + index * 1000)
+            assertTrue(cadence.cap <= 30)
+        }
+        assertEquals(30, cadence.cap)
+    }
 }

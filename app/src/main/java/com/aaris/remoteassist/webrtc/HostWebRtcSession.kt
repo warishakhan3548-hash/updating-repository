@@ -61,8 +61,8 @@ class HostWebRtcSession(
         )
     private val cadenceGovernor =
         VideoCadenceGovernor(
-            maxFps = profile.motionFps,
-            initialCap = minOf(profile.motionFps, STARTUP_VIDEO_FPS_CAP)
+            maxFps = minOf(profile.motionFps, MAX_SESSION_VIDEO_FPS),
+            initialCap = minOf(profile.motionFps, MAX_SESSION_VIDEO_FPS)
         )
     private val passiveMotionPriority = PassiveMotionPriority()
     private val motionVideoBudget = MotionVideoBudget()
@@ -93,7 +93,7 @@ class HostWebRtcSession(
                 if (freshnessPriorityActive()) {
                     "Remote interaction idle • visible screen motion remains freshness-first"
                 } else {
-                    "Remote interaction idle • restoring clarity-first video policy"
+                    "Remote interaction idle • native motion adaptation remains enabled"
                 }
             )
         }
@@ -290,7 +290,9 @@ class HostWebRtcSession(
 
         val initialEffective = effectiveCaptureProfile(profile)
         listener.onDiagnostic(
-            "Starting MediaProjection capture • " +
+            "Starting MediaProjection capture • app=" +
+                com.aaris.remoteassist.BuildConfig.VERSION_NAME +
+                " (" + com.aaris.remoteassist.BuildConfig.VERSION_CODE + ") • encoder=realtime • " +
                 initialEffective.captureWidthPx +
                 "x" +
                 initialEffective.captureHeightPx +
@@ -310,7 +312,8 @@ class HostWebRtcSession(
             maxBitrateBps = profile.maxVideoBitrateBps,
             maxFramerate = initialEffective.fps,
             preserveResolution =
-                initialVideoPolicy.preserveResolution
+                initialVideoPolicy.preserveResolution,
+            motionPriority = initialVideoPolicy.motionPriority
         )
         capture.start(initialEffective)
 
@@ -718,7 +721,7 @@ class HostWebRtcSession(
                     if (freshnessPriorityActive(now)) {
                         "Visible screen motion → freshness-first video policy"
                     } else {
-                        "Visible screen motion settled → clarity-first video policy"
+                        "Visible screen motion settled → gradual detail recovery"
                     }
                 )
             }
@@ -804,7 +807,7 @@ class HostWebRtcSession(
                     !active && freshnessActive ->
                         "Remote interaction ended • visible motion remains freshness-first"
                     !active ->
-                        "Remote interaction ended • restoring clarity-first video policy"
+                        "Remote interaction ended • native motion adaptation remains enabled"
                     policy.motionPriority ->
                         "Remote interaction active • prioritizing fresh motion frames"
                     else ->
@@ -991,6 +994,6 @@ class HostWebRtcSession(
         private const val MAX_CAPTURE_RECOVERY_ATTEMPTS = 3
         private const val LEASE_WATCHDOG_MS = 3_000L
         private const val INTERACTION_PRIORITY_TIMEOUT_MS = 3_000L
-        private const val STARTUP_VIDEO_FPS_CAP = 30
+        private const val MAX_SESSION_VIDEO_FPS = 30
     }
 }

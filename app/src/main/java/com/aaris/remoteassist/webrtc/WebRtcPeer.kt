@@ -524,7 +524,8 @@ class WebRtcPeer(
         track: VideoTrack,
         maxBitrateBps: Int = DEFAULT_VIDEO_BITRATE_BPS,
         maxFramerate: Int = DEFAULT_VIDEO_FRAMERATE,
-        preserveResolution: Boolean = true
+        preserveResolution: Boolean = true,
+        motionPriority: Boolean = false
     ) {
         check(!closed.get())
         check(role == PeerRole.HOST) {
@@ -545,6 +546,7 @@ class WebRtcPeer(
                 MAX_VIDEO_FRAMERATE
             )
         preserveVideoResolution = preserveResolution
+        this.motionPriority = motionPriority
 
         val transceiver = peerConnection.addTransceiver(
             track,
@@ -1620,7 +1622,7 @@ class WebRtcPeer(
     ) {
         runCatching {
             val parameters = sender.parameters
-            parameters.degradationPreference =
+            val degradationPreference =
                 when {
                     motionPriority ->
                         RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
@@ -1629,6 +1631,15 @@ class WebRtcPeer(
                     else ->
                         RtpParameters.DegradationPreference.BALANCED
                 }
+
+            // Interaction/source-activity changes often leave the actual RTP
+            // limits unchanged. Do not reconfigure a healthy encoder for them.
+            if (parameters.degradationPreference == degradationPreference &&
+                parameters.encodings.isNotEmpty() &&
+                parameters.encodings.all {
+                    it.maxBitrateBps == videoMaxBitrateBps && it.maxFramerate == videoMaxFramerate
+                }) return@runCatching
+            parameters.degradationPreference = degradationPreference
 
             parameters.encodings.forEach { encoding ->
                 encoding.maxBitrateBps = videoMaxBitrateBps

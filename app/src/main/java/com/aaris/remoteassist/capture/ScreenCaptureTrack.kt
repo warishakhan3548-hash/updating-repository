@@ -36,8 +36,13 @@ class ScreenCaptureTrack(
         }
     )
 
+    // This flag selects the encoder's content mode, not the capture permission
+    // or producer. Native screencast mode disables quality scaling even when
+    // the sender requests MAINTAIN_FRAMERATE. Remote-control motion needs the
+    // realtime encoder path, with MediaProjection still supplying the pixels.
+    // Keep it fixed for the session: toggling it recreates the encoder.
     private val videoSource: VideoSource =
-        factory.createVideoSource(true)
+        factory.createVideoSource(false)
 
     private val surfaceTextureHelper =
         checkNotNull(
@@ -56,6 +61,7 @@ class ScreenCaptureTrack(
     @Volatile
     private var started = false
     private var sourceGeometry: StableCaptureGeometry? = null
+    private var outputFormat: Triple<Int, Int, Int>? = null
 
     init {
         capturer.initialize(
@@ -98,7 +104,7 @@ class ScreenCaptureTrack(
         if (started) return
         sourceGeometry = StableCaptureGeometry(profile)
         activityTracker.sampleFps(android.os.SystemClock.elapsedRealtime())
-        videoSource.adaptOutputFormat(profile.captureWidthPx, profile.captureHeightPx, profile.fps)
+        adaptOutput(profile)
 
         capturer.startCapture(
             profile.captureWidthPx,
@@ -110,7 +116,7 @@ class ScreenCaptureTrack(
 
     fun update(profile: CaptureProfile) {
         if (closed.get() || !started) return
-        videoSource.adaptOutputFormat(profile.captureWidthPx, profile.captureHeightPx, profile.fps)
+        adaptOutput(profile)
 
         val source = sourceGeometry ?: return
         // ScreenCapturerAndroid ignores FPS and recreates/resizes the virtual
@@ -120,6 +126,13 @@ class ScreenCaptureTrack(
         if (source.updateDisplay(profile)) {
             capturer.changeCaptureFormat(source.width, source.height, profile.fps)
         }
+    }
+
+    private fun adaptOutput(profile: CaptureProfile) {
+        val next = Triple(profile.captureWidthPx, profile.captureHeightPx, profile.fps)
+        if (next == outputFormat) return
+        videoSource.adaptOutputFormat(next.first, next.second, next.third)
+        outputFormat = next
     }
 
     fun addSnapshotSink(sink: VideoSink) { snapshotSinks += sink }

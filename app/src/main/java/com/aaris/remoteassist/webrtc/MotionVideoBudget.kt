@@ -132,8 +132,10 @@ internal class MotionVideoBudget {
 
     fun cadenceFloor(profile: CaptureProfile, motionActive: Boolean, nowMs: Long): Int {
         if (!motionActive) return 1
-        val canReducePixels = minOf(shortEdge, profile.captureWidthPx, profile.captureHeightPx) > 360
-        return if (canReducePixels || nowMs - changedAtMs < SETTLE_MS) minOf(30, profile.motionFps) else 1
+        // Protect only the settling period after a real budget change. The
+        // former indefinite floor could block cadence relief when its pressure
+        // signal disagreed with the resolution governor (e.g. moderate jitter).
+        return if (nowMs - changedAtMs < SETTLE_MS) minOf(30, profile.motionFps) else 1
     }
 
     private fun Double?.valid(): Double? = this?.takeIf { it.isFinite() && it >= 0.0 }
