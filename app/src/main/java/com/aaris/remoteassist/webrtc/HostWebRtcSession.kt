@@ -726,8 +726,53 @@ class HostWebRtcSession(
             }
             is ControlPacket.PresentationFeedback -> policyHandler.post {
                 val current = lease
-                if (!closed.get() && current != null && SessionRuntime.isAuthorized(sessionId, current.leaseSecret, current.displayGeneration)) {
-                    receiverFeedback.accept(packet, current.leaseSecret, current.displayGeneration, android.os.SystemClock.elapsedRealtime())
+                val now =
+                    android.os.SystemClock.elapsedRealtime()
+                if (
+                    !closed.get() &&
+                    current != null &&
+                    SessionRuntime.isAuthorized(
+                        sessionId,
+                        current.leaseSecret,
+                        current.displayGeneration
+                    ) &&
+                    receiverFeedback.accept(
+                        packet,
+                        current.leaseSecret,
+                        current.displayGeneration,
+                        now
+                    )
+                ) {
+                    /*
+                     * EGL cadence is already reported every ~500 ms, sooner than
+                     * the outbound getStats() loop. During active control, use
+                     * that fresh proof-of-glass only as an emergency downshift
+                     * signal so a 60 Hz stream cannot spend another stats cycle
+                     * accumulating obsolete frames on the controller.
+                     *
+                     * This never promotes FPS or estimates bandwidth. The normal
+                     * sender/receiver/GCC telemetry path remains the authority
+                     * for recovery and stronger congestion decisions.
+                     */
+                    val requestedFps =
+                        effectiveCaptureProfile(profile).fps
+                    if (
+                        cadenceGovernor.observeFastPresentation(
+                            intervalMs = packet.intervalMs,
+                            renderedFrames = packet.renderedFrames,
+                            maxGapMs = packet.maxGapMs,
+                            requestedFps = requestedFps,
+                            interactionActive = interactionActive,
+                            nowMs = now
+                        )
+                    ) {
+                        applyVideoPolicy(profile)
+                        listener.onDiagnostic(
+                            "Controller glass hitch → " +
+                                cadenceGovernor.cap +
+                                "fps fast freshness relief"
+                        )
+                    }
                 }
             }
             is ControlPacket.PresentationHeartbeat -> policyHandler.post {
