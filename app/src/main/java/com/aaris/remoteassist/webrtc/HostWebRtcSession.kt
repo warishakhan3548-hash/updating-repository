@@ -969,7 +969,11 @@ class HostWebRtcSession(
         // Android capture surface stable; only display geometry may resize it.
         capture.update(effective)
         peer.updateInteractiveVideoPolicy(
-            maxBitrateBps = target.maxVideoBitrateBps,
+            maxBitrateBps =
+                motionVideoBudget.bitrateCeiling(
+                    profile = target,
+                    motionActive = freshnessActive
+                ),
             maxFramerate = effective.fps,
             preserveResolution = policy.preserveResolution,
             motionPriority = policy.motionPriority
