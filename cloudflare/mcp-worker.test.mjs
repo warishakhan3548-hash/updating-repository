@@ -69,6 +69,17 @@ test('task memory and guarded reflex arguments are strict and bounded', () => {
   assert.equal(validateArguments('phone_reflex', { actionId: 'reflex-0000001', reflexId: 'dice-ready', waitMs: 12001 }), false);
 });
 
+test('event-driven wait validates observation, thresholds and optional region', () => {
+  const wait = { observationId: args.observationId, screenVersion: args.screenVersion, waitMs: 5000, minChangeRatio: 0.06 };
+  assert.equal(validateArguments('phone_wait', wait), true);
+  assert.equal(validateArguments('phone_wait', { ...wait, left: 0.1, top: 0.2, right: 0.5, bottom: 0.8 }), true);
+  assert.equal(validateArguments('phone_wait', { ...wait, left: 0.1 }), false);
+  assert.equal(validateArguments('phone_wait', { ...wait, left: 0.6, top: 0.2, right: 0.5, bottom: 0.8 }), false);
+  assert.equal(validateArguments('phone_wait', { ...wait, minChangeRatio: 0.001 }), false);
+  assert.equal(validateArguments('phone_wait', { ...wait, waitMs: 12001 }), false);
+  assert.equal(validateArguments('phone_wait', { ...wait, quality: 'invalid' }), false);
+});
+
 test('deep canonicalization makes nested drag retries independent of object key order', () => {
   const a = { action: 'drag', points: [{ x: 0.2, y: 0.8 }, { x: 0.7, y: 0.3 }], outer: { b: 2, a: 1 } };
   const b = { outer: { a: 1, b: 2 }, points: [{ y: 0.8, x: 0.2 }, { y: 0.3, x: 0.7 }], action: 'drag' };
@@ -80,7 +91,7 @@ test('MCP initialization negotiates a supported version and images are first-cla
   const response = await f.obj.fetch(f.request(`/mcp/${id}/${clientToken}`, { jsonrpc: '2.0', id: 0, method: 'initialize', params: { protocolVersion: '2025-06-18' } }));
   const rpc = await response.json(); assert.equal(rpc.result.protocolVersion, '2025-06-18'); assert.ok(rpc.result.capabilities.tools);
   assert.equal(toolResult({ image: { mimeType: 'image/jpeg', data: 'aaa' }, screenVersion: 1 }).content[1].type, 'image');
-  assert.equal(TOOLS.length, 5);
+  assert.equal(TOOLS.length, 6);
 });
 test('unauthorized links and credential replacement cannot reach a phone', async () => {
   const f = await fixture(); f.connect();
@@ -97,6 +108,17 @@ test('offline phone rejects actions without queuing them for a future connection
   const f = await fixture(); assert.equal((await result(await f.call('phone_action', args))).error, 'PHONE_OFFLINE');
   assert.equal(f.sent.length, 0); assert.equal(f.ctx.storage.values.has(`action:${args.actionId}`), false);
 });
+test('phone_wait forwards one local wait and timeout can return metadata without image', async () => {
+  const f = await fixture(); f.connect();
+  const waitArgs = { observationId: args.observationId, screenVersion: 4, waitMs: 1000, minChangeRatio: 0.06 };
+  const pending = f.call('phone_wait', waitArgs);
+  await f.complete({ changed: false, waitState: 'WAIT_TIMEOUT', waitedMs: 1000, screenVersion: 4 });
+  const response = await (await pending).json();
+  assert.equal(response.result.content.length, 1);
+  assert.equal(JSON.parse(response.result.content[0].text).changed, false);
+  assert.equal(f.sent.length, 1);
+});
+
 test('one action returns its image; retry across hibernation returns outcome without re-execution', async () => {
   const f = await fixture(); f.connect();
   const pending = f.call('phone_action', args);
