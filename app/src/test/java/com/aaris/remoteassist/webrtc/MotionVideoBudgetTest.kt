@@ -15,18 +15,20 @@ class MotionVideoBudgetTest {
         VideoHealthWindow(1000, fps, decode, 5.0, 0, 0, presentationIntervalMs = 1000,
             presentedFrames = presented, maxRenderGapMs = 34)
 
-    @Test fun newMotionWarmStartsAtFiveFortyBeforeTelemetryArrives() {
+    @Test fun newMotionWarmStartsAtThreeSixtyBeforeTelemetryArrives() {
         val budget = MotionVideoBudget()
 
         assertTrue(budget.primeForMotion(profile, 1_000L))
-        assertEquals(540, budget.shortEdge)
-        assertEquals(540, budget.apply(profile, true).captureWidthPx)
+        assertEquals(360, budget.shortEdge)
+        assertEquals(360, budget.apply(profile, true).captureWidthPx)
+        assertEquals(800, budget.apply(profile, true).captureHeightPx)
         assertEquals(30, budget.cadenceFloor(profile, true, 1_000L))
+        assertEquals(900_000, budget.bitrateCeiling(profile, true))
 
         // Repeated motion pulses refresh the hold but never keep knocking a
         // stream down after its first warm-start decision.
         assertFalse(budget.primeForMotion(profile, 1_500L))
-        assertEquals(540, budget.shortEdge)
+        assertEquals(360, budget.shortEdge)
     }
 
     @Test fun recordedSoftwareCollapseReducesPixelsBeforeThirtyFps() {
@@ -71,6 +73,92 @@ class MotionVideoBudgetTest {
     @Test fun networkDelayAloneCannotUseTheEmergencyCodecResolution() {
         val budget = MotionVideoBudget()
         repeat(20) { budget.observe(sender(queue = 160.0), receiver(), 30.0, true, 30, 1_000L + it * 1_000) }
+        assertEquals(360, budget.shortEdge)
+    }
+
+    @Test fun recordedBandwidthQueueSpendsPixelsBeforeCadence() {
+        val budget = MotionVideoBudget()
+        val cadence = VideoCadenceGovernor(30, 30)
+        val recorded = sender(
+            fps = 5,
+            encode = 20.0,
+            queue = 353.0,
+            implementation = "OMX.qcom.video.encoder.avc"
+        ).copy(
+            qualityLimitationReason = "bandwidth",
+            roundTripTimeMs = 197
+        )
+
+        assertTrue(budget.primeForMotion(profile, 0L))
+        assertEquals(360, budget.shortEdge)
+
+        // This mirrors the uploaded trace: source motion is ~14 fps while the
+        // sender falls to ~5 fps and packet send residence is hundreds of ms.
+        assertTrue(budget.observe(recorded, null, 14.0, true, 30, 1_000L))
+        assertEquals(240, budget.shortEdge)
+        assertEquals(500_000, budget.bitrateCeiling(profile, true))
+        assertFalse(
+            cadence.observe(
+                recorded,
+                null,
+                30,
+                1_000L,
+                budget.cadenceFloor(profile, true, 1_000L),
+                producerFps = 14.0
+            )
+        )
+        assertEquals(30, cadence.cap)
+
+        val worse = recorded.copy(
+            recent = recorded.recent!!.copy(frames = 2, sendQueueMs = 1_669.0)
+        )
+        assertTrue(budget.observe(worse, null, 31.0, true, 30, 2_000L))
+        assertEquals(180, budget.shortEdge)
+        assertEquals(350_000, budget.bitrateCeiling(profile, true))
+        assertFalse(
+            cadence.observe(
+                worse,
+                null,
+                30,
+                2_000L,
+                budget.cadenceFloor(profile, true, 2_000L),
+                producerFps = 31.0
+            )
+        )
+        assertEquals(30, cadence.cap)
+
+        // Once the smallest pixel rung has had time to drain the old queue,
+        // cadence remains the final safety valve if the link is still bad.
+        assertTrue(
+            cadence.observe(
+                worse,
+                null,
+                30,
+                5_100L,
+                budget.cadenceFloor(profile, true, 5_100L),
+                producerFps = 31.0
+            )
+        )
+        assertTrue(cadence.cap < 30)
+    }
+
+    @Test fun bandwidthLabelWithoutMovingSourceCannotOverBlur() {
+        val budget = MotionVideoBudget()
+        val limited = sender(2, 5.0, 500.0).copy(
+            qualityLimitationReason = "bandwidth"
+        )
+
+        repeat(8) { index ->
+            budget.observe(
+                limited,
+                null,
+                sourceFps = 1.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = (index + 1) * 1_000L
+            )
+        }
+
         assertEquals(360, budget.shortEdge)
     }
 
