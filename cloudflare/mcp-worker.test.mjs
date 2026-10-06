@@ -80,6 +80,27 @@ test('event-driven wait validates observation, thresholds and optional region', 
   assert.equal(validateArguments('phone_wait', { ...wait, quality: 'invalid' }), false);
 });
 
+test('motor burst accepts only short touch-only bounded sequences', () => {
+  const burst = {
+    actionId: 'burst-0000001',
+    observationId: args.observationId,
+    screenVersion: args.screenVersion,
+    intent: 'Perform a short same-scene interaction',
+    steps: [
+      { action: 'tap', x: 0.4, y: 0.6, afterMs: 80 },
+      { action: 'drag', points: [{ x: 0.4, y: 0.6 }, { x: 0.55, y: 0.5 }], durationMs: 240 }
+    ]
+  };
+  assert.equal(validateArguments('phone_burst', burst), true);
+  assert.equal(validateArguments('phone_burst', { ...burst, steps: [] }), false);
+  assert.equal(validateArguments('phone_burst', { ...burst, steps: [{ action: 'type', text: 'x' }] }), false);
+  assert.equal(validateArguments('phone_burst', { ...burst, steps: [{ action: 'tap', x: 0.4, y: 0.6, afterMs: 301 }] }), false);
+  assert.equal(validateArguments('phone_burst', {
+    ...burst,
+    steps: Array.from({ length: 4 }, () => ({ action: 'long_press', x: 0.5, y: 0.5, durationMs: 700 }))
+  }), false);
+});
+
 test('deep canonicalization makes nested drag retries independent of object key order', () => {
   const a = { action: 'drag', points: [{ x: 0.2, y: 0.8 }, { x: 0.7, y: 0.3 }], outer: { b: 2, a: 1 } };
   const b = { outer: { a: 1, b: 2 }, points: [{ y: 0.8, x: 0.2 }, { y: 0.3, x: 0.7 }], action: 'drag' };
@@ -91,7 +112,7 @@ test('MCP initialization negotiates a supported version and images are first-cla
   const response = await f.obj.fetch(f.request(`/mcp/${id}/${clientToken}`, { jsonrpc: '2.0', id: 0, method: 'initialize', params: { protocolVersion: '2025-06-18' } }));
   const rpc = await response.json(); assert.equal(rpc.result.protocolVersion, '2025-06-18'); assert.ok(rpc.result.capabilities.tools);
   assert.equal(toolResult({ image: { mimeType: 'image/jpeg', data: 'aaa' }, screenVersion: 1 }).content[1].type, 'image');
-  assert.equal(TOOLS.length, 6);
+  assert.equal(TOOLS.length, 7);
 });
 test('unauthorized links and credential replacement cannot reach a phone', async () => {
   const f = await fixture(); f.connect();
@@ -164,6 +185,22 @@ test('reflex execution is also durably idempotent', async () => {
   await f.complete({ applied: true, reflexTriggered: true, screenVersion: 8 });
   assert.equal((await result(await first)).applied, true);
   const replay = await result(await f.call('phone_reflex', reflexArgs));
+  assert.equal(replay.replayed, true);
+  assert.equal(f.sent.length, 1);
+});
+
+test('motor burst is durably idempotent as one admitted action', async () => {
+  const f = await fixture(); f.connect();
+  const burstArgs = {
+    actionId: 'burst-0000001',
+    observationId: args.observationId,
+    screenVersion: 4,
+    steps: [{ action: 'tap', x: 0.3, y: 0.7 }]
+  };
+  const first = f.call('phone_burst', burstArgs);
+  await f.complete({ applied: true, executedSteps: 1, totalSteps: 1, burstState: 'completed', screenVersion: 9 });
+  assert.equal((await result(await first)).applied, true);
+  const replay = await result(await f.call('phone_burst', burstArgs));
   assert.equal(replay.replayed, true);
   assert.equal(f.sent.length, 1);
 });
