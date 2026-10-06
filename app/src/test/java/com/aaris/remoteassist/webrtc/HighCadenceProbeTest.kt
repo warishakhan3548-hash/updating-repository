@@ -24,8 +24,8 @@ class HighCadenceProbeTest {
             producerFps = source, maximumFps = maximum, allowHighCadenceProbe = allow)
 
     private fun promote45(g: VideoCadenceGovernor) {
-        repeat(4) { assertFalse(sample(g, 1000L + it * 1000L)) }
-        assertTrue(sample(g, 5000))
+        assertFalse(sample(g, 1000L))
+        assertTrue(sample(g, 2000L))
         assertEquals(45, g.cap)
         assertTrue(g.probingHighCadence)
     }
@@ -33,14 +33,20 @@ class HighCadenceProbeTest {
     @Test fun measuredPathCanProbeAndValidateFortyFiveThenSixty() {
         val g = VideoCadenceGovernor(60, 30)
         promote45(g)
-        assertFalse(sample(g, 6000))
-        assertFalse(sample(g, 7000))
+
+        // Two delivered trial windows validate 45 fps.
+        assertFalse(sample(g, 3000L))
+        assertFalse(sample(g, 4000L))
         assertFalse(g.probingHighCadence)
-        for (time in 8000L..14000L step 1000L) assertFalse(sample(g, time))
-        assertTrue(sample(g, 15000))
+
+        // Three additional end-to-end clean windows earn the 60 fps trial.
+        assertFalse(sample(g, 5000L))
+        assertFalse(sample(g, 6000L))
+        assertTrue(sample(g, 7000L))
         assertEquals(60, g.cap)
-        sample(g, 16000)
-        sample(g, 17000)
+
+        sample(g, 8000L)
+        sample(g, 9000L)
         assertFalse(g.probingHighCadence)
     }
 
@@ -80,11 +86,16 @@ class HighCadenceProbeTest {
         promote45(g)
         // Transport/encode look clean, but fresh source frames never make the
         // new cadence. This is exactly what sender-only promotion cannot see.
-        assertFalse(sample(g, 6000, fps = 30))
-        assertTrue(sample(g, 7000, fps = 30))
+        assertFalse(sample(g, 3000L, fps = 30))
+        assertTrue(sample(g, 4000L, fps = 30))
         assertEquals(30, g.cap)
-        for (time in 8000L..25000L step 1000L) assertFalse(sample(g, time))
-        assertTrue(sample(g, 26000))
+
+        // Failed trials get a bounded 8s retry cooldown.
+        for (time in 5000L..11000L step 1000L) {
+            assertFalse(sample(g, time))
+        }
+        assertFalse(sample(g, 12000L))
+        assertTrue(sample(g, 13000L))
         assertEquals(45, g.cap)
     }
 
@@ -101,6 +112,21 @@ class HighCadenceProbeTest {
         for (time in 8000L..10000L step 1000L) sample(h, time, recv = null)
         assertTrue(sample(h, 11000, recv = null))
         assertEquals(30, h.cap)
+    }
+
+    @Test fun oneVisibleQueueBurstAtSixtyRelievesBeforeStaleFramesPileUp() {
+        val g = VideoCadenceGovernor(60, 60)
+
+        assertTrue(
+            g.observe(
+                outbound = sender(fps = 60, queue = 45.0),
+                receiver = receiver(60),
+                requestedFps = 60,
+                nowMs = 1_000L,
+                producerFps = 60.0
+            )
+        )
+        assertEquals(45, g.cap)
     }
 
     @Test fun severeQueueBypassesInteractionFloorAndNewTouchCannotUndoRelief() {
