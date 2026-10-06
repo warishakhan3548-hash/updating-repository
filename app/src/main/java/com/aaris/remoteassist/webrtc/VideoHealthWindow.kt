@@ -16,9 +16,30 @@ data class VideoHealthWindow(
     val presentedFrames: Int? = null,
     val maxRenderGapMs: Int? = null,
     val presentationAgeMs: Int? = null,
-    val displayRefreshRateHz: Double? = null
+    val displayRefreshRateHz: Double? = null,
+    val jitterTargetMs: Double? = null
 ) {
     val fps: Double get() = frames * 1000.0 / intervalMs
+
+    /**
+     * Receiver freshness budget. WebRTC may intentionally grow its target
+     * jitter-buffer residence before the measured emitted-frame residence has
+     * caught up. For remoting, the larger valid value is the useful early
+     * warning because both represent time a fresh frame can spend waiting
+     * before decode/render.
+     */
+    val playoutDelayMs: Double?
+        get() {
+            val actual =
+                jitterMs?.takeIf { it.isFinite() && it >= 0.0 }
+            val target =
+                jitterTargetMs?.takeIf { it.isFinite() && it >= 0.0 }
+            return when {
+                actual == null -> target
+                target == null -> actual
+                else -> maxOf(actual, target)
+            }
+        }
     val presentedFps: Double?
         get() {
             val interval = presentationIntervalMs ?: return null
@@ -33,7 +54,8 @@ data class VideoHealthWindow(
         } ?: presentationAgeMs?.let {
             " present=alive age=${it}ms"
         }.orEmpty()
-        return "${fps.roundToInt()}fps ${bitrateBps / 1000}kbps codec=${processingMs?.roundToInt()}ms jitter=${jitterMs?.roundToInt()}ms drop=$dropped freeze=$freezes queue=${sendQueueMs?.roundToInt()}ms$presentation"
+        val target = jitterTargetMs?.roundToInt()?.let { " target=${it}ms" }.orEmpty()
+        return "${fps.roundToInt()}fps ${bitrateBps / 1000}kbps codec=${processingMs?.roundToInt()}ms jitter=${jitterMs?.roundToInt()}ms$target drop=$dropped freeze=$freezes queue=${sendQueueMs?.roundToInt()}ms$presentation"
     }
 }
 
@@ -57,11 +79,47 @@ class VideoHealthWindowTracker {
         }
         fun count(total: Long?, before: Long?): Int? = if (total == null || before == null) null else
             (total - before).takeIf { it in 0..2048 }?.toInt()
-        return current.copy(recent = VideoHealthWindow(interval.roundToInt(), frames.toInt(),
-            average(current.processingTotalSeconds, old.processingTotalSeconds, frames),
-            average(current.jitterTotalSeconds, old.jitterTotalSeconds,
-                if (current.jitterEmittedCount != null && old.jitterEmittedCount != null) current.jitterEmittedCount - old.jitterEmittedCount else 0),
-            count(current.framesDropped, old.framesDropped), count(current.freezeCount, old.freezeCount),
-            (bytes * 8000.0 / interval).toLong(), average(current.sendDelayTotalSeconds, old.sendDelayTotalSeconds, packets)))
+        val emitted =
+            if (
+                current.jitterEmittedCount != null &&
+                old.jitterEmittedCount != null
+            ) {
+                current.jitterEmittedCount - old.jitterEmittedCount
+            } else {
+                0L
+            }
+        return current.copy(
+            recent = VideoHealthWindow(
+                intervalMs = interval.roundToInt(),
+                frames = frames.toInt(),
+                processingMs =
+                    average(
+                        current.processingTotalSeconds,
+                        old.processingTotalSeconds,
+                        frames
+                    ),
+                jitterMs =
+                    average(
+                        current.jitterTotalSeconds,
+                        old.jitterTotalSeconds,
+                        emitted
+                    ),
+                dropped = count(current.framesDropped, old.framesDropped),
+                freezes = count(current.freezeCount, old.freezeCount),
+                bitrateBps = (bytes * 8000.0 / interval).toLong(),
+                sendQueueMs =
+                    average(
+                        current.sendDelayTotalSeconds,
+                        old.sendDelayTotalSeconds,
+                        packets
+                    ),
+                jitterTargetMs =
+                    average(
+                        current.jitterTargetTotalSeconds,
+                        old.jitterTargetTotalSeconds,
+                        emitted
+                    )
+            )
+        )
     }
 }
