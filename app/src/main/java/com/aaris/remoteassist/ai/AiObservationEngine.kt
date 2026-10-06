@@ -379,6 +379,37 @@ class AiObservationEngine internal constructor(
 
     fun fingerprintCopy(): ByteArray? = lastFingerprint?.clone()
 
+    fun effectScope(args: JSONObject): AiActionScope? {
+        val ui = issuedUi ?: return null
+        val action = args.optString("action")
+        if (action in setOf("home", "back", "recents", "open_app")) return null
+        return runCatching { actionScope(args, ui) }.getOrNull()
+    }
+
+    fun visualChangeRatiosFrom(reference: ByteArray?, scope: AiActionScope?): Pair<Double?, Double?> {
+        val current = lastFingerprint ?: return null to null
+        val before = reference ?: return null to null
+        val global = AiVisualFingerprint.differenceRatio(before, current)
+        val local = scope?.let { AiVisualFingerprint.differenceRatio(before, current, it) }
+        return global to local
+    }
+
+    fun createWaitBaseline(observationId: String, screenVersion: Long): AiWaitBaseline? {
+        if (!ledger.valid(observationId, screenVersion, now())) return null
+        val ui = issuedUi ?: return null
+        val fingerprint = lastFingerprint?.clone() ?: return null
+        if (ui.packageName == ownPackage || width <= 0 || height <= 0) return null
+        return AiWaitBaseline(
+            packageName = ui.packageName,
+            windowId = ui.windowId,
+            displayWidthPx = width,
+            displayHeightPx = height,
+            rotation = rotation,
+            fingerprint = fingerprint,
+            createdAtMs = now()
+        )
+    }
+
     fun createReflexTemplate(id: String, args: JSONObject, ttlMs: Long = 180_000L): AiLocalReflex? {
         if (args.optString("action") != "tap") return null
         val ui = issuedUi ?: return null
