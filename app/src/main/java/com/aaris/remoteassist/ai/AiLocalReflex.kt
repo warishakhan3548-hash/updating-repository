@@ -1,6 +1,6 @@
 package com.aaris.remoteassist.ai
 
-import com.aaris.remoteassist.capture.AiSnapshotProvider
+import com.aaris.remoteassist.capture.AiRawFrame
 import com.aaris.remoteassist.capture.CaptureProfile
 import kotlinx.coroutines.delay
 
@@ -36,7 +36,7 @@ data class AiReflexMatch(
 
 class AiLocalReflexWatcher(
     private val ownPackage: String,
-    private val snapshots: AiSnapshotProvider,
+    private val freshFrame: suspend () -> AiRawFrame,
     private val display: () -> CaptureProfile,
     private val uiSnapshot: () -> AiUiSnapshot?,
     private val now: () -> Long,
@@ -62,7 +62,7 @@ class AiLocalReflexWatcher(
 
             if (ui.packageName == template.packageName && ui.windowId == template.windowId &&
                 semanticGuardMatches(template, ui)) {
-                val frame = snapshots.fresh()
+                val frame = freshFrame()
                 val uprightWidth = if (frame.rotation % 180 == 0) frame.width else frame.height
                 val uprightHeight = if (frame.rotation % 180 == 0) frame.height else frame.width
                 if (frame.rotation != template.rotation ||
