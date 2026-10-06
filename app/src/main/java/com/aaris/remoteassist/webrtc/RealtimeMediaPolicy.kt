@@ -35,6 +35,17 @@ internal object RealtimeMediaPolicy {
      */
     const val VIDEO_STATS_INITIAL_DELAY_MS = 650L
     const val VIDEO_STATS_FAST_KICK_MS = 100L
+
+    /*
+     * A risky producer upshift deserves one early measurement after the new
+     * sender/source envelope is live. This is not a faster polling mode: it
+     * simply pulls the already-existing single-flight stats loop forward once,
+     * then normal realtime/idle cadence resumes.
+     *
+     * 120 ms gives a 45/60 fps trial several frames to reach the encoder/pacer
+     * while staying well below the ordinary 500 ms interaction interval.
+     */
+    const val VIDEO_STATS_RECONFIGURE_KICK_MS = 120L
     const val VIDEO_STATS_REALTIME_INTERVAL_MS = 500L
     const val VIDEO_STATS_IDLE_INTERVAL_MS = 1_500L
 
@@ -55,6 +66,47 @@ internal object RealtimeMediaPolicy {
      * sender limits are tightened. This is deliberately a two-actuator ordering
      * rule, not another queue, encoder, or feedback loop.
      */
+    fun shouldKickVideoStatsAfterTransition(
+        previousWidthPx: Int,
+        previousHeightPx: Int,
+        previousFps: Int,
+        nextWidthPx: Int,
+        nextHeightPx: Int,
+        nextFps: Int
+    ): Boolean {
+        /*
+         * Startup already owns an initial health probe. Only a real, seeded
+         * transition can request this extra one-shot measurement.
+         */
+        if (
+            previousWidthPx <= 0 ||
+            previousHeightPx <= 0 ||
+            previousFps <= 0 ||
+            nextWidthPx <= 0 ||
+            nextHeightPx <= 0 ||
+            nextFps <= 0
+        ) {
+            return false
+        }
+
+        val previousPixelRate =
+            previousWidthPx.toLong() *
+                previousHeightPx.toLong() *
+                previousFps.toLong()
+        val nextPixelRate =
+            nextWidthPx.toLong() *
+                nextHeightPx.toLong() *
+                nextFps.toLong()
+
+        /*
+         * Higher temporal cadence can stress codec/driver scheduling even when
+         * resolution was reduced enough to keep total pixel-rate flat. Treat it
+         * as risky independently from the aggregate pixel-rate comparison.
+         */
+        return nextPixelRate > previousPixelRate ||
+            nextFps > previousFps
+    }
+
     fun senderBeforeCaptureForTransition(
         previousWidthPx: Int,
         previousHeightPx: Int,
