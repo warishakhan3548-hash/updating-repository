@@ -63,6 +63,34 @@ object AiVisualFingerprint {
         return if (samples == 0) null else changed.toDouble() / samples
     }
 
+    fun differenceRatioRect(
+        a: ByteArray,
+        b: ByteArray,
+        left: Double,
+        top: Double,
+        right: Double,
+        bottom: Double
+    ): Double? {
+        if (a.size != WIDTH * HEIGHT * 3 || b.size != a.size) return null
+        val l = left.coerceIn(0.0, 1.0)
+        val t = top.coerceIn(0.0, 1.0)
+        val r = right.coerceIn(0.0, 1.0)
+        val d = bottom.coerceIn(0.0, 1.0)
+        if (l >= r || t >= d) return null
+        var changed = 0
+        var samples = 0
+        for (i in 0 until WIDTH * HEIGHT) {
+            val x = (i % WIDTH + 0.5) / WIDTH
+            val y = (i / WIDTH + 0.5) / HEIGHT
+            if (x !in l..r || y !in t..d) continue
+            samples++
+            if ((0..2).any { channel ->
+                    kotlin.math.abs((a[i * 3 + channel].toInt() and 255) - (b[i * 3 + channel].toInt() and 255)) > 24
+                }) changed++
+        }
+        return if (samples == 0) null else changed.toDouble() / samples
+    }
+
     fun materiallyDifferent(a: ByteArray, b: ByteArray, scope: AiActionScope): Boolean =
         differenceRatio(a, b, scope)?.let { it > 0.04 } ?: true // At most 4% local antialias/caret noise.
 }
