@@ -115,6 +115,15 @@ class HostWebRtcSession(
     private var lastQuietSourceFps: Double? = null
     private var lastQuietSampleAtMs = 0L
 
+    /*
+     * Policy-lane snapshot of the source shape that is already admitted to the
+     * media pipeline. Startup seeds it after the sender envelope is configured;
+     * subsequent transitions use it only to choose safe actuator ordering.
+     */
+    private var lastAppliedCaptureWidthPx = 0
+    private var lastAppliedCaptureHeightPx = 0
+    private var lastAppliedCaptureFps = 0
+
     @Volatile
     private var peerConnected = false
 
@@ -399,6 +408,14 @@ class HostWebRtcSession(
                 initialVideoPolicy.preserveResolution,
             motionPriority = initialVideoPolicy.motionPriority
         )
+        /*
+         * The sender is already primed above. Seed the transition snapshot
+         * before capture starts so even an immediate source-motion callback
+         * sees the correct baseline on the policy lane.
+         */
+        lastAppliedCaptureWidthPx = initialEffective.captureWidthPx
+        lastAppliedCaptureHeightPx = initialEffective.captureHeightPx
+        lastAppliedCaptureFps = initialEffective.fps
         capture.start(initialEffective)
 
         displayHandler.removeCallbacks(captureFrameWatchdog)
@@ -1289,20 +1306,55 @@ class HostWebRtcSession(
          */
         peer.setRealtimeVideoTelemetry(freshnessActive)
 
-        // Apply cadence in VideoSource. FPS/bandwidth changes keep the actual
-        // Android capture surface stable; only display geometry may resize it.
-        capture.update(effective)
-        peer.updateInteractiveVideoPolicy(
-            maxBitrateBps =
-                motionVideoBudget.bitrateCeiling(
-                    profile = target,
-                    motionActive = freshnessActive,
-                    targetFps = effective.fps
-                ),
-            maxFramerate = effective.fps,
-            preserveResolution = policy.preserveResolution,
-            motionPriority = policy.motionPriority
-        )
+        val maxBitrateBps =
+            motionVideoBudget.bitrateCeiling(
+                profile = target,
+                motionActive = freshnessActive,
+                targetFps = effective.fps
+            )
+        val senderFirst =
+            RealtimeMediaPolicy.senderBeforeCaptureForTransition(
+                previousWidthPx = lastAppliedCaptureWidthPx,
+                previousHeightPx = lastAppliedCaptureHeightPx,
+                previousFps = lastAppliedCaptureFps,
+                nextWidthPx = effective.captureWidthPx,
+                nextHeightPx = effective.captureHeightPx,
+                nextFps = effective.fps
+            )
+
+        /*
+         * Treat source + sender reconfiguration as one ordered transaction.
+         *
+         * Upshift: sender envelope first, then VideoSource. This prevents a
+         * 30 -> 45/60 fps touch transition from briefly feeding frames into the
+         * old RTP limit and building disposable work.
+         *
+         * Relief/downshift: VideoSource first, then sender. That stops expensive
+         * frames at the producer before tightening the network/encoder ceiling.
+         *
+         * No new worker, queue, encoder or frame copy is introduced.
+         */
+        if (senderFirst) {
+            peer.updateInteractiveVideoPolicy(
+                maxBitrateBps = maxBitrateBps,
+                maxFramerate = effective.fps,
+                preserveResolution = policy.preserveResolution,
+                motionPriority = policy.motionPriority
+            )
+            capture.update(effective)
+        } else {
+            capture.update(effective)
+            peer.updateInteractiveVideoPolicy(
+                maxBitrateBps = maxBitrateBps,
+                maxFramerate = effective.fps,
+                preserveResolution = policy.preserveResolution,
+                motionPriority = policy.motionPriority
+            )
+        }
+
+        lastAppliedCaptureWidthPx = effective.captureWidthPx
+        lastAppliedCaptureHeightPx = effective.captureHeightPx
+        lastAppliedCaptureFps = effective.fps
     }
 
     override fun onDiagnostic(message: String) {
