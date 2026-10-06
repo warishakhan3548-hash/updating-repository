@@ -906,7 +906,7 @@ class HostWebRtcSession(
                 val effective = effectiveCaptureProfile(profile)
                 listener.onDiagnostic(
                     "Motion video budget → ${effective.captureWidthPx}x${effective.captureHeightPx}@${effective.fps}" +
-                        " • max=${motionVideoBudget.bitrateCeiling(profile, motionActive) / 1000}kbps" +
+                        " • max=${motionVideoBudget.bitrateCeiling(profile, motionActive, effective.fps) / 1000}kbps" +
                         " • source=${sourceFps?.toInt()}fps"
                 )
             }
@@ -1049,7 +1049,8 @@ class HostWebRtcSession(
                     motionVideoBudget.primeForMotion(
                         profile = profile,
                         nowMs = now,
-                        warmStartEvidence = warmStartEvidence
+                        warmStartEvidence = warmStartEvidence,
+                        targetFps = currentMotionTargetFps()
                     )
                 ) {
                     val effective = effectiveCaptureProfile(profile)
@@ -1105,6 +1106,13 @@ class HostWebRtcSession(
         interactionActive ||
             passiveMotionPriority.isActive(nowMs)
 
+    private fun currentMotionTargetFps(): Int =
+        minOf(
+            cadenceGovernor.cap,
+            deviceFpsLimit,
+            profile.motionFps
+        ).coerceAtLeast(1)
+
     private fun tryRecoverCadenceOnNewMotion(nowMs: Long): Boolean {
         val recovered = cadenceGovernor.tryProbeAfterQuiet(
             outbound = lastQuietOutbound,
@@ -1143,7 +1151,8 @@ class HostWebRtcSession(
             motionVideoBudget.primeForMotion(
                 profile = profile,
                 nowMs = now,
-                warmStartEvidence = warmStartEvidence
+                warmStartEvidence = warmStartEvidence,
+                targetFps = currentMotionTargetFps()
             )
 
         if (motionChanged || budgetChanged || cadenceChanged) {
@@ -1222,7 +1231,8 @@ class HostWebRtcSession(
             maxBitrateBps =
                 motionVideoBudget.bitrateCeiling(
                     profile = target,
-                    motionActive = freshnessActive
+                    motionActive = freshnessActive,
+                    targetFps = effective.fps
                 ),
             maxFramerate = effective.fps,
             preserveResolution = policy.preserveResolution,
