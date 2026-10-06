@@ -19,6 +19,42 @@ internal class MotionVideoBudget {
     private var healthySamples = 0
     private var lastImplementation: String? = null
 
+    /**
+     * New motion should not spend its first one or two telemetry windows trying
+     * to push a full 720-short-edge stream through an unknown encoder/path.
+     * Warm-start STANDARD/HIGH motion at 540, hold 30 fps, then let measured
+     * end-to-end health earn 720 back. Repeated pulses only refresh the hold;
+     * they never knock a continuously healthy stream back down after recovery.
+     */
+    fun primeForMotion(
+        profile: CaptureProfile,
+        nowMs: Long
+    ): Boolean {
+        if (nowMs < 0L) return false
+
+        val before = shortEdge to holdingResolution
+        val enteringMotion = !holdingResolution
+        holdingResolution = true
+        lastMotionAtMs = nowMs
+
+        if (enteringMotion) {
+            pressureSamples = 0
+            healthySamples = 0
+
+            val profileShortEdge =
+                minOf(profile.captureWidthPx, profile.captureHeightPx)
+            if (
+                profileShortEdge > MOTION_WARM_START_SHORT_EDGE &&
+                shortEdge > MOTION_WARM_START_SHORT_EDGE
+            ) {
+                shortEdge = MOTION_WARM_START_SHORT_EDGE
+                changedAtMs = nowMs
+            }
+        }
+
+        return before != (shortEdge to holdingResolution)
+    }
+
     fun observe(
         outbound: VideoHealthSnapshot,
         receiver: VideoHealthWindow?,
@@ -141,6 +177,7 @@ internal class MotionVideoBudget {
     private fun Double?.valid(): Double? = this?.takeIf { it.isFinite() && it >= 0.0 }
 
     private companion object {
+        const val MOTION_WARM_START_SHORT_EDGE = 540
         const val SETTLE_MS = 3_000L
         const val IDLE_RESTORE_MS = 8_000L
     }
