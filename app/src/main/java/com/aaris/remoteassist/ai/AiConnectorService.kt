@@ -367,6 +367,10 @@ class AiConnectorService : Service() {
                         var burstState = "completed"
 
                         for ((index, step) in steps.withIndex()) {
+                            if (index == 0 && !firstValidation.stillValid()) {
+                                burstState = "BURST_FIRST_TARGET_CHANGED"
+                                break
+                            }
                             if (
                                 !monitor.environmentMatches(guard) ||
                                 !SessionRuntime.isAuthorized(
@@ -392,6 +396,7 @@ class AiConnectorService : Service() {
                                 precondition = {
                                     !stopping &&
                                         socket === ws &&
+                                        (index != 0 || firstValidation.stillValid()) &&
                                         monitor.environmentMatches(guard) &&
                                         SessionRuntime.isAuthorized(
                                             currentLease.sessionId,
