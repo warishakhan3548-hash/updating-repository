@@ -1,6 +1,7 @@
 package com.aaris.remoteassist.webrtc
 
 import android.os.Process
+import org.webrtc.Priority
 
 /**
  * Cross-layer realtime policy for remote-control video.
@@ -13,6 +14,15 @@ import android.os.Process
 internal object RealtimeMediaPolicy {
     const val PLAYOUT_DELAY_MIN_MS = 0
     const val PLAYOUT_DELAY_MAX_MS = 100
+
+    /*
+     * Interactive remoting is a single latency-sensitive video stream. DSCP is
+     * intentionally a transport classification only: GCC/TWCC still owns the
+     * send rate, MotionVideoBudget still owns our pixel ladder, and this does
+     * not raise min bitrate or create more encoded frames.
+     */
+    const val ENABLE_VIDEO_DSCP = true
+    const val VIDEO_NETWORK_PRIORITY = Priority.HIGH
 
     const val FIELD_TRIALS =
         "WebRTC-ForceSendPlayoutDelay/min_ms:0,max_ms:100/"
