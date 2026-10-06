@@ -68,7 +68,10 @@ class PresentationProvenRecoveryTest {
             maxRenderGapMs = 30
         )
 
-        repeat(22) { index ->
+        // The failed high-cadence path gets an 8s retry cooldown. After
+        // that, three fresh end-to-end proof windows earn a bounded 60 fps
+        // trial instead of leaving a recovered display stuck at 45 fps.
+        repeat(10) { index ->
             assertFalse(
                 governor.observe(
                     healthySender,
@@ -79,7 +82,15 @@ class PresentationProvenRecoveryTest {
                 )
             )
         }
-        assertTrue(governor.observe(healthySender, healthyDisplay, 45, 25_000, producerFps = 60.0))
+        assertTrue(
+            governor.observe(
+                healthySender,
+                healthyDisplay,
+                45,
+                13_000L,
+                producerFps = 60.0
+            )
+        )
         assertEquals(60, governor.cap)
     }
 
