@@ -865,7 +865,12 @@ class HostWebRtcSession(
                 targetFps = motionTargetFps,
                 nowMs = now,
                 interactionActive = interactionActive,
-                allowResolutionRecovery = !cadenceGovernor.probingHighCadence
+                // Upscaling changes the encoder input dimensions. Do not pay
+                // that MediaCodec reconfiguration in the middle of a controller
+                // gesture; active control values fresh motion over extra detail.
+                allowResolutionRecovery =
+                    !cadenceGovernor.probingHighCadence &&
+                    !interactionActive
             )
             val requestedFps = effectiveCaptureProfile(profile).fps
             val cadencePressureChanged =
@@ -1012,6 +1017,10 @@ class HostWebRtcSession(
             interactionActive = active
             if (active) {
                 val now = android.os.SystemClock.elapsedRealtime()
+                // Capture quiet-path proof before cadence recovery consumes it.
+                // MotionVideoBudget uses the same evidence to avoid an
+                // unnecessary resolution/MediaCodec reset at touch-down.
+                val warmStartEvidence = lastQuietOutbound
                 if (!wasFreshnessActive) {
                     tryRecoverCadenceOnNewMotion(now)
                 }
@@ -1032,7 +1041,13 @@ class HostWebRtcSession(
                     )
                 }
 
-                if (motionVideoBudget.primeForMotion(profile, now)) {
+                if (
+                    motionVideoBudget.primeForMotion(
+                        profile = profile,
+                        nowMs = now,
+                        warmStartEvidence = warmStartEvidence
+                    )
+                ) {
                     val effective = effectiveCaptureProfile(profile)
                     listener.onDiagnostic(
                         "Remote interaction warm-start → " +
@@ -1110,10 +1125,18 @@ class HostWebRtcSession(
         if (closed.get()) return
 
         val now = android.os.SystemClock.elapsedRealtime()
+        // Keep a local reference because the cadence probe intentionally
+        // consumes lastQuietOutbound after using it once.
+        val warmStartEvidence = lastQuietOutbound
         val motionChanged = passiveMotionPriority.pulse(now)
         val cadenceChanged =
             if (motionChanged) tryRecoverCadenceOnNewMotion(now) else false
-        val budgetChanged = motionVideoBudget.primeForMotion(profile, now)
+        val budgetChanged =
+            motionVideoBudget.primeForMotion(
+                profile = profile,
+                nowMs = now,
+                warmStartEvidence = warmStartEvidence
+            )
 
         if (motionChanged || budgetChanged || cadenceChanged) {
             applyVideoPolicy(profile)
