@@ -67,6 +67,8 @@ class AiConnectorService : Service() {
     private val runId = UUID.randomUUID().toString()
     private val ownerId = "ai:$runId"
     private val outcomes = LinkedHashMap<String, JSONObject>()
+    private val taskMemory = AiTaskMemory()
+    private val reflexes = LinkedHashMap<String, AiLocalReflex>()
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) { scope.launch {
             if (stopping || capture == null) return@launch
@@ -150,6 +152,7 @@ class AiConnectorService : Service() {
     }
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        reflexes.clear()
         observations?.invalidate()
         capture?.update(profile())
     }
@@ -230,10 +233,24 @@ class AiConnectorService : Service() {
                 val args = packet.optJSONObject("arguments") ?: JSONObject()
                 when (packet.optString("tool")) {
                     "phone_observe" -> engine.observe(args.optString("quality") == "detail")
+                        .put("taskState", taskMemory.snapshot())
+                    "phone_task" -> {
+                        when (args.optString("operation")) {
+                            "start" -> taskMemory.start(args.getString("goal"))
+                            "update" -> taskMemory.update(
+                                rawSubgoal = args.optString("subgoal", "").takeIf { it.isNotBlank() },
+                                rawFact = args.optString("fact", "").takeIf { it.isNotBlank() }
+                            )
+                            "state" -> taskMemory.snapshot()
+                            "finish" -> taskMemory.finish(args.optString("summary", "").takeIf { it.isNotBlank() })
+                            else -> failure("INVALID_TASK_OPERATION")
+                        }
+                    }
                     "phone_action" -> {
                         val id = args.getString("actionId").also { require(it.matches(Regex("[a-zA-Z0-9_-]{8,96}"))) }
                         actionId = id
                         outcomes[id]?.let { return@withTimeout JSONObject(it.toString()).put("replayed", true).put("needsObservation", true) }
+                        val beforeFingerprint = engine.fingerprintCopy()
                         val validation = engine.validate(args)
                         if (validation.error != null) {
                             val code = if (validation.error in setOf("LOCAL_ONLY_SCREEN", "DEVICE_LOCKED_OR_ACCESSIBILITY_OFF", "FOCUSED_FIELD_REQUIRED"))
@@ -244,6 +261,12 @@ class AiConnectorService : Service() {
                         val currentLease = lease ?: return@withTimeout failure("NOT_CONNECTED")
                         val (width, height) = engine.geometry()
                         val action = args.getString("action")
+                        val reflexId = args.optString("rememberReflexId", "").trim()
+                        val reflexCandidate = if (reflexId.isNotEmpty()) {
+                            require(reflexId.matches(Regex("[a-zA-Z0-9_-]{4,64}")))
+                            require(action == "tap") { "REFLEX_REQUIRES_TAP" }
+                            engine.createReflexTemplate(reflexId, args)
+                        } else null
                         engine.ledger.consume() // Even a refused/no-op action consumes its observation.
                         outcomes[id] = failure("OUTCOME_UNKNOWN", null)
                         dispatched = true; applied = null
@@ -282,7 +305,101 @@ class AiConnectorService : Service() {
                         }
                         engine.invalidate()
                         val image = engine.observe()
+                        val changeRatio = engine.visualChangeRatioFrom(beforeFingerprint)
+                        val effect = AiActionEffectAnalyzer.classify(action, applied, changeRatio)
+                        if (applied == true && reflexCandidate != null) {
+                            reflexes[reflexId] = reflexCandidate
+                            while (reflexes.size > MAX_REFLEXES) reflexes.remove(reflexes.keys.first())
+                        }
+                        val taskState = taskMemory.recordAction(
+                            actionId = id,
+                            action = action,
+                            rawIntent = args.optString("intent", "").takeIf { it.isNotBlank() },
+                            rawExpectedOutcome = args.optString("expectedOutcome", "").takeIf { it.isNotBlank() },
+                            rawContextNote = args.optString("contextNote", "").takeIf { it.isNotBlank() },
+                            effect = effect,
+                            applied = applied,
+                            packageName = image.optString("currentPackage", null),
+                            mode = engine.currentInteractionMode()
+                        )
                         image.put("applied", applied).put("actionId", id)
+                            .put("effect", effect.toJson()).put("taskState", taskState)
+                        if (reflexCandidate != null && applied == true) image.put("rememberedReflexId", reflexId)
+                        if (taskState.optBoolean("stalled")) {
+                            image.put("agentHint", "Progress appears stalled. Re-observe in detail or choose a different strategy instead of repeating the same action.")
+                        }
+                        if (applied != true && !image.has("error")) image.put("error", "ACTION_NOT_APPLIED")
+                        image
+                    }
+                    "phone_reflex" -> {
+                        val id = args.getString("actionId").also { require(it.matches(Regex("[a-zA-Z0-9_-]{8,96}"))) }
+                        actionId = id
+                        outcomes[id]?.let { return@withTimeout JSONObject(it.toString()).put("replayed", true).put("needsObservation", true) }
+                        val reflexId = args.getString("reflexId")
+                        val template = reflexes[reflexId] ?: return@withTimeout engine.observe()
+                            .put("error", "REFLEX_NOT_FOUND").put("applied", false).put("actionId", id)
+                            .put("taskState", taskMemory.snapshot())
+                        val provider = snapshots ?: return@withTimeout failure("CAPTURE_UNAVAILABLE")
+                        val currentLease = lease ?: return@withTimeout failure("NOT_CONNECTED")
+                        val watcher = AiLocalReflexWatcher(
+                            ownPackage = packageName,
+                            snapshots = provider,
+                            display = { CaptureProfile.current(this@AiConnectorService, CaptureTier.BALANCED) },
+                            uiSnapshot = AssistAccessibilityService::aiSnapshot,
+                            now = SystemClock::elapsedRealtime
+                        )
+                        val match = watcher.awaitMatch(template, args.optLong("waitMs", 6_000L))
+                        if (!match.matched) {
+                            return@withTimeout engine.observe()
+                                .put("actionId", id).put("applied", false)
+                                .put("reflexTriggered", false).put("reflexState", match.reason)
+                                .put("taskState", taskMemory.snapshot())
+                        }
+                        dispatched = true
+                        applied = null
+                        outcomes[id] = failure("OUTCOME_UNKNOWN", null)
+                        engine.invalidate() // invalidate any older model ticket before autonomous local input
+                        val synthetic = JSONObject().put("action", "tap").put("x", template.x).put("y", template.y)
+                        val command = AiActionTranslator.translate(
+                            synthetic,
+                            currentLease,
+                            ++sequence,
+                            template.displayWidthPx,
+                            template.displayHeightPx
+                        )
+                        val done = CompletableDeferred<Boolean>()
+                        AssistAccessibilityService.dispatch(
+                            command,
+                            precondition = {
+                                !stopping && socket === ws &&
+                                    watcher.dispatchGuardMatches(template) &&
+                                    SessionRuntime.isAuthorized(
+                                        currentLease.sessionId,
+                                        currentLease.leaseSecret,
+                                        currentLease.displayGeneration
+                                    )
+                            }
+                        ) { done.complete(it) }
+                        applied = withTimeout(3500) { done.await() }
+                        reflexes.remove(reflexId) // one-shot even when the final dispatch is refused
+                        engine.invalidate()
+                        val image = engine.observe()
+                        val changeRatio = engine.visualChangeRatioFrom(template.referenceFingerprint)
+                        val effect = AiActionEffectAnalyzer.classify("tap", applied, changeRatio)
+                        val taskState = taskMemory.recordAction(
+                            actionId = id,
+                            action = "reflex_tap",
+                            rawIntent = args.optString("intent", "").takeIf { it.isNotBlank() },
+                            rawExpectedOutcome = args.optString("expectedOutcome", "").takeIf { it.isNotBlank() },
+                            rawContextNote = args.optString("contextNote", "").takeIf { it.isNotBlank() },
+                            effect = effect,
+                            applied = applied,
+                            packageName = image.optString("currentPackage", null),
+                            mode = engine.currentInteractionMode()
+                        )
+                        image.put("actionId", id).put("applied", applied)
+                            .put("reflexTriggered", true).put("reflexId", reflexId)
+                            .put("effect", effect.toJson()).put("taskState", taskState)
                         if (applied != true && !image.has("error")) image.put("error", "ACTION_NOT_APPLIED")
                         image
                     }
@@ -340,6 +457,8 @@ class AiConnectorService : Service() {
     }
     private fun releaseCapture() {
         AiObservationSignals.changed = null
+        reflexes.clear()
+        taskMemory.clear()
         observations?.invalidate(); observations = null
         snapshots?.close(); snapshots = null
         capture?.close(); capture = null
@@ -358,6 +477,7 @@ class AiConnectorService : Service() {
         const val EXTRA_DATA = "ai_projection_data"
         const val EXTRA_RESULT = "ai_projection_result"
         private const val CHANNEL = "ai_control"
+        private const val MAX_REFLEXES = 6
         fun stop(context: Context) { context.startService(Intent(context, AiConnectorService::class.java).setAction(ACTION_STOP)) }
     }
 }
