@@ -70,6 +70,66 @@ class MotionVideoBudgetTest {
         assertEquals(360, budget.shortEdge)
     }
 
+    @Test fun provenSixtyFpsCodecPressureGetsBoundedFastPixelRelief() {
+        val budget = MotionVideoBudget()
+        assertTrue(budget.primeForMotion(profile, 0L))
+        assertEquals(360, budget.shortEdge)
+
+        /*
+         * 20 ms encode residence is fine at 30 Hz but misses a 60 Hz frame
+         * budget. Two consecutive high-cadence pressure windows should spend
+         * pixels before the legacy 3-second settle can build visible staleness.
+         */
+        val stressed = sender(
+            fps = 42,
+            encode = 20.0,
+            queue = 5.0,
+            implementation = "c2.qti.avc.encoder"
+        )
+
+        assertFalse(
+            budget.observe(
+                outbound = stressed,
+                receiver = receiver(fps = 42, decode = 5.0, presented = 42),
+                sourceFps = 60.0,
+                motionActive = true,
+                targetFps = 60,
+                nowMs = 1_000L,
+                interactionActive = true
+            )
+        )
+        assertTrue(
+            budget.observe(
+                outbound = stressed,
+                receiver = receiver(fps = 42, decode = 5.0, presented = 42),
+                sourceFps = 60.0,
+                motionActive = true,
+                targetFps = 60,
+                nowMs = 2_000L,
+                interactionActive = true
+            )
+        )
+        assertEquals(240, budget.shortEdge)
+
+        // The same encoder timing is not pressure for a real 30 fps target.
+        val thirtyFps = MotionVideoBudget()
+        assertTrue(thirtyFps.primeForMotion(profile, 0L))
+        repeat(3) { index ->
+            assertFalse(
+                thirtyFps.observe(
+                    outbound = stressed,
+                    receiver = receiver(fps = 30, decode = 5.0, presented = 30),
+                    sourceFps = 30.0,
+                    motionActive = true,
+                    targetFps = 30,
+                    nowMs = 1_000L + index * 1_000L,
+                    interactionActive = true
+                )
+            )
+        }
+        assertEquals(360, thirtyFps.shortEdge)
+    }
+
     @Test fun sixtyFpsTargetUsesSixtyFpsFrameBudgetForPixelRelief() {
         val budget = MotionVideoBudget()
 
