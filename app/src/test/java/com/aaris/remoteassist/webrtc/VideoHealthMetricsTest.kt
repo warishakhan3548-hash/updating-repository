@@ -31,7 +31,7 @@ class VideoHealthMetricsTest {
 
     @Test fun intervalWindowKeepsTargetPlayoutAsAnEarlyFreshnessSignal() {
         fun inbound(
-            timestampUs: Double,
+            timestampUs: Long,
             framesDecoded: Long,
             decodeSeconds: Double,
             jitterSeconds: Double,
@@ -65,7 +65,7 @@ class VideoHealthMetricsTest {
         val tracker = VideoHealthWindowTracker()
         tracker.sample(
             inbound(
-                timestampUs = 1_000_000.0,
+                timestampUs = 1_000_000L,
                 framesDecoded = 100,
                 decodeSeconds = 0.5,
                 jitterSeconds = 1.0,
@@ -77,7 +77,7 @@ class VideoHealthMetricsTest {
             checkNotNull(
                 tracker.sample(
                     inbound(
-                        timestampUs = 2_000_000.0,
+                        timestampUs = 2_000_000L,
                         framesDecoded = 130,
                         decodeSeconds = 0.65,
                         jitterSeconds = 1.3,
