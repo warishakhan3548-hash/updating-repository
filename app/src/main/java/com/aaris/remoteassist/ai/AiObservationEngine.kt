@@ -36,6 +36,7 @@ class AiObservationEngine internal constructor(
     val ledger = AiScreenLedger()
     private var lastFingerprint: ByteArray? = null
     private var issuedUi: AiUiSnapshot? = null
+    private var issuedMode = AiInteractionMode.INTERACTIVE
     private var width = 0
     private var height = 0
     private var rotation = 0
@@ -86,12 +87,14 @@ class AiObservationEngine internal constructor(
                 return error("SCREEN_CHANGING")
             }
             val stable = revision == ledger.eventRevision
+            val mode = AiInteractionClassifier.classify(ui, stable)
             val id = UUID.randomUUID().toString()
             width = geometry.displayWidthPx; height = geometry.displayHeightPx; rotation = frame.rotation
-            issuedUi = ui; lastFingerprint = fingerprint
+            issuedUi = ui; issuedMode = mode; lastFingerprint = fingerprint
             ledger.issue(id, now())
             return JSONObject().put("observationId", id).put("screenVersion", ledger.version)
                 .put("capturedAtElapsedMs", frame.receivedAtMs).put("settled", stable)
+                .put("interactionMode", mode.wireName)
                 .put("currentPackage", ui.packageName).put("uiHints", if (hideAll) JSONArray() else publishedHints(ui))
                 .put("treeTruncated", ui.truncated).put("redacted", hideAll || ui.masks.isNotEmpty())
                 .put("display", JSONObject().put("width", width).put("height", height)
@@ -195,7 +198,10 @@ class AiObservationEngine internal constructor(
                 AiVisualFingerprint.materiallyDifferent(lastFingerprint ?: byteArrayOf(),
                     AiVisualFingerprint.sample(fresh.nv21, fresh.width, fresh.height, fresh.rotation), checkNotNull(scope))
             }
-            if (changed) return refused("TARGET_CHANGED")
+            val semanticTargetPresent = targetAtScope(observed, checkNotNull(scope)) != null || args.has("targetId")
+            if (changed && (issuedMode != AiInteractionMode.DYNAMIC_CANVAS || semanticTargetPresent)) {
+                return refused("TARGET_CHANGED")
+            }
         }
         if (!ticketValid() || epoch != ledger.invalidationGeneration) return refused("OBSERVATION_EXPIRED_OR_USED")
         // Re-read window/target at execution, including after STOP relocation.
@@ -355,14 +361,29 @@ class AiObservationEngine internal constructor(
             }.toSet()
             return relevant(a) == relevant(b)
         }
-        fun target(ui: AiUiSnapshot) = ui.nodes.filter {
-            it.area < width.toLong() * height / 3 && it.contains(scope.x * width, scope.y * height)
-        }.minByOrNull { it.area }
-        val target = target(a)
-        return target == target(b) && target?.enabled != false
+        val target = targetAtScope(a, scope)
+        return target == targetAtScope(b, scope) && target?.enabled != false
     }
 
     fun geometry(): Pair<Int, Int> = width to height
+
+    fun fingerprintCopy(): ByteArray? = lastFingerprint?.clone()
+
+    fun visualChangeRatioFrom(reference: ByteArray?): Double? {
+        val current = lastFingerprint ?: return null
+        val before = reference ?: return null
+        return AiVisualFingerprint.differenceRatio(before, current)
+    }
+
+    fun currentInteractionMode(): AiInteractionMode = issuedMode
+
+    fun currentPackageName(): String? = issuedUi?.packageName
+
+    private fun targetAtScope(ui: AiUiSnapshot, scope: AiActionScope): AiUiNode? =
+        ui.nodes.filter {
+            it.area < width.toLong() * height / 3 && it.contains(scope.x * width, scope.y * height)
+        }.minByOrNull { it.area }
+
     private fun sameWindow(a: AiUiSnapshot, b: AiUiSnapshot) = a.packageName == b.packageName && a.windowId == b.windowId
     private fun samePrivacyContext(a: AiUiSnapshot, b: AiUiSnapshot) = sameWindow(a, b) && a.sensitiveFocus == b.sensitiveFocus && a.masks == b.masks
     private fun geometryMatches(frame: AiRawFrame, profile: CaptureProfile): Boolean {
