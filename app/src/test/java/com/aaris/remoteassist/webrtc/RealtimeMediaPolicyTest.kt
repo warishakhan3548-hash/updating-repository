@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.webrtc.Priority
 
 class RealtimeMediaPolicyTest {
     @Test
@@ -15,6 +16,15 @@ class RealtimeMediaPolicyTest {
         assertEquals(
             "WebRTC-ForceSendPlayoutDelay/min_ms:0,max_ms:100/",
             RealtimeMediaPolicy.FIELD_TRIALS
+        )
+    }
+
+    @Test
+    fun realtimeScreenRtpUsesHighBestEffortNetworkPriority() {
+        assertTrue(RealtimeMediaPolicy.ENABLE_VIDEO_DSCP)
+        assertEquals(
+            Priority.HIGH,
+            RealtimeMediaPolicy.VIDEO_NETWORK_PRIORITY
         )
     }
 
