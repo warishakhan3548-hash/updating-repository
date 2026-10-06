@@ -1020,7 +1020,11 @@ class HostWebRtcSession(
                 // Capture quiet-path proof before cadence recovery consumes it.
                 // MotionVideoBudget uses the same evidence to avoid an
                 // unnecessary resolution/MediaCodec reset at touch-down.
-                val warmStartEvidence = lastQuietOutbound
+                val warmStartEvidence =
+                    lastQuietOutbound?.takeIf {
+                        now - lastQuietSampleAtMs in
+                            0L..MAX_WARM_START_EVIDENCE_AGE_MS
+                    }
                 if (!wasFreshnessActive) {
                     tryRecoverCadenceOnNewMotion(now)
                 }
@@ -1127,7 +1131,11 @@ class HostWebRtcSession(
         val now = android.os.SystemClock.elapsedRealtime()
         // Keep a local reference because the cadence probe intentionally
         // consumes lastQuietOutbound after using it once.
-        val warmStartEvidence = lastQuietOutbound
+        val warmStartEvidence =
+            lastQuietOutbound?.takeIf {
+                now - lastQuietSampleAtMs in
+                    0L..MAX_WARM_START_EVIDENCE_AGE_MS
+            }
         val motionChanged = passiveMotionPriority.pulse(now)
         val cadenceChanged =
             if (motionChanged) tryRecoverCadenceOnNewMotion(now) else false
@@ -1339,6 +1347,7 @@ class HostWebRtcSession(
         private const val MAX_CAPTURE_RECOVERY_ATTEMPTS = 3
         private const val LEASE_WATCHDOG_MS = 3_000L
         private const val INTERACTION_PRIORITY_TIMEOUT_MS = 3_000L
+        private const val MAX_WARM_START_EVIDENCE_AGE_MS = 2_500L
         private const val MAX_SESSION_VIDEO_FPS = 60
         private const val PRESENTATION_HEARTBEAT_FRESH_MS = 1_500
     }
