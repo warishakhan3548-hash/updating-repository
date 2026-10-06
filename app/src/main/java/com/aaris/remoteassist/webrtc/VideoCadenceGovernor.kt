@@ -16,15 +16,72 @@ class VideoCadenceGovernor(
     private var pressure = 0
     private var healthy = 0
     private var changedAt = Long.MIN_VALUE / 2
+    private var lastOverloadAtMs = Long.MIN_VALUE / 2
+
+    /**
+     * A downshift may survive a long, completely still screen: neither
+     * recovery counter can accumulate encoded frames while nothing changes.
+     *
+     * Probe just ONE rung (never above 30 fps), and only on a genuine new
+     * motion transition following recently measured idle and a quiet path.
+     * The normal health governor still immediately backs off if motion
+     * exposes real encoder/transport pressure.
+     */
+    fun tryProbeAfterQuiet(
+        outbound: VideoHealthSnapshot?,
+        producerFps: Double?,
+        telemetryAtMs: Long,
+        nowMs: Long
+    ): Boolean {
+        val ceiling = minOf(maxFps, MOTION_RECOVERY_FPS_CEILING)
+        if (cap >= ceiling || nowMs < 0L) return false
+        if (nowMs - changedAt < QUIET_PROBE_COOLDOWN_MS ||
+            nowMs - lastOverloadAtMs < QUIET_PROBE_COOLDOWN_MS) return false
+        if (nowMs - telemetryAtMs !in 0L..MAX_IDLE_TELEMETRY_AGE_MS) return false
+        if (producerFps == null || !producerFps.isFinite() ||
+            producerFps < 0.0 || producerFps >= QUIET_PRODUCER_FPS) return false
+
+        val snapshot = outbound ?: return false
+        val window = snapshot.recent ?: return false
+        if (window.intervalMs !in 500..6000 ||
+            window.frames > MAX_QUIET_ENCODED_FRAMES) return false
+        if (snapshot.qualityLimitationReason != null &&
+            !snapshot.qualityLimitationReason.equals("none", ignoreCase = true)) return false
+        if (snapshot.roundTripTimeMs?.let { it in 0..HEALTHY_RTT_MS } != true) return false
+        if ((snapshot.packetLossRatio ?: 0.0) >= HEALTHY_PACKET_LOSS_RATIO) return false
+        if (window.sendQueueMs?.let { !it.isFinite() || it < 0.0 ||
+            it >= HEALTHY_QUEUE_MS } == true) return false
+
+        val next = ASCENDING_CAPS.firstOrNull { it > cap && it <= ceiling }
+            ?: return false
+        cap = next
+        changedAt = nowMs
+        pressure = 0
+        healthy = 0
+        return true
+    }
 
     fun observe(
         outbound: VideoHealthSnapshot,
         receiver: VideoHealthWindow?,
         requestedFps: Int,
         nowMs: Long,
-        minimumFps: Int = 1
+        minimumFps: Int = 1,
+        producerFps: Double? = null
     ): Boolean {
         val sender = outbound.recent ?: return false
+
+        // A still producer emits very few fresh frames. Old jitter, loss, or
+        // RTT must not ratchet the FPS ceiling downward during silence.
+        // Missing producer telemetry preserves the legacy safety logic.
+        if (producerFps != null && producerFps.isFinite() &&
+            producerFps in 0.0 until QUIET_PRODUCER_FPS &&
+            sender.frames <= MAX_QUIET_ENCODED_FRAMES) {
+            pressure = 0
+            healthy = 0
+            return false
+        }
+
         val budgetMs = 1000.0 / requestedFps.coerceAtLeast(1)
 
         val codecPressure =
@@ -207,6 +264,7 @@ class VideoCadenceGovernor(
                 cpuPressure || senderDeliveryCollapse
 
         if (overloaded) {
+            lastOverloadAtMs = nowMs
             healthy = 0
             val pressureWeight =
                 if (
@@ -324,6 +382,12 @@ class VideoCadenceGovernor(
     private companion object {
         val DESCENDING_CAPS = listOf(60, 45, 30, 24, 20, 15)
         val ASCENDING_CAPS = listOf(15, 20, 24, 30, 45, 60)
+
+        const val MOTION_RECOVERY_FPS_CEILING = 30
+        const val QUIET_PRODUCER_FPS = 2.5
+        const val MAX_QUIET_ENCODED_FRAMES = 3
+        const val QUIET_PROBE_COOLDOWN_MS = 8_000L
+        const val MAX_IDLE_TELEMETRY_AGE_MS = 2_500L
 
         const val MIN_MEASURED_FRAMES = 5
         const val MIN_COLLAPSE_MEASURED_FRAMES = 3
