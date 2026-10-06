@@ -21,7 +21,8 @@ class VideoCadenceGovernor(
         outbound: VideoHealthSnapshot,
         receiver: VideoHealthWindow?,
         requestedFps: Int,
-        nowMs: Long
+        nowMs: Long,
+        minimumFps: Int = 1
     ): Boolean {
         val sender = outbound.recent ?: return false
         val budgetMs = 1000.0 / requestedFps.coerceAtLeast(1)
@@ -250,7 +251,14 @@ class VideoCadenceGovernor(
                 } ?: ordinaryNext
             } else ordinaryNext
 
-            cap = next
+            // Give motion resolution relief time to work before sacrificing
+            // cadence. Severe transport failure still has an immediate escape.
+            val floor = if (loss >= SEVERE_PACKET_LOSS_RATIO ||
+                (outbound.roundTripTimeMs ?: 0) >= SEVERE_RTT_MS) 1
+                else minimumFps.coerceIn(1, minOf(cap, requestedFps).coerceAtLeast(1))
+            val boundedNext = maxOf(next, floor)
+            if (boundedNext >= cap) return false
+            cap = boundedNext
             changedAt = nowMs
             pressure = 0
             return true

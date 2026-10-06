@@ -25,6 +25,7 @@ class ScreenCaptureTrack(
     private val closed = AtomicBoolean(false)
     private val snapshotSinks = CopyOnWriteArraySet<VideoSink>()
     private val sampleClock = CaptureSampleClock()
+    private val activityTracker = CaptureActivityTracker()
 
     private val capturer = ScreenCapturerAndroid(
         grant.data,
@@ -78,6 +79,7 @@ class ScreenCaptureTrack(
                         sampleClock.timestamp(frame.timestampNs, System.nanoTime())
                     )
                     videoSource.capturerObserver.onFrameCaptured(sampled)
+                    activityTracker.onFrame(frame.timestampNs)
 
                     // These sinks are invoked explicitly for every capturer
                     // callback, even when WebRTC adaptation elects not to send
@@ -95,6 +97,7 @@ class ScreenCaptureTrack(
         check(!closed.get())
         if (started) return
         sourceGeometry = StableCaptureGeometry(profile)
+        activityTracker.sampleFps(android.os.SystemClock.elapsedRealtime())
         videoSource.adaptOutputFormat(profile.captureWidthPx, profile.captureHeightPx, profile.fps)
 
         capturer.startCapture(
@@ -120,6 +123,7 @@ class ScreenCaptureTrack(
     }
 
     fun addSnapshotSink(sink: VideoSink) { snapshotSinks += sink }
+    fun sampleSourceFps(nowMs: Long): Double? = activityTracker.sampleFps(nowMs)
     fun removeSnapshotSink(sink: VideoSink) { snapshotSinks -= sink }
     fun requestSnapshot() {
         check(started && !closed.get()) { "CAPTURE_STOPPED" }

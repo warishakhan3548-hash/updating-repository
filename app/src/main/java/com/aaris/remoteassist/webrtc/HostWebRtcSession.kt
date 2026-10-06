@@ -65,6 +65,7 @@ class HostWebRtcSession(
             initialCap = minOf(profile.motionFps, STARTUP_VIDEO_FPS_CAP)
         )
     private val passiveMotionPriority = PassiveMotionPriority()
+    private val motionVideoBudget = MotionVideoBudget()
     private val receiverFeedback = ReceiverVideoFeedback()
     private var lastSlowVideoCheckMs = 0L
 
@@ -675,21 +676,37 @@ class HostWebRtcSession(
                     )
                 }
 
+            val sourceFps = capture.sampleSourceFps(now)
             val motionChanged =
                 passiveMotionPriority.observe(
                     window = snapshot.recent,
-                    nowMs = now
+                    nowMs = now,
+                    sourceFps = sourceFps
                 )
+            val motionActive = freshnessPriorityActive(now)
+            val resolutionChanged = motionVideoBudget.observe(
+                outbound = snapshot,
+                receiver = receiver,
+                sourceFps = sourceFps,
+                motionActive = motionActive,
+                targetFps = minOf(30, profile.motionFps),
+                nowMs = now
+            )
             val requestedFps = effectiveCaptureProfile(profile).fps
             val cadenceChanged =
                 cadenceGovernor.observe(
                     outbound = snapshot,
                     receiver = receiver,
                     requestedFps = requestedFps,
-                    nowMs = now
+                    nowMs = now,
+                    minimumFps = motionVideoBudget.cadenceFloor(profile, motionActive, now)
                 )
-            if (motionChanged || cadenceChanged) {
+            if (motionChanged || cadenceChanged || resolutionChanged) {
                 applyVideoPolicy(profile)
+            }
+            if (resolutionChanged) {
+                val effective = effectiveCaptureProfile(profile)
+                listener.onDiagnostic("Motion video budget → ${effective.captureWidthPx}x${effective.captureHeightPx}@${effective.fps} • source=${sourceFps?.toInt()}fps")
             }
             if (cadenceChanged) {
                 listener.onDiagnostic(
@@ -710,6 +727,11 @@ class HostWebRtcSession(
             if (now - lastSlowVideoCheckMs < 3000) return@post
             lastSlowVideoCheckMs = now
             listener.onDiagnostic(snapshot.compact())
+            listener.onDiagnostic("Video delivery • source=${sourceFps?.toInt()}fps target=${effectiveCaptureProfile(profile).fps}fps present=${receiver?.presentedFps?.toInt()}fps gap=${receiver?.maxRenderGapMs}ms")
+
+            // One resolution owner during motion: do not simultaneously lower
+            // the legacy quality tier and the motion pixel budget.
+            if (motionActive) return@post
 
             val sender = snapshot.recent
             val effectiveRequestedFps = effectiveCaptureProfile(profile).fps
@@ -826,11 +848,12 @@ class HostWebRtcSession(
                 }
             )
 
-        return if (targetFps == target.fps) {
+        val paced = if (targetFps == target.fps) {
             target
         } else {
             target.copy(fps = targetFps)
         }
+        return motionVideoBudget.apply(paced, freshnessActive)
     }
 
     private fun applyVideoPolicy(target: CaptureProfile) {

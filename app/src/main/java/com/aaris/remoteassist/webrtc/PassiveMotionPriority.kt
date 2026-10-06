@@ -5,7 +5,7 @@ package com.aaris.remoteassist.webrtc
  * moving, even after the remote finger has lifted.
  *
  * ScreenCapturerAndroid naturally produces few/no frames on a static screen.
- * Sustained encoded cadence is therefore a useful low-cost motion signal. A
+ * Producer cadence detects motion even when the encoder has already stalled. A
  * short tail covers fling/launcher/video transitions and avoids repeatedly
  * toggling the RTP degradation preference around brief cadence dips.
  */
@@ -25,12 +25,13 @@ internal class PassiveMotionPriority(
 
     fun observe(
         window: VideoHealthWindow?,
-        nowMs: Long
+        nowMs: Long,
+        sourceFps: Double? = null
     ): Boolean {
         if (nowMs < 0L) return false
 
         val before = active
-        val fps = window?.fps ?: 0.0
+        val fps = sourceFps?.takeIf { it.isFinite() && it >= 0.0 } ?: window?.fps ?: 0.0
 
         if (!active && fps >= enterFps) {
             active = true
