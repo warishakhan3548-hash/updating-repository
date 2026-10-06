@@ -592,7 +592,7 @@ class VideoCadenceGovernor(
          */
         const val MIN_QUEUE_PRESSURE_MS = 40.0
         const val QUEUE_BUDGET_MULTIPLIER = 1.5
-        const val MIN_JITTER_PRESSURE_MS = 70.0
+        const val MIN_JITTER_PRESSURE_MS = 85.0
         const val JITTER_BUDGET_MULTIPLIER = 2.0
         const val MIN_PIPELINE_RESIDENCE_PRESSURE_MS = 45.0
         const val PIPELINE_RESIDENCE_BUDGET_MULTIPLIER = 2.25
@@ -616,7 +616,7 @@ class VideoCadenceGovernor(
         const val STRONG_RELIEF_MAX_STEP_FPS = 30
 
         const val URGENT_FRESHNESS_MULTIPLIER = 1.75
-        const val URGENT_FRESHNESS_CHANGE_INTERVAL_MS = 1_000L
+        const val URGENT_FRESHNESS_CHANGE_INTERVAL_MS = 1_500L
         const val HIGH_CADENCE_FAST_RELIEF_FPS = 60
         const val HIGH_CADENCE_FAST_RELIEF_CHANGE_INTERVAL_MS = 1_000L
 
