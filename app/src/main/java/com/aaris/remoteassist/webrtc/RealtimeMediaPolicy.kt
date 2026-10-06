@@ -57,14 +57,9 @@ internal object RealtimeMediaPolicy {
         }
 
     /**
-     * Order cross-layer video reconfiguration so a transition cannot create a
-     * short producer burst that outruns the sender envelope.
-     *
-     * When pixel-rate demand grows, prime RTP/encoder limits first and only
-     * then admit the faster/heavier source. When demand stays flat or shrinks,
-     * reduce the source first so stale work stops entering the pipeline before
-     * sender limits are tightened. This is deliberately a two-actuator ordering
-     * rule, not another queue, encoder, or feedback loop.
+     * Identify transitions that can expose a new codec/pacer throughput limit.
+     * The result only requests one earlier health sample; it never changes media
+     * cadence, bitrate, or queueing by itself.
      */
     fun shouldKickVideoStatsAfterTransition(
         previousWidthPx: Int,
@@ -107,6 +102,16 @@ internal object RealtimeMediaPolicy {
             nextFps > previousFps
     }
 
+    /**
+     * Order cross-layer video reconfiguration so a transition cannot create a
+     * short producer burst that outruns the sender envelope.
+     *
+     * When pixel-rate demand grows, prime RTP/encoder limits first and only
+     * then admit the faster/heavier source. When demand stays flat or shrinks,
+     * reduce the source first so stale work stops entering the pipeline before
+     * sender limits are tightened. This is deliberately a two-actuator ordering
+     * rule, not another queue, encoder, or feedback loop.
+     */
     fun senderBeforeCaptureForTransition(
         previousWidthPx: Int,
         previousHeightPx: Int,
