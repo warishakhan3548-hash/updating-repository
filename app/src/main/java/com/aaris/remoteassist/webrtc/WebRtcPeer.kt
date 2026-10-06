@@ -1697,7 +1697,11 @@ class WebRtcPeer(
         private const val LIVE_CONTROL_CHANNEL = "control-live-v1"
         private const val FALLBACK_VIDEO_CHANNEL = "fallback-video-v1"
         private const val SCREEN_STREAM_ID = "remote-screen"
-        private const val MIN_VIDEO_BITRATE_BPS = 600_000
+        // This is the smallest *maximum-bitrate ceiling* we allow the
+        // host policy to request; it is not a forced send rate. 250 kbps lets
+        // 180/240-wide emergency motion stay fresh on a constrained path
+        // instead of keeping a 600 kbps ceiling that can refill the pacer.
+        private const val MIN_VIDEO_BITRATE_BPS = 250_000
         private const val DEFAULT_VIDEO_BITRATE_BPS = 1_800_000
         private const val MAX_VIDEO_BITRATE_BPS = 12_000_000
         private const val MIN_VIDEO_FRAMERATE = 10
