@@ -5,10 +5,15 @@ import kotlin.math.roundToInt
 
 /**
  * Motion trades pixels before cadence. One-second interval telemetry drives a
- * 720 -> 540 -> 360 short-edge ladder, plus 240 for measured codec overload;
- * the MediaProjection surface never changes.
- * This budget owns motion resolution, while the cadence governor remains the
- * final escape hatch when even the smallest frame cannot be delivered promptly.
+ * 720 -> 540 -> 360 -> 240 ladder, with a final 180 short-edge freshness rung
+ * only when moving-source evidence proves a bandwidth-limited stale queue.
+ * The MediaProjection surface never changes.
+ *
+ * The key invariant is "new pixels beat old pixels": under congestion we spend
+ * resolution before cadence so WebRTC's MAINTAIN_FRAMERATE policy is not
+ * accidentally defeated by our own source cap. The cadence governor remains
+ * the final escape hatch when even the smallest frame cannot be delivered
+ * promptly.
  */
 internal class MotionVideoBudget {
     var shortEdge = 720
@@ -19,6 +24,7 @@ internal class MotionVideoBudget {
     private var pressureSamples = 0
     private var healthySamples = 0
     private var lastImplementation: String? = null
+    private var lastBandwidthPressureAtMs = Long.MIN_VALUE / 2
 
     /**
      * New motion should not spend its first one or two telemetry windows trying
@@ -70,6 +76,7 @@ internal class MotionVideoBudget {
             pressureSamples = 0
             healthySamples = 0
             if (nowMs - lastMotionAtMs >= IDLE_RESTORE_MS) {
+                lastBandwidthPressureAtMs = Long.MIN_VALUE / 2
                 holdingResolution = false
                 shortEdge = 720
             }
@@ -114,24 +121,51 @@ internal class MotionVideoBudget {
         val presentationPressure = expectedPresentation >= 10.0 && received?.presentedFps?.let {
             it < expectedPresentation * 0.8 || (received.maxRenderGapMs ?: 0) >= 150
         } == true
-        val sourceUnderDelivery = sourceFps.valid()?.let { it >= goal * 0.8 } == true &&
-            sender.fps < goal * 0.75 && outbound.qualityLimitationReason == "bandwidth"
+        val movingSource =
+            sourceFps.valid()?.let { it >= goal * 0.8 } == true
+        val bandwidthLimited =
+            outbound.qualityLimitationReason.equals("bandwidth", ignoreCase = true)
+        val bandwidthUnderDelivery =
+            movingSource && bandwidthLimited && sender.fps < goal * 0.78
+        val bandwidthFreshnessPressure =
+            bandwidthUnderDelivery &&
+                (
+                    (queueMs ?: 0.0) >= NETWORK_QUEUE_PRESSURE_MS ||
+                        sender.fps < goal * 0.60
+                )
+        val severeBandwidthFreshnessPressure =
+            bandwidthUnderDelivery &&
+                (
+                    (queueMs ?: 0.0) >= SEVERE_NETWORK_QUEUE_MS ||
+                        sender.fps < goal * 0.45
+                )
+        if (bandwidthFreshnessPressure) {
+            lastBandwidthPressureAtMs = nowMs
+        }
         val pressured = encodePressure || queuePressure || decodePressure || presentationPressure ||
-            sourceUnderDelivery || outbound.qualityLimitationReason == "cpu"
+            bandwidthUnderDelivery || outbound.qualityLimitationReason == "cpu"
 
         if (pressured) {
             healthySamples = 0
             pressureSamples++
             val severe = (queueMs ?: 0.0) >= 150.0 ||
-                (sender.frames >= 2 && sender.fps <= 10.0 && encodePressure)
-            if ((severe || pressureSamples >= 2) && nowMs - changedAtMs >= SETTLE_MS) {
+                (sender.frames >= 2 && sender.fps <= 10.0 && encodePressure) ||
+                severeBandwidthFreshnessPressure
+            val settleMs =
+                if (severeBandwidthFreshnessPressure) BANDWIDTH_FAST_SETTLE_MS else SETTLE_MS
+            if ((severe || pressureSamples >= 2) && nowMs - changedAtMs >= settleMs) {
                 val next = when {
                     shortEdge > 540 -> 540
                     shortEdge > 360 -> 360
-                    // A 360-wide software frame can still cost an entire 30 Hz
-                    // interval. Allow one more pixel step before sacrificing
-                    // cadence, but never blur this far for network delay alone.
-                    shortEdge > 240 && (encodePressure || decodePressure) -> 240
+                    // When a moving source is bandwidth-limited, a 360-wide
+                    // frame is still too expensive if the pacer is holding old
+                    // packets. Spend pixels before sacrificing temporal motion.
+                    shortEdge > 240 &&
+                        (encodePressure || decodePressure || bandwidthFreshnessPressure) -> 240
+                    // 180 is deliberately reserved for proven, severe
+                    // bandwidth staleness. Ordinary RTT/jitter spikes and a
+                    // healthy 30 fps sender cannot blur the stream this far.
+                    shortEdge > 180 && severeBandwidthFreshnessPressure -> 180
                     else -> shortEdge
                 }
                 if (next != shortEdge) {
@@ -177,17 +211,47 @@ internal class MotionVideoBudget {
 
     fun cadenceFloor(profile: CaptureProfile, motionActive: Boolean, nowMs: Long): Int {
         if (!motionActive) return 1
-        // Protect only the settling period after a real budget change. The
-        // former indefinite floor could block cadence relief when its pressure
-        // signal disagreed with the resolution governor (e.g. moderate jitter).
+
+        // Keep at least 24 fps while a recent bandwidth-limited moving source
+        // still has a cheaper pixel rung available. This is the Java-side
+        // counterpart of MAINTAIN_FRAMERATE: do not hard-cap the source to 15
+        // fps while 360/240-wide frames are still clogging the pacer.
+        val bandwidthReliefActive =
+            nowMs - lastBandwidthPressureAtMs in 0L..BANDWIDTH_PRESSURE_HOLD_MS
+        if (bandwidthReliefActive && shortEdge > MIN_BANDWIDTH_SHORT_EDGE) {
+            return minOf(BANDWIDTH_CADENCE_FLOOR_FPS, profile.motionFps)
+        }
+
+        // After every actual pixel step, give the new frame size a short window
+        // to drain the old queue before cadence is allowed to fall. Once the
+        // 180-wide emergency rung has settled, cadence may still step down if
+        // the path genuinely cannot sustain fresh frames.
         return if (nowMs - changedAtMs < SETTLE_MS) minOf(30, profile.motionFps) else 1
+    }
+
+    fun bitrateCeiling(profile: CaptureProfile, motionActive: Boolean): Int {
+        if (!motionActive && !holdingResolution) return profile.maxVideoBitrateBps
+        val motionCeiling = when {
+            shortEdge <= 180 -> 350_000
+            shortEdge <= 240 -> 500_000
+            shortEdge <= 360 -> 900_000
+            shortEdge <= 540 -> 1_800_000
+            else -> profile.maxVideoBitrateBps
+        }
+        return minOf(profile.maxVideoBitrateBps, motionCeiling)
     }
 
     private fun Double?.valid(): Double? = this?.takeIf { it.isFinite() && it >= 0.0 }
 
     private companion object {
-        const val MOTION_WARM_START_SHORT_EDGE = 540
+        const val MOTION_WARM_START_SHORT_EDGE = 360
         const val SETTLE_MS = 3_000L
+        const val BANDWIDTH_FAST_SETTLE_MS = 1_000L
+        const val BANDWIDTH_PRESSURE_HOLD_MS = 2_500L
+        const val NETWORK_QUEUE_PRESSURE_MS = 90.0
+        const val SEVERE_NETWORK_QUEUE_MS = 250.0
+        const val MIN_BANDWIDTH_SHORT_EDGE = 180
+        const val BANDWIDTH_CADENCE_FLOOR_FPS = 24
         const val IDLE_RESTORE_MS = 8_000L
     }
 }
