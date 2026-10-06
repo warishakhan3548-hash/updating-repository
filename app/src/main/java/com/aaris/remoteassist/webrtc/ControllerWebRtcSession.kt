@@ -250,6 +250,15 @@ class ControllerWebRtcSession(
 
     fun setInteractionActive(active: Boolean): Boolean {
         if (closed.get()) return false
+
+        /*
+         * Decoder/jitter stats are generated on the controller endpoint, so
+         * finger-down must accelerate this local health loop as well as telling
+         * the host to prioritize fresh capture. This changes telemetry cadence
+         * only; it does not create extra decode/render work.
+         */
+        peer.setRealtimeVideoTelemetry(active)
+
         if (interactionActive == active) return true
 
         val lease = leaseSecret ?: return false
