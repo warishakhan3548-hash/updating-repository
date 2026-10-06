@@ -31,7 +31,8 @@ data class AiLocalReflex(
 data class AiReflexMatch(
     val matched: Boolean,
     val reason: String,
-    val localDifferenceRatio: Double? = null
+    val localDifferenceRatio: Double? = null,
+    val matchedFingerprint: ByteArray? = null
 )
 
 class AiLocalReflexWatcher(
@@ -92,7 +93,7 @@ class AiLocalReflexWatcher(
                     if (!departed && ratio >= DEPART_RATIO) {
                         departed = true
                     } else if (departed && ratio <= MATCH_RATIO) {
-                        return AiReflexMatch(true, "MATCHED_AFTER_DEPARTURE", ratio)
+                        return AiReflexMatch(true, "MATCHED_AFTER_DEPARTURE", ratio, fingerprint)
                     }
                 }
             }
