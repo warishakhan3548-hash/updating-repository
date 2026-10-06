@@ -410,6 +410,25 @@ class AiObservationEngine internal constructor(
         )
     }
 
+    fun createBurstGuard(observationId: String, screenVersion: Long): AiMotorBurstGuard? {
+        if (!ledger.valid(observationId, screenVersion, now())) return null
+        val ui = issuedUi ?: return null
+        if (
+            issuedMode == AiInteractionMode.STRICT ||
+            ui.sensitiveFocus ||
+            ui.packageName == ownPackage ||
+            width <= 0 ||
+            height <= 0
+        ) return null
+        return AiMotorBurstGuard(
+            packageName = ui.packageName,
+            windowId = ui.windowId,
+            displayWidthPx = width,
+            displayHeightPx = height,
+            rotation = rotation
+        )
+    }
+
     fun createReflexTemplate(id: String, args: JSONObject, ttlMs: Long = 180_000L): AiLocalReflex? {
         if (args.optString("action") != "tap") return null
         val ui = issuedUi ?: return null
