@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.webrtc.Priority
+import org.webrtc.RtpParameters
 
 class RealtimeMediaPolicyTest {
     @Test
@@ -25,6 +26,40 @@ class RealtimeMediaPolicyTest {
         assertEquals(
             Priority.HIGH,
             RealtimeMediaPolicy.VIDEO_NETWORK_PRIORITY
+        )
+    }
+
+    @Test
+    fun appOwnedMotionBudgetIsTheOnlySpatialTemporalAdaptationAuthority() {
+        assertEquals(
+            RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE_AND_RESOLUTION,
+            RealtimeMediaPolicy.videoDegradationPreference(
+                motionPriority = true,
+                preserveResolution = false
+            )
+        )
+        // Motion ownership wins even if a stale preserve-resolution hint is
+        // simultaneously present; two spatial controllers must never compete.
+        assertEquals(
+            RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE_AND_RESOLUTION,
+            RealtimeMediaPolicy.videoDegradationPreference(
+                motionPriority = true,
+                preserveResolution = true
+            )
+        )
+        assertEquals(
+            RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION,
+            RealtimeMediaPolicy.videoDegradationPreference(
+                motionPriority = false,
+                preserveResolution = true
+            )
+        )
+        assertEquals(
+            RtpParameters.DegradationPreference.BALANCED,
+            RealtimeMediaPolicy.videoDegradationPreference(
+                motionPriority = false,
+                preserveResolution = false
+            )
         )
     }
 
