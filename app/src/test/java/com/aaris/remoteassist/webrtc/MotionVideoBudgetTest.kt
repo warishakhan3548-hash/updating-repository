@@ -233,6 +233,118 @@ class MotionVideoBudgetTest {
         assertEquals(360, budget.shortEdge)
     }
 
+
+    @Test fun sustainedResidenceGrowthPreemptsVisibleQueueAtSixtyFps() {
+        val budget = MotionVideoBudget()
+        assertTrue(budget.primeForMotion(profile, 0L))
+        assertEquals(360, budget.shortEdge)
+
+        /*
+         * Queue and jitter remain below the existing absolute alarms. The new
+         * signal reacts only after two consecutive rising residence intervals.
+         */
+        listOf(15.0, 30.0, 45.0).forEachIndexed { index, queue ->
+            val changed =
+                budget.observe(
+                    outbound = sender(
+                        fps = 60,
+                        encode = 5.0,
+                        queue = queue,
+                        implementation = "c2.qti.avc.encoder"
+                    ),
+                    receiver = receiver(fps = 60, decode = 5.0, presented = 60)
+                        .copy(jitterMs = 10.0),
+                    sourceFps = 60.0,
+                    motionActive = true,
+                    targetFps = 60,
+                    nowMs = (index + 1) * 1_000L,
+                    interactionActive = true
+                )
+            if (index < 2) assertFalse(changed) else assertTrue(changed)
+        }
+
+        assertEquals(240, budget.shortEdge)
+    }
+
+    @Test fun oneResidenceSpikeDoesNotTriggerPredictivePixelRelief() {
+        val budget = MotionVideoBudget()
+        assertTrue(budget.primeForMotion(profile, 0L))
+
+        listOf(15.0, 50.0, 20.0).forEachIndexed { index, queue ->
+            assertFalse(
+                budget.observe(
+                    outbound = sender(
+                        fps = 60,
+                        encode = 5.0,
+                        queue = queue,
+                        implementation = "c2.qti.avc.encoder"
+                    ),
+                    receiver = receiver(fps = 60, decode = 5.0, presented = 60)
+                        .copy(jitterMs = 10.0),
+                    sourceFps = 60.0,
+                    motionActive = true,
+                    targetFps = 60,
+                    nowMs = (index + 1) * 1_000L,
+                    interactionActive = true
+                )
+            )
+        }
+
+        assertEquals(360, budget.shortEdge)
+    }
+
+    @Test fun thirtyFpsGetsWiderResidenceGrowthBudgetThanSixtyFps() {
+        val budget = MotionVideoBudget()
+        assertTrue(budget.primeForMotion(profile, 0L))
+
+        listOf(15.0, 30.0, 45.0, 60.0).forEachIndexed { index, queue ->
+            assertFalse(
+                budget.observe(
+                    outbound = sender(
+                        fps = 30,
+                        encode = 5.0,
+                        queue = queue,
+                        implementation = "c2.qti.avc.encoder"
+                    ),
+                    receiver = receiver(fps = 30, decode = 5.0, presented = 30)
+                        .copy(jitterMs = 10.0),
+                    sourceFps = 30.0,
+                    motionActive = true,
+                    targetFps = 30,
+                    nowMs = (index + 1) * 1_000L,
+                    interactionActive = true
+                )
+            )
+        }
+
+        assertEquals(360, budget.shortEdge)
+    }
+
+    @Test fun staticScreenCannotAccumulateResidenceGrowthPressure() {
+        val budget = MotionVideoBudget()
+
+        listOf(15.0, 35.0, 55.0, 70.0).forEachIndexed { index, queue ->
+            assertFalse(
+                budget.observe(
+                    outbound = sender(
+                        fps = 1,
+                        encode = 5.0,
+                        queue = queue,
+                        implementation = "c2.qti.avc.encoder"
+                    ),
+                    receiver = null,
+                    sourceFps = 1.0,
+                    motionActive = true,
+                    targetFps = 60,
+                    nowMs = (index + 1) * 1_000L,
+                    interactionActive = false
+                )
+            )
+        }
+
+        assertEquals(720, budget.shortEdge)
+    }
+
     @Test fun provenSixtyFpsCodecPressureGetsBoundedFastPixelRelief() {
         val budget = MotionVideoBudget()
         assertTrue(budget.primeForMotion(profile, 0L))
