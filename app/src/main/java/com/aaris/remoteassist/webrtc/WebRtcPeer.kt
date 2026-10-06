@@ -1743,6 +1743,29 @@ class WebRtcPeer(
         )
     }
 
+    /**
+     * Pull the existing single-flight stats loop forward once after a risky
+     * source/sender upshift. No second polling loop is created and no media
+     * frame is retained. If transport is not live yet, startup telemetry remains
+     * the sole owner.
+     */
+    fun requestVideoHealthProbe(
+        delayMs: Long =
+            RealtimeMediaPolicy.VIDEO_STATS_RECONFIGURE_KICK_MS
+    ) {
+        if (closed.get() || !videoStatsEnabled) return
+
+        val boundedDelay =
+            delayMs.coerceIn(
+                0L,
+                RealtimeMediaPolicy.videoStatsIntervalMs(
+                    realtimeVideoTelemetry
+                )
+            )
+        handler.removeCallbacks(videoStatsProbe)
+        handler.postDelayed(videoStatsProbe, boundedDelay)
+    }
+
     fun updateInteractiveVideoPolicy(
         maxBitrateBps: Int,
         maxFramerate: Int,
