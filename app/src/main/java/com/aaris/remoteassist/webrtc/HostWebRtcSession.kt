@@ -213,12 +213,16 @@ class HostWebRtcSession(
                      * attached forever adds a useless VideoTrack fan-out on every
                      * steady-state frame.
                      */
-                    runCatching {
-                        capture.videoTrack.removeSink(captureProbe)
-                    }
+                    detachStartupCaptureProbe()
                     ensureLiveHandshake()
                 }
             }
+        }
+    }
+
+    private fun detachStartupCaptureProbe() {
+        runCatching {
+            capture.videoTrack.removeSink(captureProbe)
         }
     }
 
