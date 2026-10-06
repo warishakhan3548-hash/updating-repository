@@ -1321,6 +1321,16 @@ class HostWebRtcSession(
                 nextHeightPx = effective.captureHeightPx,
                 nextFps = effective.fps
             )
+        val probeRiskyUpshift =
+            freshnessActive &&
+                RealtimeMediaPolicy.shouldKickVideoStatsAfterTransition(
+                    previousWidthPx = lastAppliedCaptureWidthPx,
+                    previousHeightPx = lastAppliedCaptureHeightPx,
+                    previousFps = lastAppliedCaptureFps,
+                    nextWidthPx = effective.captureWidthPx,
+                    nextHeightPx = effective.captureHeightPx,
+                    nextFps = effective.fps
+                )
 
         /*
          * Treat source + sender reconfiguration as one ordered transaction.
@@ -1355,6 +1365,17 @@ class HostWebRtcSession(
         lastAppliedCaptureWidthPx = effective.captureWidthPx
         lastAppliedCaptureHeightPx = effective.captureHeightPx
         lastAppliedCaptureFps = effective.fps
+
+        /*
+         * A 30 -> 45/60 fps or heavier pixel-rate transition can fail quickly
+         * on a vendor codec even when the old rung was healthy. Sample once
+         * after the new transaction has actually been applied instead of
+         * waiting for the next periodic 500 ms tick. Steady-state cadence and
+         * CPU cost are unchanged.
+         */
+        if (probeRiskyUpshift) {
+            peer.requestVideoHealthProbe()
+        }
     }
 
     override fun onDiagnostic(message: String) {
