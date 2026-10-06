@@ -2,6 +2,7 @@ package com.aaris.remoteassist.webrtc
 
 import android.os.Process
 import org.webrtc.Priority
+import org.webrtc.RtpParameters
 
 /**
  * Cross-layer realtime policy for remote-control video.
@@ -54,6 +55,33 @@ internal object RealtimeMediaPolicy {
             VIDEO_STATS_REALTIME_INTERVAL_MS
         } else {
             VIDEO_STATS_IDLE_INTERVAL_MS
+        }
+
+    /**
+     * Keep one authority over interactive spatial/temporal adaptation.
+     *
+     * MotionVideoBudget + HighCadenceProbe already own the app's source
+     * resolution/FPS envelope. Letting libwebrtc independently resize the same
+     * motion stream creates two feedback controllers acting on one plant, which
+     * can cause hidden resolution oscillation and repeated codec reconfiguration.
+     *
+     * Modern libwebrtc exposes MAINTAIN_FRAMERATE_AND_RESOLUTION specifically
+     * for applications that implement their own adaptation policy. WebRTC still
+     * owns congestion control, packet pacing, encoder rate control and may drop
+     * work before encode when resources are overused; our measured cross-layer
+     * governor then lowers the declared rung when pressure persists.
+     */
+    fun videoDegradationPreference(
+        motionPriority: Boolean,
+        preserveResolution: Boolean
+    ): RtpParameters.DegradationPreference =
+        when {
+            motionPriority ->
+                RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE_AND_RESOLUTION
+            preserveResolution ->
+                RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
+            else ->
+                RtpParameters.DegradationPreference.BALANCED
         }
 
     /**
