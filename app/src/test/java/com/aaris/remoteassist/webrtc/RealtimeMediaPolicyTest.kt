@@ -24,4 +24,27 @@ class RealtimeMediaPolicyTest {
                 RealtimeMediaPolicy.threadPriority(false)
         )
     }
+
+    @Test
+    fun realtimeVideoHealthSamplingIsFasterThanIdleSampling() {
+        assertEquals(
+            500L,
+            RealtimeMediaPolicy.videoStatsIntervalMs(true)
+        )
+        assertEquals(
+            1_500L,
+            RealtimeMediaPolicy.videoStatsIntervalMs(false)
+        )
+        assertTrue(
+            RealtimeMediaPolicy.VIDEO_STATS_FAST_KICK_MS <
+                RealtimeMediaPolicy.videoStatsIntervalMs(true)
+        )
+    }
+
+    @Test
+    fun initialHealthProbeArrivesBeforeLegacyOneSecondWindow() {
+        assertTrue(
+            RealtimeMediaPolicy.VIDEO_STATS_INITIAL_DELAY_MS in 250L..999L
+        )
+    }
 }
