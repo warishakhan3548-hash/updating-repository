@@ -323,6 +323,28 @@ class MotionVideoBudgetTest {
     @Test fun staticScreenCannotAccumulateResidenceGrowthPressure() {
         val budget = MotionVideoBudget()
 
+        // The first motion-active observation legitimately flips the existing
+        // resolution-hold state even though no pixel rung changes. Establish
+        // that state before asserting that a static producer cannot build the
+        // new predictive pressure signal.
+        assertTrue(
+            budget.observe(
+                outbound = sender(
+                    fps = 1,
+                    encode = 5.0,
+                    queue = 5.0,
+                    implementation = "c2.qti.avc.encoder"
+                ),
+                receiver = null,
+                sourceFps = 1.0,
+                motionActive = true,
+                targetFps = 60,
+                nowMs = 500L,
+                interactionActive = false
+            )
+        )
+        assertEquals(720, budget.shortEdge)
+
         listOf(15.0, 35.0, 55.0, 70.0).forEachIndexed { index, queue ->
             assertFalse(
                 budget.observe(
