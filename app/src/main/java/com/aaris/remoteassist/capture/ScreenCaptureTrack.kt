@@ -17,7 +17,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 class ScreenCaptureTrack(
     context: Context,
     grant: ProjectionGrant,
-    private val onProjectionStopped: () -> Unit
+    private val onProjectionStopped: () -> Unit,
+    private val onSourceMotion: () -> Unit = {}
 ) : Closeable {
     private val appContext = context.applicationContext
     private val factory = WebRtcRuntime.factory(appContext)
@@ -85,7 +86,12 @@ class ScreenCaptureTrack(
                         sampleClock.timestamp(frame.timestampNs, System.nanoTime())
                     )
                     videoSource.capturerObserver.onFrameCaptured(sampled)
-                    activityTracker.onFrame(frame.timestampNs)
+                    if (activityTracker.onFrame(frame.timestampNs)) {
+                        // The callback is throttled by CaptureActivityTracker.
+                        // Keep it best-effort and never let policy work block
+                        // the latency-critical capture/RTP path.
+                        runCatching { onSourceMotion() }
+                    }
 
                     // These sinks are invoked explicitly for every capturer
                     // callback, even when WebRTC adaptation elects not to send
