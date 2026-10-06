@@ -68,6 +68,11 @@ class HostWebRtcSession(
     private val motionVideoBudget = MotionVideoBudget()
     private val receiverFeedback = ReceiverVideoFeedback()
     private var lastSlowVideoCheckMs = 0L
+    // Evidence is taken while the producer is quiet, BEFORE fresh motion.
+    // A short-lived snapshot is enough to safely probe one FPS rung.
+    private var lastQuietOutbound: VideoHealthSnapshot? = null
+    private var lastQuietSourceFps: Double? = null
+    private var lastQuietSampleAtMs = 0L
 
     @Volatile
     private var peerConnected = false
@@ -692,6 +697,13 @@ class HostWebRtcSession(
                     sourceFps = sourceFps
                 )
             val motionActive = freshnessPriorityActive(now)
+            if (!motionActive && sourceFps != null &&
+                sourceFps.isFinite() && sourceFps in 0.0 until 2.5 &&
+                (snapshot.recent?.frames ?: Int.MAX_VALUE) <= 3) {
+                lastQuietOutbound = snapshot
+                lastQuietSourceFps = sourceFps
+                lastQuietSampleAtMs = now
+            }
             val resolutionChanged = motionVideoBudget.observe(
                 outbound = snapshot,
                 receiver = receiver,
@@ -707,7 +719,8 @@ class HostWebRtcSession(
                     receiver = receiver,
                     requestedFps = requestedFps,
                     nowMs = now,
-                    minimumFps = motionVideoBudget.cadenceFloor(profile, motionActive, now)
+                    minimumFps = motionVideoBudget.cadenceFloor(profile, motionActive, now),
+                    producerFps = sourceFps
                 )
             if (motionChanged || cadenceChanged || resolutionChanged) {
                 applyVideoPolicy(profile)
@@ -799,9 +812,13 @@ class HostWebRtcSession(
         fallbackStreamer.setInteractionActive(active)
 
         if (interactionActive != active) {
+            val wasFreshnessActive = freshnessPriorityActive()
             interactionActive = active
             if (active) {
                 val now = android.os.SystemClock.elapsedRealtime()
+                if (!wasFreshnessActive) {
+                    tryRecoverCadenceOnNewMotion(now)
+                }
                 if (motionVideoBudget.primeForMotion(profile, now)) {
                     val effective = effectiveCaptureProfile(profile)
                     listener.onDiagnostic(
@@ -856,14 +873,36 @@ class HostWebRtcSession(
         interactionActive ||
             passiveMotionPriority.isActive(nowMs)
 
+    private fun tryRecoverCadenceOnNewMotion(nowMs: Long): Boolean {
+        val recovered = cadenceGovernor.tryProbeAfterQuiet(
+            outbound = lastQuietOutbound,
+            producerFps = lastQuietSourceFps,
+            telemetryAtMs = lastQuietSampleAtMs,
+            nowMs = nowMs
+        )
+        // Consume the evidence once. A later touch must not repeatedly borrow
+        // a quiet sample from before the previous animation.
+        lastQuietOutbound = null
+        lastQuietSourceFps = null
+
+        if (recovered) {
+            listener.onDiagnostic(
+                "Fresh motion • quiet-path FPS probe → ${cadenceGovernor.cap}fps ceiling"
+            )
+        }
+        return recovered
+    }
+
     private fun handleSourceMotionPulse() {
         if (closed.get()) return
 
         val now = android.os.SystemClock.elapsedRealtime()
         val motionChanged = passiveMotionPriority.pulse(now)
+        val cadenceChanged =
+            if (motionChanged) tryRecoverCadenceOnNewMotion(now) else false
         val budgetChanged = motionVideoBudget.primeForMotion(profile, now)
 
-        if (motionChanged || budgetChanged) {
+        if (motionChanged || budgetChanged || cadenceChanged) {
             applyVideoPolicy(profile)
         }
 
