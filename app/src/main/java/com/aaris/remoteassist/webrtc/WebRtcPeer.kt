@@ -1789,11 +1789,22 @@ class WebRtcPeer(
             if (parameters.degradationPreference == degradationPreference &&
                 parameters.encodings.isNotEmpty() &&
                 parameters.encodings.all {
-                    it.maxBitrateBps == videoMaxBitrateBps && it.maxFramerate == videoMaxFramerate
+                    it.maxBitrateBps == videoMaxBitrateBps &&
+                        it.maxFramerate == videoMaxFramerate &&
+                        it.networkPriority ==
+                        RealtimeMediaPolicy.VIDEO_NETWORK_PRIORITY
                 }) return@runCatching
             parameters.degradationPreference = degradationPreference
 
             parameters.encodings.forEach { encoding ->
+                /*
+                 * This is a latency/QoS hint, not a bitrate override. When the
+                 * active network honors DSCP, fresh remote-screen RTP packets
+                 * may be scheduled ahead of lower-priority traffic without
+                 * creating another encoder, queue, worker or frame copy.
+                 */
+                encoding.networkPriority =
+                    RealtimeMediaPolicy.VIDEO_NETWORK_PRIORITY
                 encoding.maxBitrateBps = videoMaxBitrateBps
                 encoding.maxFramerate = videoMaxFramerate
             }
@@ -1833,6 +1844,13 @@ class WebRtcPeer(
                 } else {
                     PeerConnection.IceTransportsType.ALL
                 }
+            /*
+             * DSCP is best-effort: networks may ignore or rewrite it. Enabling
+             * it costs no additional media work; the sender's RTP priority
+             * below only affects packet classification when the path supports
+             * differentiated services.
+             */
+            enableDscp = RealtimeMediaPolicy.ENABLE_VIDEO_DSCP
             iceCandidatePoolSize = 0
         }
     }
