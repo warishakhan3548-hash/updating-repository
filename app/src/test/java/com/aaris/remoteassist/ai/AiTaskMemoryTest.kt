@@ -73,4 +73,33 @@ class AiTaskMemoryTest {
         assertEquals("major_change", AiActionEffectAnalyzer.classify("tap", true, 0.50).kind)
         assertEquals("not_applied", AiActionEffectAnalyzer.classify("tap", false, 0.50).kind)
     }
+
+    @Test fun backgroundMotionDoesNotMasqueradeAsTargetProgressAndFailuresAreRemembered() {
+        val backgroundOnly = AiActionEffectAnalyzer.classify(
+            action = "tap",
+            applied = true,
+            changeRatio = 0.35,
+            targetChangeRatio = 0.002
+        )
+        assertEquals("background_motion_only", backgroundOnly.kind)
+        assertEquals(0.002, backgroundOnly.toJson().getDouble("targetChangeRatio"), 0.0001)
+
+        val memory = AiTaskMemory()
+        memory.start("Complete a multi-step task")
+        memory.recordAction(
+            actionId = "stale-1",
+            action = "tap",
+            rawIntent = "Continue",
+            rawExpectedOutcome = "Next screen",
+            rawContextNote = null,
+            effect = AiActionEffectAnalyzer.classify("tap", false, null, null),
+            applied = false,
+            packageName = "app",
+            mode = AiInteractionMode.INTERACTIVE,
+            resultCode = "TARGET_CHANGED"
+        )
+        val recent = memory.snapshot().getJSONArray("recentActions").getJSONObject(0)
+        assertEquals("TARGET_CHANGED", recent.getString("resultCode"))
+        assertEquals("not_applied", recent.getJSONObject("effect").getString("kind"))
+    }
 }
