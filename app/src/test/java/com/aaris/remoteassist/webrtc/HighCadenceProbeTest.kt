@@ -99,6 +99,37 @@ class HighCadenceProbeTest {
         assertEquals(45, g.cap)
     }
 
+    @Test fun repeatedFailedFortyFiveTrialsLearnLongerRetryBackoff() {
+        val g = VideoCadenceGovernor(60, 30)
+
+        // First 45-fps experiment fails because end-to-end delivery stays at 30.
+        promote45(g)
+        assertFalse(sample(g, 3000L, fps = 30))
+        assertTrue(sample(g, 4000L, fps = 30))
+        assertEquals(30, g.cap)
+
+        // The original bounded 8s cooldown still allows a retry.
+        assertFalse(sample(g, 12000L))
+        assertTrue(sample(g, 13000L))
+        assertEquals(45, g.cap)
+
+        // A second capability failure is stronger evidence. Back off the same
+        // target for 16s instead of hammering the encoder every 8s.
+        assertFalse(sample(g, 14000L, fps = 30))
+        assertTrue(sample(g, 15000L, fps = 30))
+        assertEquals(30, g.cap)
+
+        for (time in 23000L..30000L step 1000L) {
+            assertFalse(sample(g, time))
+            assertEquals(30, g.cap)
+        }
+
+        // Once the learned cooldown expires, fresh clean proof can retry.
+        assertFalse(sample(g, 31000L))
+        assertTrue(sample(g, 32000L))
+        assertEquals(45, g.cap)
+    }
+
     @Test fun trialPressureRollsBackImmediatelyAndLostFeedbackExpires() {
         val g = VideoCadenceGovernor(60, 30)
         promote45(g)
