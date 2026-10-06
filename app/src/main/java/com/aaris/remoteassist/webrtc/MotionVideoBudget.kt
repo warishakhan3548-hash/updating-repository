@@ -29,9 +29,11 @@ internal class MotionVideoBudget {
     /**
      * New motion should not spend its first one or two telemetry windows trying
      * to push a full 720-short-edge stream through an unknown encoder/path.
-     * Warm-start STANDARD/HIGH motion at 540, hold 30 fps, then let measured
-     * end-to-end health earn 720 back. Repeated pulses only refresh the hold;
-     * they never knock a continuously healthy stream back down after recovery.
+     * Warm-start STANDARD/HIGH motion at a cheap 360 short-edge, then let
+     * measured end-to-end health earn detail back. Cadence remains independently
+     * governed, so a 45/60 Hz path is never evaluated with a hidden 30 Hz frame
+     * budget. Repeated pulses only refresh the hold; they never knock a
+     * continuously healthy stream back down after recovery.
      */
     fun primeForMotion(
         profile: CaptureProfile,
@@ -107,7 +109,17 @@ internal class MotionVideoBudget {
             }
         }
 
-        val goal = targetFps.coerceIn(1, 30)
+        /*
+         * Use the cadence the session is actually asking libwebrtc to deliver.
+         * Clamping this to 30 made a 45/60 fps stream look artificially healthy:
+         * e.g. 20 ms encode time fits a 30 Hz (33.3 ms) budget but misses a
+         * 60 Hz (16.7 ms) budget. That delays pixel relief, lets stale frames
+         * accumulate, and then forces a larger cadence collapse later.
+         *
+         * Keep this governor aligned with VideoCadenceGovernor/CaptureProfile so
+         * high-refresh motion spends pixels early instead of queueing old frames.
+         */
+        val goal = targetFps.coerceIn(1, MAX_TARGET_FPS)
         val frameMs = 1000.0 / goal
         val encodeMs = sender.processingMs.valid()
         val queueMs = sender.sendQueueMs.valid()
@@ -297,5 +309,6 @@ internal class MotionVideoBudget {
         const val MIN_BANDWIDTH_SHORT_EDGE = 180
         const val BANDWIDTH_CADENCE_FLOOR_FPS = 24
         const val IDLE_RESTORE_MS = 8_000L
+        const val MAX_TARGET_FPS = 60
     }
 }
