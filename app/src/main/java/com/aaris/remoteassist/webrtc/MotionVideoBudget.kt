@@ -157,6 +157,34 @@ internal class MotionVideoBudget {
             }
         val bandwidthLimited =
             outbound.qualityLimitationReason.equals("bandwidth", ignoreCase = true)
+
+        /*
+         * Predict congestion one control-loop earlier than queue residence.
+         * availableOutgoingBitrate comes from WebRTC's own congestion controller
+         * (TWCC/REMB depending on the negotiated path). When real motion is
+         * present and the estimate cannot comfortably sustain the current pixel
+         * rung, spend pixels before the encoder/pacer starts accumulating stale
+         * frames. Missing BWE keeps the established reactive behavior unchanged.
+         */
+        val bandwidthEstimateBps =
+            outbound.availableOutgoingBitrateBps.valid()
+        val currentRungBitrateBps =
+            nominalMotionBitrateBps(shortEdge)
+        val bandwidthHeadroomRatio =
+            bandwidthEstimateBps?.let { estimate ->
+                estimate / currentRungBitrateBps
+            }
+        val predictiveBandwidthPressure =
+            motionEvidence &&
+                bandwidthHeadroomRatio?.let {
+                    it < BWE_PRESSURE_HEADROOM_RATIO
+                } == true
+        val severePredictiveBandwidthPressure =
+            motionEvidence &&
+                bandwidthHeadroomRatio?.let {
+                    it < BWE_SEVERE_HEADROOM_RATIO
+                } == true
+
         val bandwidthUnderDelivery =
             motionEvidence && senderLagsMotion && bandwidthLimited
         val bandwidthFreshnessPressure =
@@ -171,11 +199,17 @@ internal class MotionVideoBudget {
                     (queueMs ?: 0.0) >= SEVERE_NETWORK_QUEUE_MS ||
                         sender.fps < goal * 0.45
                 )
-        if (bandwidthFreshnessPressure) {
+        if (bandwidthFreshnessPressure || predictiveBandwidthPressure) {
             lastBandwidthPressureAtMs = nowMs
         }
-        val pressured = encodePressure || queuePressure || decodePressure || presentationPressure ||
-            bandwidthUnderDelivery || outbound.qualityLimitationReason == "cpu"
+        val pressured =
+            encodePressure ||
+                queuePressure ||
+                decodePressure ||
+                presentationPressure ||
+                bandwidthUnderDelivery ||
+                predictiveBandwidthPressure ||
+                outbound.qualityLimitationReason == "cpu"
 
         if (pressured) {
             healthySamples = 0
@@ -197,9 +231,14 @@ internal class MotionVideoBudget {
                 goal >= HIGH_CADENCE_FPS &&
                     (encodePressure || decodePressure || presentationPressure)
             val settleMs = when {
-                severeBandwidthFreshnessPressure -> BANDWIDTH_FAST_SETTLE_MS
-                highCadencePipelinePressure -> HIGH_CADENCE_FAST_SETTLE_MS
-                else -> SETTLE_MS
+                severeBandwidthFreshnessPressure ->
+                    BANDWIDTH_FAST_SETTLE_MS
+                predictiveBandwidthPressure ->
+                    BWE_PREDICTIVE_SETTLE_MS
+                highCadencePipelinePressure ->
+                    HIGH_CADENCE_FAST_SETTLE_MS
+                else ->
+                    SETTLE_MS
             }
             if ((severe || pressureSamples >= 2) && nowMs - changedAtMs >= settleMs) {
                 val next = when {
@@ -209,11 +248,20 @@ internal class MotionVideoBudget {
                     // frame is still too expensive if the pacer is holding old
                     // packets. Spend pixels before sacrificing temporal motion.
                     shortEdge > 240 &&
-                        (encodePressure || decodePressure || bandwidthFreshnessPressure) -> 240
-                    // 180 is deliberately reserved for proven, severe
-                    // bandwidth staleness. Ordinary RTT/jitter spikes and a
-                    // healthy 30 fps sender cannot blur the stream this far.
-                    shortEdge > 180 && severeBandwidthFreshnessPressure -> 180
+                        (
+                            encodePressure ||
+                                decodePressure ||
+                                bandwidthFreshnessPressure ||
+                                predictiveBandwidthPressure
+                            ) -> 240
+                    // 180 is deliberately reserved for strong bandwidth proof.
+                    // A sustained BWE estimate far below the current rung is
+                    // actionable even before a stale sender queue is visible.
+                    shortEdge > 180 &&
+                        (
+                            severeBandwidthFreshnessPressure ||
+                                severePredictiveBandwidthPressure
+                            ) -> 180
                     else -> shortEdge
                 }
                 if (next != shortEdge) {
@@ -235,9 +283,28 @@ internal class MotionVideoBudget {
                     (received.presentedFps?.let { it >= goal * 0.9 } ?: true) &&
                     (received.maxRenderGapMs ?: 0) < 100
             }
-            val healthy = sender.fps >= goal * 0.9 && encodeMs != null && encodeMs < frameMs * 0.5 &&
-                queueMs != null && queueMs < 20.0 && receiverHealthy &&
-                (outbound.packetLossRatio ?: 0.0) < 0.025
+            val nextRecoveryRung =
+                when {
+                    shortEdge < 240 -> 240
+                    shortEdge < 360 -> 360
+                    shortEdge < 540 -> 540
+                    else -> 720
+                }
+            val recoveryBandwidthHealthy =
+                bandwidthEstimateBps?.let { estimate ->
+                    estimate >=
+                        nominalMotionBitrateBps(nextRecoveryRung) *
+                        BWE_RECOVERY_HEADROOM_RATIO
+                } ?: true
+            val healthy =
+                sender.fps >= goal * 0.9 &&
+                    encodeMs != null &&
+                    encodeMs < frameMs * 0.5 &&
+                    queueMs != null &&
+                    queueMs < 20.0 &&
+                    receiverHealthy &&
+                    recoveryBandwidthHealthy &&
+                    (outbound.packetLossRatio ?: 0.0) < 0.025
             // A cadence trial must measure one variable at a time. Pressure
             // relief stays enabled, but do not also enlarge trial frames.
             healthySamples = if (healthy && allowResolutionRecovery) healthySamples + 1 else 0
@@ -308,13 +375,27 @@ internal class MotionVideoBudget {
         return minOf(profile.maxVideoBitrateBps, motionCeiling)
     }
 
-    private fun Double?.valid(): Double? = this?.takeIf { it.isFinite() && it >= 0.0 }
+    private fun Double?.valid(): Double? =
+        this?.takeIf { it.isFinite() && it >= 0.0 }
+
+    private fun nominalMotionBitrateBps(edge: Int): Double =
+        when {
+            edge <= 180 -> 350_000.0
+            edge <= 240 -> 500_000.0
+            edge <= 360 -> 900_000.0
+            edge <= 540 -> 1_800_000.0
+            else -> 3_200_000.0
+        }
 
     private companion object {
         const val MAX_MOTION_TARGET_FPS = 60
         const val MOTION_WARM_START_SHORT_EDGE = 360
         const val SETTLE_MS = 3_000L
         const val BANDWIDTH_FAST_SETTLE_MS = 1_000L
+        const val BWE_PREDICTIVE_SETTLE_MS = 1_000L
+        const val BWE_PRESSURE_HEADROOM_RATIO = 1.10
+        const val BWE_SEVERE_HEADROOM_RATIO = 0.60
+        const val BWE_RECOVERY_HEADROOM_RATIO = 1.20
         const val HIGH_CADENCE_FPS = 45
         const val HIGH_CADENCE_FAST_SETTLE_MS = 1_500L
         const val BANDWIDTH_PRESSURE_HOLD_MS = 2_500L
