@@ -208,6 +208,14 @@ class HostWebRtcSession(
             displayHandler.removeCallbacks(captureFrameWatchdog)
             displayHandler.post {
                 if (!closed.get()) {
+                    /*
+                     * This sink exists only to prove startup capture. Leaving it
+                     * attached forever adds a useless VideoTrack fan-out on every
+                     * steady-state frame.
+                     */
+                    runCatching {
+                        capture.videoTrack.removeSink(captureProbe)
+                    }
                     ensureLiveHandshake()
                 }
             }
@@ -1269,6 +1277,13 @@ class HostWebRtcSession(
                 interactionActive = freshnessActive
             )
         val effective = effectiveCaptureProfile(target)
+
+        /*
+         * Health telemetry follows the same freshness clock as capture. During
+         * controller input or autonomous source motion, sender pressure is
+         * sampled sub-second; quiet screens fall back to a lower-overhead loop.
+         */
+        peer.setRealtimeVideoTelemetry(freshnessActive)
 
         // Apply cadence in VideoSource. FPS/bandwidth changes keep the actual
         // Android capture surface stable; only display geometry may resize it.
