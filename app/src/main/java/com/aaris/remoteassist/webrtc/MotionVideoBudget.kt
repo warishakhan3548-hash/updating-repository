@@ -121,12 +121,17 @@ internal class MotionVideoBudget {
         val presentationPressure = expectedPresentation >= 10.0 && received?.presentedFps?.let {
             it < expectedPresentation * 0.8 || (received.maxRenderGapMs ?: 0) >= 150
         } == true
+        val measuredSourceFps = sourceFps.valid()
         val movingSource =
-            sourceFps.valid()?.let { it >= goal * 0.8 } == true
+            measuredSourceFps?.let { it >= MIN_MOVING_SOURCE_FPS } == true
+        val senderLagsMovingSource =
+            measuredSourceFps?.let {
+                sender.fps < minOf(goal.toDouble(), it) * 0.75
+            } == true
         val bandwidthLimited =
             outbound.qualityLimitationReason.equals("bandwidth", ignoreCase = true)
         val bandwidthUnderDelivery =
-            movingSource && bandwidthLimited && sender.fps < goal * 0.78
+            movingSource && senderLagsMovingSource && bandwidthLimited
         val bandwidthFreshnessPressure =
             bandwidthUnderDelivery &&
                 (
@@ -248,6 +253,7 @@ internal class MotionVideoBudget {
         const val SETTLE_MS = 3_000L
         const val BANDWIDTH_FAST_SETTLE_MS = 1_000L
         const val BANDWIDTH_PRESSURE_HOLD_MS = 2_500L
+        const val MIN_MOVING_SOURCE_FPS = 8.0
         const val NETWORK_QUEUE_PRESSURE_MS = 90.0
         const val SEVERE_NETWORK_QUEUE_MS = 250.0
         const val MIN_BANDWIDTH_SHORT_EDGE = 180
