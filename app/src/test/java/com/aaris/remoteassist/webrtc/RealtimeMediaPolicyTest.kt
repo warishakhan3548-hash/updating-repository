@@ -1,6 +1,7 @@
 package com.aaris.remoteassist.webrtc
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -45,6 +46,68 @@ class RealtimeMediaPolicyTest {
     fun initialHealthProbeArrivesBeforeLegacyOneSecondWindow() {
         assertTrue(
             RealtimeMediaPolicy.VIDEO_STATS_INITIAL_DELAY_MS in 250L..999L
+        )
+    }
+
+    @Test
+    fun producerUpshiftPrimesSenderBeforeCapture() {
+        assertTrue(
+            RealtimeMediaPolicy.senderBeforeCaptureForTransition(
+                previousWidthPx = 720,
+                previousHeightPx = 1_600,
+                previousFps = 30,
+                nextWidthPx = 720,
+                nextHeightPx = 1_600,
+                nextFps = 60
+            )
+        )
+        assertTrue(
+            RealtimeMediaPolicy.senderBeforeCaptureForTransition(
+                previousWidthPx = 360,
+                previousHeightPx = 800,
+                previousFps = 30,
+                nextWidthPx = 540,
+                nextHeightPx = 1_200,
+                nextFps = 30
+            )
+        )
+    }
+
+    @Test
+    fun pressureReliefStopsProducerBeforeSenderClamp() {
+        assertFalse(
+            RealtimeMediaPolicy.senderBeforeCaptureForTransition(
+                previousWidthPx = 720,
+                previousHeightPx = 1_600,
+                previousFps = 60,
+                nextWidthPx = 720,
+                nextHeightPx = 1_600,
+                nextFps = 30
+            )
+        )
+        assertFalse(
+            RealtimeMediaPolicy.senderBeforeCaptureForTransition(
+                previousWidthPx = 720,
+                previousHeightPx = 1_600,
+                previousFps = 30,
+                nextWidthPx = 360,
+                nextHeightPx = 800,
+                nextFps = 60
+            )
+        )
+    }
+
+    @Test
+    fun unseededTransitionSafelyPrimesSenderFirst() {
+        assertTrue(
+            RealtimeMediaPolicy.senderBeforeCaptureForTransition(
+                previousWidthPx = 0,
+                previousHeightPx = 0,
+                previousFps = 0,
+                nextWidthPx = 360,
+                nextHeightPx = 800,
+                nextFps = 30
+            )
         )
     }
 }
