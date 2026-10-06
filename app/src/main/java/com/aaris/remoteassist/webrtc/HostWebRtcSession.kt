@@ -125,7 +125,12 @@ class HostWebRtcSession(
     private val capture = ScreenCaptureTrack(
         context = appContext,
         grant = projectionGrant,
-        onProjectionStopped = listener::onProjectionStopped
+        onProjectionStopped = listener::onProjectionStopped,
+        onSourceMotion = {
+            // Capture-thread signal only posts tiny work. Policy evaluation and
+            // sender mutation remain serialized on the main/session thread.
+            displayHandler.post { handleSourceMotionPulse() }
+        }
     )
 
     private val fallbackStreamer =
@@ -795,6 +800,20 @@ class HostWebRtcSession(
 
         if (interactionActive != active) {
             interactionActive = active
+            if (active) {
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (motionVideoBudget.primeForMotion(profile, now)) {
+                    val effective = effectiveCaptureProfile(profile)
+                    listener.onDiagnostic(
+                        "Remote interaction warm-start → " +
+                            effective.captureWidthPx +
+                            "x" +
+                            effective.captureHeightPx +
+                            "@" +
+                            effective.fps
+                    )
+                }
+            }
             applyVideoPolicy(profile)
             val freshnessActive = freshnessPriorityActive()
             val policy =
@@ -836,6 +855,35 @@ class HostWebRtcSession(
     ): Boolean =
         interactionActive ||
             passiveMotionPriority.isActive(nowMs)
+
+    private fun handleSourceMotionPulse() {
+        if (closed.get()) return
+
+        val now = android.os.SystemClock.elapsedRealtime()
+        val motionChanged = passiveMotionPriority.pulse(now)
+        val budgetChanged = motionVideoBudget.primeForMotion(profile, now)
+
+        if (motionChanged || budgetChanged) {
+            applyVideoPolicy(profile)
+        }
+
+        if (budgetChanged) {
+            val effective = effectiveCaptureProfile(profile)
+            listener.onDiagnostic(
+                "Source motion warm-start → " +
+                    effective.captureWidthPx +
+                    "x" +
+                    effective.captureHeightPx +
+                    "@" +
+                    effective.fps +
+                    " • newest frames first"
+            )
+        } else if (motionChanged) {
+            listener.onDiagnostic(
+                "Source motion → freshness-first video policy before stats"
+            )
+        }
+    }
 
     private fun effectiveCaptureProfile(
         target: CaptureProfile
