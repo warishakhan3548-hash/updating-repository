@@ -51,6 +51,8 @@ class VideoCadenceGovernor(
         if ((snapshot.packetLossRatio ?: 0.0) >= HEALTHY_PACKET_LOSS_RATIO) return false
         if (window.sendQueueMs?.let { !it.isFinite() || it < 0.0 ||
             it >= HEALTHY_QUEUE_MS } == true) return false
+        if (window.processingMs?.let { !it.isFinite() || it < 0.0 ||
+            it >= 1000.0 / ceiling } == true) return false
 
         val next = ASCENDING_CAPS.firstOrNull { it > cap && it <= ceiling }
             ?: return false
@@ -75,7 +77,7 @@ class VideoCadenceGovernor(
         // RTT must not ratchet the FPS ceiling downward during silence.
         // Missing producer telemetry preserves the legacy safety logic.
         if (producerFps != null && producerFps.isFinite() &&
-            producerFps in 0.0 until QUIET_PRODUCER_FPS &&
+            producerFps >= 0.0 && producerFps < QUIET_PRODUCER_FPS &&
             sender.frames <= MAX_QUIET_ENCODED_FRAMES) {
             pressure = 0
             healthy = 0
