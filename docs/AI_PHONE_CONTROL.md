@@ -1,4 +1,4 @@
-# AI phone control (v1.9.20)
+# AI phone control (v1.9.21)
 
 Tap **Connect Phone with AI** below Connect/Share. The app registers a random,
 device-specific MCP link, copies it automatically, and displays it below the
@@ -40,10 +40,32 @@ There is no boot receiver, hidden capture, unattended restart or permission bypa
 - `phone_task`: bounded run-local working memory for the user goal, current
   subgoal, compact facts, recent actions and stall state. It intentionally does
   not persist screenshots or typed field contents.
+- `phone_wait`: event-driven local waiting from the latest observation. The phone
+  samples frames locally and sends no intermediate screenshots. A timeout returns
+  compact metadata only; a meaningful whole-screen or optional region change
+  returns one fresh screenshot. This is preferred over repeated observe calls
+  while waiting for a turn, animation, loading state or asynchronous update.
 - `phone_reflex`: waits locally for a previously remembered benign tap-state to
   leave and reappear, executes that tap exactly once, then returns a fresh
   screenshot. It is short-lived, one-shot and guarded by app/window/geometry,
   local pixels and, when available, Accessibility target identity.
+
+### Event-driven observation and target-aware progress
+
+v1.9.21 adds local change waiting so the cloud model does not need to spend image
+tokens repeatedly polling an unchanged or irrelevant screen. `phone_wait` can
+watch the full display or a normalized rectangular region. Region watches are
+useful for turn indicators, dice/results, loading areas and other small state
+signals while unrelated timers or background animation continue elsewhere.
+Timeout responses contain no screenshot; meaningful changes return one fresh,
+validated observation.
+
+Action-effect feedback now separates whole-screen motion from change around the
+intended touch/field path. If the background animates but the intended target
+does not react, the result is `background_motion_only` rather than false
+progress. Stale/refused attempts are also recorded in bounded task trajectory
+memory with their result code, helping the model avoid repeating the same failed
+strategy.
 
 ### Stateful planning and guarded local reflexes
 
