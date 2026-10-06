@@ -12,26 +12,59 @@ enum class AiInteractionMode(val wireName: String) {
 
 data class AiActionEffect(
     val kind: String,
+    /** Whole-screen visual change; retained as changeRatio for wire compatibility. */
     val changeRatio: Double?,
+    /** Change around the intended touch/field path when one exists. */
+    val targetChangeRatio: Double? = null,
     val confidence: String = "visual_only"
 ) {
     fun toJson() = JSONObject()
         .put("kind", kind)
         .put("confidence", confidence)
-        .apply { changeRatio?.let { put("changeRatio", it) } }
+        .apply {
+            changeRatio?.let { put("changeRatio", it) }
+            targetChangeRatio?.let { put("targetChangeRatio", it) }
+        }
 }
 
 object AiActionEffectAnalyzer {
-    fun classify(action: String, applied: Boolean?, changeRatio: Double?): AiActionEffect {
-        if (applied != true) return AiActionEffect("not_applied", changeRatio)
-        if (changeRatio == null || !changeRatio.isFinite()) return AiActionEffect("unknown", null)
+    fun classify(
+        action: String,
+        applied: Boolean?,
+        changeRatio: Double?,
+        targetChangeRatio: Double? = null
+    ): AiActionEffect {
+        if (applied != true) return AiActionEffect("not_applied", changeRatio, targetChangeRatio)
+        if (changeRatio == null || !changeRatio.isFinite()) return AiActionEffect("unknown", null, targetChangeRatio)
+
+        val local = targetChangeRatio?.takeIf { it.isFinite() }
+        if (local != null && action !in setOf("home", "back", "recents", "open_app")) {
+            return when {
+                local < NO_EFFECT_RATIO && changeRatio >= BACKGROUND_MOTION_RATIO ->
+                    AiActionEffect("background_motion_only", changeRatio, local)
+                local < NO_EFFECT_RATIO ->
+                    AiActionEffect("no_visible_effect", changeRatio, local)
+                changeRatio >= MAJOR_CHANGE_RATIO ->
+                    AiActionEffect("major_change", changeRatio, local)
+                local < LOCAL_CHANGE_RATIO ->
+                    AiActionEffect("local_change", changeRatio, local)
+                else ->
+                    AiActionEffect("target_change", changeRatio, local)
+            }
+        }
+
         return when {
-            action == "wait" && changeRatio < 0.012 -> AiActionEffect("waited_stable", changeRatio)
-            changeRatio < 0.012 -> AiActionEffect("no_visible_effect", changeRatio)
-            changeRatio < 0.18 -> AiActionEffect("local_change", changeRatio)
+            action == "wait" && changeRatio < NO_EFFECT_RATIO -> AiActionEffect("waited_stable", changeRatio)
+            changeRatio < NO_EFFECT_RATIO -> AiActionEffect("no_visible_effect", changeRatio)
+            changeRatio < LOCAL_CHANGE_RATIO -> AiActionEffect("local_change", changeRatio)
             else -> AiActionEffect("major_change", changeRatio)
         }
     }
+
+    private const val NO_EFFECT_RATIO = 0.012
+    private const val BACKGROUND_MOTION_RATIO = 0.04
+    private const val LOCAL_CHANGE_RATIO = 0.18
+    private const val MAJOR_CHANGE_RATIO = 0.42
 }
 
 /**
@@ -107,7 +140,8 @@ class AiTaskMemory {
         effect: AiActionEffect,
         applied: Boolean?,
         packageName: String?,
-        mode: AiInteractionMode
+        mode: AiInteractionMode,
+        resultCode: String? = null
     ): JSONObject {
         if (taskId == null) {
             // A client that predates phone_task_start still gets useful bounded
@@ -123,7 +157,8 @@ class AiTaskMemory {
         step++
         if (action != "wait") {
             noProgressStreak = when (effect.kind) {
-                "no_visible_effect", "not_applied", "unknown" -> (noProgressStreak + 1).coerceAtMost(99)
+                "no_visible_effect", "background_motion_only", "not_applied", "unknown" ->
+                    (noProgressStreak + 1).coerceAtMost(99)
                 else -> 0
             }
         } else if (effect.kind == "major_change" || effect.kind == "local_change") {
@@ -141,6 +176,7 @@ class AiTaskMemory {
                 if (intent.isNotEmpty()) put("intent", intent)
                 if (expected.isNotEmpty()) put("expectedOutcome", expected)
                 if (!packageName.isNullOrBlank()) put("package", bounded(packageName, MAX_PACKAGE_CHARS))
+                if (!resultCode.isNullOrBlank()) put("resultCode", bounded(resultCode, MAX_RESULT_CODE_CHARS))
             }
         recent.addLast(entry)
         while (recent.size > MAX_RECENT_ACTIONS) recent.removeFirst()
@@ -171,6 +207,7 @@ class AiTaskMemory {
         private const val MAX_GOAL_CHARS = 800
         private const val MAX_NOTE_CHARS = 320
         private const val MAX_PACKAGE_CHARS = 180
+        private const val MAX_RESULT_CODE_CHARS = 96
         private const val MAX_FACTS = 8
         private const val MAX_RECENT_ACTIONS = 12
         private const val STALL_THRESHOLD = 2
