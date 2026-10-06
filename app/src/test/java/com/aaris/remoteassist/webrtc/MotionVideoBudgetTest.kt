@@ -175,6 +175,110 @@ class MotionVideoBudgetTest {
         assertEquals(500_000, budget.bitrateCeiling(profile, true))
     }
 
+    @Test fun bandwidthEstimateSpendsPixelsBeforeQueuesBuild() {
+        val budget = MotionVideoBudget()
+        assertTrue(budget.primeForMotion(profile, 0L))
+        assertEquals(360, budget.shortEdge)
+
+        val lowHeadroom =
+            sender(
+                fps = 60,
+                encode = 5.0,
+                queue = 5.0,
+                implementation = "c2.qti.avc.encoder"
+            ).copy(
+                availableOutgoingBitrateBps = 700_000.0
+            )
+
+        // Encoder, queue and receiver are still healthy. The WebRTC congestion
+        // controller already knows that the path lacks headroom for this rung,
+        // so the second stable BWE window preempts future queue growth.
+        assertFalse(
+            budget.observe(
+                lowHeadroom,
+                receiver(fps = 60, decode = 5.0, presented = 60),
+                sourceFps = 60.0,
+                motionActive = true,
+                targetFps = 60,
+                nowMs = 1_000L,
+                interactionActive = true
+            )
+        )
+        assertTrue(
+            budget.observe(
+                lowHeadroom,
+                receiver(fps = 60, decode = 5.0, presented = 60),
+                sourceFps = 60.0,
+                motionActive = true,
+                targetFps = 60,
+                nowMs = 2_000L,
+                interactionActive = true
+            )
+        )
+        assertEquals(240, budget.shortEdge)
+        assertEquals(500_000, budget.bitrateCeiling(profile, true))
+    }
+
+    @Test fun lowBandwidthEstimateCannotBlurAStaticScreen() {
+        val budget = MotionVideoBudget()
+        val lowBwe =
+            sender(fps = 1).copy(
+                availableOutgoingBitrateBps = 250_000.0
+            )
+
+        repeat(6) { index ->
+            budget.observe(
+                outbound = lowBwe,
+                receiver = null,
+                sourceFps = 1.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = (index + 1) * 1_000L,
+                interactionActive = false
+            )
+        }
+
+        assertEquals(720, budget.shortEdge)
+    }
+
+    @Test fun resolutionRecoveryRequiresBandwidthForTheNextRung() {
+        val budget = MotionVideoBudget()
+        assertTrue(budget.primeForMotion(profile, 0L))
+        assertEquals(360, budget.shortEdge)
+
+        val onlyEnoughForCurrentRung =
+            sender().copy(
+                availableOutgoingBitrateBps = 1_050_000.0
+            )
+        repeat(20) { index ->
+            budget.observe(
+                outbound = onlyEnoughForCurrentRung,
+                receiver = receiver(),
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = 20_000L + index * 1_000L
+            )
+        }
+        assertEquals(360, budget.shortEdge)
+
+        val enoughForNextRung =
+            sender().copy(
+                availableOutgoingBitrateBps = 2_400_000.0
+            )
+        repeat(12) { index ->
+            budget.observe(
+                outbound = enoughForNextRung,
+                receiver = receiver(),
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = 50_000L + index * 1_000L
+            )
+        }
+        assertEquals(540, budget.shortEdge)
+    }
+
     @Test fun networkDelayAloneCannotUseTheEmergencyCodecResolution() {
         val budget = MotionVideoBudget()
         repeat(20) { budget.observe(sender(queue = 160.0), receiver(), 30.0, true, 30, 1_000L + it * 1_000) }
