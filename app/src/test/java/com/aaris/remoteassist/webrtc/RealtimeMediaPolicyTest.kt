@@ -50,6 +50,80 @@ class RealtimeMediaPolicyTest {
             RealtimeMediaPolicy.VIDEO_STATS_FAST_KICK_MS <
                 RealtimeMediaPolicy.videoStatsIntervalMs(true)
         )
+        assertTrue(
+            RealtimeMediaPolicy.VIDEO_STATS_RECONFIGURE_KICK_MS <
+                RealtimeMediaPolicy.videoStatsIntervalMs(true)
+        )
+    }
+
+    @Test
+    fun riskyProducerUpshiftRequestsOneEarlyHealthMeasurement() {
+        assertTrue(
+            RealtimeMediaPolicy.shouldKickVideoStatsAfterTransition(
+                previousWidthPx = 360,
+                previousHeightPx = 800,
+                previousFps = 30,
+                nextWidthPx = 360,
+                nextHeightPx = 800,
+                nextFps = 60
+            )
+        )
+        assertTrue(
+            RealtimeMediaPolicy.shouldKickVideoStatsAfterTransition(
+                previousWidthPx = 360,
+                previousHeightPx = 800,
+                previousFps = 30,
+                nextWidthPx = 540,
+                nextHeightPx = 1_200,
+                nextFps = 30
+            )
+        )
+        // Temporal cadence is risky on its own even when fewer pixels keep the
+        // aggregate pixel rate from growing.
+        assertTrue(
+            RealtimeMediaPolicy.shouldKickVideoStatsAfterTransition(
+                previousWidthPx = 720,
+                previousHeightPx = 1_600,
+                previousFps = 30,
+                nextWidthPx = 480,
+                nextHeightPx = 1_066,
+                nextFps = 45
+            )
+        )
+    }
+
+    @Test
+    fun reliefUnchangedAndStartupTransitionsDoNotAddProbeWork() {
+        assertFalse(
+            RealtimeMediaPolicy.shouldKickVideoStatsAfterTransition(
+                previousWidthPx = 720,
+                previousHeightPx = 1_600,
+                previousFps = 60,
+                nextWidthPx = 360,
+                nextHeightPx = 800,
+                nextFps = 30
+            )
+        )
+        assertFalse(
+            RealtimeMediaPolicy.shouldKickVideoStatsAfterTransition(
+                previousWidthPx = 360,
+                previousHeightPx = 800,
+                previousFps = 30,
+                nextWidthPx = 360,
+                nextHeightPx = 800,
+                nextFps = 30
+            )
+        )
+        assertFalse(
+            RealtimeMediaPolicy.shouldKickVideoStatsAfterTransition(
+                previousWidthPx = 0,
+                previousHeightPx = 0,
+                previousFps = 0,
+                nextWidthPx = 360,
+                nextHeightPx = 800,
+                nextFps = 30
+            )
+        )
     }
 
     @Test
