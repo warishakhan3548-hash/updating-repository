@@ -151,7 +151,10 @@ internal class MotionVideoBudget {
         val queueMs = sender.sendQueueMs.valid()
         val received = receiver?.takeIf { it.intervalMs in 500..6000 && it.frames >= 2 }
         val decodeMs = received?.processingMs.valid()
-        val jitterMs = received?.jitterMs.valid()
+        // Use the receiver's larger actual/target playout residence. A rising
+        // WebRTC jitter target is actionable before emitted frames have fully
+        // accumulated that delay.
+        val jitterMs = received?.playoutDelayMs.valid()
         val underDelivery = sender.fps < goal * 0.85
         val encodePressure = sender.frames >= 2 && underDelivery && (encodeMs ?: 0.0) > frameMs * 0.85
         val queuePressure = (queueMs ?: 0.0) >= 80.0 || (jitterMs ?: 0.0) >= 100.0
@@ -175,6 +178,40 @@ internal class MotionVideoBudget {
         val sourceProvesMotion =
             measuredSourceFps?.let { it >= MIN_MOVING_SOURCE_FPS } == true
         val motionEvidence = interactionActive || sourceProvesMotion
+
+        /*
+         * Budget the serial motion-to-photon waiting rooms as one deadline
+         * instead of waiting for any single layer to cross a large absolute
+         * alarm. The values are interval averages, so require a complete
+         * measured path and the existing multi-sample pressure hysteresis.
+         *
+         * At 60 Hz this reacts when roughly three frame periods are already
+         * being consumed by encode + sender residence + receiver playout +
+         * decode. At 30 Hz the budget expands proportionally, avoiding needless
+         * pixel loss on devices that are healthy at lower cadence.
+         */
+        val pipelineDeadlineMs =
+            if (
+                motionEvidence &&
+                encodeMs != null &&
+                queueMs != null &&
+                received != null &&
+                jitterMs != null &&
+                decodeMs != null
+            ) {
+                encodeMs + queueMs + jitterMs + decodeMs
+            } else {
+                null
+            }
+        val pipelineDeadlinePressureThresholdMs =
+            maxOf(
+                MIN_PIPELINE_DEADLINE_PRESSURE_MS,
+                frameMs * PIPELINE_DEADLINE_BUDGET_MULTIPLIER
+            )
+        val pipelineDeadlinePressure =
+            pipelineDeadlineMs?.let {
+                it >= pipelineDeadlinePressureThresholdMs
+            } == true
 
         /*
          * Absolute queue thresholds are necessarily reactive. For interactive
@@ -259,6 +296,7 @@ internal class MotionVideoBudget {
                 bandwidthUnderDelivery ||
                 predictiveBandwidthPressure ||
                 predictiveResidencePressure ||
+                pipelineDeadlinePressure ||
                 outbound.qualityLimitationReason == "cpu"
 
         if (pressured) {
@@ -279,7 +317,12 @@ internal class MotionVideoBudget {
              */
             val highCadencePipelinePressure =
                 goal >= HIGH_CADENCE_FPS &&
-                    (encodePressure || decodePressure || presentationPressure)
+                    (
+                        encodePressure ||
+                            decodePressure ||
+                            presentationPressure ||
+                            pipelineDeadlinePressure
+                        )
             val settleMs = when {
                 severeBandwidthFreshnessPressure ->
                     BANDWIDTH_FAST_SETTLE_MS
@@ -314,7 +357,8 @@ internal class MotionVideoBudget {
                                 decodePressure ||
                                 bandwidthFreshnessPressure ||
                                 predictiveBandwidthPressure ||
-                                predictiveResidencePressure
+                                predictiveResidencePressure ||
+                                pipelineDeadlinePressure
                             ) -> 240
                     // 180 is deliberately reserved for strong bandwidth proof.
                     // A sustained BWE estimate far below the current rung is
@@ -676,6 +720,14 @@ internal class MotionVideoBudget {
         const val MIN_RESIDENCE_SAMPLE_INTERVAL_MS = 250L
         const val MAX_RESIDENCE_SAMPLE_INTERVAL_MS = 2_500L
         const val RESIDENCE_GROWTH_FAST_SETTLE_MS = 1_000L
+
+        /*
+         * Cross-layer motion-to-photon debt. Keep a small absolute floor so
+         * noisy sub-frame timing never triggers relief; otherwise scale with
+         * the requested frame deadline.
+         */
+        const val MIN_PIPELINE_DEADLINE_PRESSURE_MS = 45.0
+        const val PIPELINE_DEADLINE_BUDGET_MULTIPLIER = 2.5
 
         const val HIGH_CADENCE_FPS = 45
         const val HIGH_CADENCE_FAST_SETTLE_MS = 1_500L
