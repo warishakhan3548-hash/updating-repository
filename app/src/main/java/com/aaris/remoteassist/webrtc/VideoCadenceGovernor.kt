@@ -190,6 +190,111 @@ class VideoCadenceGovernor(
         return true
     }
 
+    /**
+     * Fast receiver-presentation brake for active remote control.
+     *
+     * The controller already reports real EGL swaps in bounded ~500 ms windows.
+     * Consuming that signal only on the next one-second getStats() callback adds
+     * avoidable stale-frame latency. This path is intentionally one-way: it may
+     * lower cadence when the glass is visibly hitching, but it can never promote
+     * FPS or estimate bandwidth. GCC/TWCC and the full telemetry governor remain
+     * authoritative for network adaptation and recovery.
+     *
+     * At 60 fps one trustworthy hitch earns only the soft 60 -> 45 rung. A
+     * 45 -> 30 step needs severe presentation evidence in a later fresh window.
+     * The bounded cooldown plus one-rung rule prevents a single scheduler pause
+     * from cascading through multiple cadence levels.
+     */
+    fun observeFastPresentation(
+        intervalMs: Int,
+        renderedFrames: Int,
+        maxGapMs: Int,
+        requestedFps: Int,
+        interactionActive: Boolean,
+        nowMs: Long
+    ): Boolean {
+        if (
+            !interactionActive ||
+            nowMs < 0L ||
+            intervalMs !in FAST_PRESENTATION_MIN_WINDOW_MS..
+                FAST_PRESENTATION_MAX_WINDOW_MS ||
+            renderedFrames < FAST_PRESENTATION_MIN_FRAMES ||
+            maxGapMs !in 0..6_000 ||
+            cap < FAST_PRESENTATION_MIN_CADENCE_FPS ||
+            requestedFps < FAST_PRESENTATION_MIN_CADENCE_FPS ||
+            nowMs - changedAt < FAST_PRESENTATION_CHANGE_INTERVAL_MS
+        ) {
+            return false
+        }
+
+        val effectiveFps =
+            minOf(cap, requestedFps, maxFps)
+                .coerceAtLeast(1)
+        if (effectiveFps < FAST_PRESENTATION_MIN_CADENCE_FPS) {
+            return false
+        }
+
+        val measuredFps =
+            renderedFrames * 1_000.0 / intervalMs.toDouble()
+        val deliveryRatio =
+            measuredFps / effectiveFps.toDouble()
+        val frameBudgetMs =
+            1_000.0 / effectiveFps.toDouble()
+
+        val severeGapMs =
+            maxOf(
+                FAST_PRESENTATION_SEVERE_GAP_MS,
+                frameBudgetMs *
+                    FAST_PRESENTATION_SEVERE_GAP_MULTIPLIER
+            )
+        val severe =
+            deliveryRatio <
+                FAST_PRESENTATION_SEVERE_DELIVERY_RATIO ||
+                maxGapMs >= severeGapMs
+
+        val fullCadenceGapMs =
+            maxOf(
+                FAST_PRESENTATION_FULL_CADENCE_GAP_MS,
+                frameBudgetMs *
+                    FAST_PRESENTATION_FULL_CADENCE_GAP_MULTIPLIER
+            )
+        val fullCadencePressure =
+            effectiveFps >= HIGH_CADENCE_FAST_RELIEF_FPS &&
+                (
+                    deliveryRatio <
+                        FAST_PRESENTATION_FULL_CADENCE_DELIVERY_RATIO ||
+                        maxGapMs >= fullCadenceGapMs
+                    )
+
+        if (!severe && !fullCadencePressure) {
+            return false
+        }
+
+        /*
+         * Presentation-only evidence never skips a rung. That makes this safe
+         * when the network is actually healthy and the hitch came from a brief
+         * controller-side scheduling/GPU pause. Full getStats telemetry can
+         * still take a stronger step for proven CPU/queue/loss pressure.
+         */
+        val next =
+            DESCENDING_CAPS.firstOrNull {
+                it < effectiveFps && it < cap
+            } ?: return false
+
+        // Moderate fast relief is deliberately limited to 60 -> 45.
+        if (!severe && next < SOFT_PRESENTATION_RELIEF_FPS) {
+            return false
+        }
+
+        cap = next
+        changedAt = nowMs
+        lastOverloadAtMs = nowMs
+        pressure = 0
+        healthy = 0
+        interactiveHeadroom = 0
+        return true
+    }
+
     fun observe(
         outbound: VideoHealthSnapshot,
         receiver: VideoHealthWindow?,
@@ -619,6 +724,23 @@ class VideoCadenceGovernor(
         const val URGENT_FRESHNESS_CHANGE_INTERVAL_MS = 1_500L
         const val HIGH_CADENCE_FAST_RELIEF_FPS = 60
         const val HIGH_CADENCE_FAST_RELIEF_CHANGE_INTERVAL_MS = 1_000L
+
+        /*
+         * Controller EGL feedback arrives independently of getStats(). Keep the
+         * fast path bounded to recent half-second-ish windows and high cadence.
+         */
+        const val FAST_PRESENTATION_MIN_WINDOW_MS = 500
+        const val FAST_PRESENTATION_MAX_WINDOW_MS = 2_000
+        const val FAST_PRESENTATION_MIN_FRAMES = 5
+        const val FAST_PRESENTATION_MIN_CADENCE_FPS = 45
+        const val FAST_PRESENTATION_CHANGE_INTERVAL_MS = 450L
+        const val FAST_PRESENTATION_FULL_CADENCE_DELIVERY_RATIO = 0.75
+        const val FAST_PRESENTATION_FULL_CADENCE_GAP_MS = 70.0
+        const val FAST_PRESENTATION_FULL_CADENCE_GAP_MULTIPLIER = 3.0
+        const val FAST_PRESENTATION_SEVERE_DELIVERY_RATIO = 0.55
+        const val FAST_PRESENTATION_SEVERE_GAP_MS = 140.0
+        const val FAST_PRESENTATION_SEVERE_GAP_MULTIPLIER = 5.0
+        const val SOFT_PRESENTATION_RELIEF_FPS = 45
 
         const val HEALTHY_RTT_MS = 300
         const val HEALTHY_JITTER_MS = 45.0
