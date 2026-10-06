@@ -369,6 +369,32 @@ class AiObservationEngine internal constructor(
 
     fun fingerprintCopy(): ByteArray? = lastFingerprint?.clone()
 
+    fun createReflexTemplate(id: String, args: JSONObject, ttlMs: Long = 180_000L): AiLocalReflex? {
+        if (args.optString("action") != "tap") return null
+        val ui = issuedUi ?: return null
+        val fingerprint = lastFingerprint?.clone() ?: return null
+        if (ui.sensitiveFocus || ui.packageName == ownPackage || width <= 0 || height <= 0) return null
+        val x = args.optDouble("x", Double.NaN)
+        val y = args.optDouble("y", Double.NaN)
+        if (!x.isFinite() || !y.isFinite() || x !in 0.0..1.0 || y !in 0.0..1.0) return null
+        val targetId = args.optString("targetId", "").trim().takeIf { it.isNotEmpty() }
+        val created = now()
+        return AiLocalReflex(
+            id = id,
+            packageName = ui.packageName,
+            windowId = ui.windowId,
+            displayWidthPx = width,
+            displayHeightPx = height,
+            rotation = rotation,
+            x = x,
+            y = y,
+            targetId = targetId,
+            referenceFingerprint = fingerprint,
+            createdAtMs = created,
+            expiresAtMs = created + ttlMs.coerceIn(15_000L, 300_000L)
+        )
+    }
+
     fun visualChangeRatioFrom(reference: ByteArray?): Double? {
         val current = lastFingerprint ?: return null
         val before = reference ?: return null
