@@ -343,7 +343,7 @@ class AiConnectorService : Service() {
                         val currentLease = lease ?: return@withTimeout failure("NOT_CONNECTED")
                         val watcher = AiLocalReflexWatcher(
                             ownPackage = packageName,
-                            snapshots = provider,
+                            freshFrame = provider::fresh,
                             display = { CaptureProfile.current(this@AiConnectorService, CaptureTier.BALANCED) },
                             uiSnapshot = AssistAccessibilityService::aiSnapshot,
                             now = SystemClock::elapsedRealtime
