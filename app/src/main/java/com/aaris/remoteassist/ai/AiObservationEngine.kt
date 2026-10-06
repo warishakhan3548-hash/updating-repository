@@ -194,12 +194,22 @@ class AiObservationEngine internal constructor(
         if (!navigation) {
             val fresh = freshFrame()
             if (fresh.rotation != rotation || !geometryMatches(fresh, geometry)) return refused("CAPTURE_GEOMETRY_CHANGED")
-            val changed = withContext(Dispatchers.Default) {
-                AiVisualFingerprint.materiallyDifferent(lastFingerprint ?: byteArrayOf(),
-                    AiVisualFingerprint.sample(fresh.nv21, fresh.width, fresh.height, fresh.rotation), checkNotNull(scope))
+            val (localChanged, globalChangeRatio) = withContext(Dispatchers.Default) {
+                val before = lastFingerprint ?: byteArrayOf()
+                val after = AiVisualFingerprint.sample(fresh.nv21, fresh.width, fresh.height, fresh.rotation)
+                AiVisualFingerprint.materiallyDifferent(before, after, checkNotNull(scope)) to
+                    AiVisualFingerprint.differenceRatio(before, after)
             }
             val semanticTargetPresent = targetAtScope(observed, checkNotNull(scope)) != null || args.has("targetId")
-            if (changed && (issuedMode != AiInteractionMode.DYNAMIC_CANVAS || semanticTargetPresent)) {
+            val dynamicCanvasCoordinateTap =
+                issuedMode == AiInteractionMode.DYNAMIC_CANVAS && !semanticTargetPresent
+            if (dynamicCanvasCoordinateTap) {
+                // Permit local animation around canvas/game targets, but never
+                // carry a coordinate across a major scene transition in the same window.
+                if (globalChangeRatio == null || globalChangeRatio > DYNAMIC_SCENE_CHANGE_LIMIT) {
+                    return refused("TARGET_CHANGED")
+                }
+            } else if (localChanged) {
                 return refused("TARGET_CHANGED")
             }
         }
@@ -425,6 +435,7 @@ class AiObservationEngine internal constructor(
         private const val QUIET_WINDOW_MS = 100L
         private const val MAX_ANIMATED_SETTLE_MS = 220L
         private const val SETTLE_POLL_MS = 40L
+        private const val DYNAMIC_SCENE_CHANGE_LIMIT = 0.42
         private const val TAP_NEAR_MISS_RADIUS = 0.035
         private const val TAP_NEAR_MISS_RADIUS_SQ = TAP_NEAR_MISS_RADIUS * TAP_NEAR_MISS_RADIUS
     }
