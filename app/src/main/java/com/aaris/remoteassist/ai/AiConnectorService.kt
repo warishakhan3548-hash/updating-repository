@@ -295,6 +295,167 @@ class AiConnectorService : Service() {
                                 .put("taskState", taskMemory.snapshot())
                         }
                     }
+                    "phone_burst" -> {
+                        val id = args.getString("actionId").also {
+                            require(it.matches(Regex("[a-zA-Z0-9_-]{8,96}")))
+                        }
+                        actionId = id
+                        outcomes[id]?.let {
+                            return@withTimeout JSONObject(it.toString())
+                                .put("replayed", true)
+                                .put("needsObservation", true)
+                        }
+
+                        val guard = engine.createBurstGuard(
+                            args.getString("observationId"),
+                            args.getLong("screenVersion")
+                        ) ?: return@withTimeout engine.observe()
+                            .put("error", "BURST_NOT_ALLOWED")
+                            .put("reason", "Burst requires a current non-sensitive non-form observation.")
+                            .put("applied", false)
+                            .put("actionId", id)
+                            .put("taskState", taskMemory.snapshot())
+
+                        val steps = AiMotorBurstPolicy.parseSteps(args.getJSONArray("steps")).toMutableList()
+                        val firstArgs = JSONObject(steps.first().toString())
+                            .put("observationId", args.getString("observationId"))
+                            .put("screenVersion", args.getLong("screenVersion"))
+                        val firstValidation = engine.validate(firstArgs)
+                        if (firstValidation.error != null) {
+                            val image = engine.observe()
+                            val effect = AiActionEffectAnalyzer.classify("burst", false, null, null)
+                            val taskState = taskMemory.recordAction(
+                                actionId = id,
+                                action = "motor_burst",
+                                rawIntent = args.optString("intent", "").takeIf { it.isNotBlank() },
+                                rawExpectedOutcome = args.optString("expectedOutcome", "").takeIf { it.isNotBlank() },
+                                rawContextNote = args.optString("contextNote", "").takeIf { it.isNotBlank() },
+                                effect = effect,
+                                applied = false,
+                                packageName = image.optString("currentPackage", "").takeIf { it.isNotBlank() },
+                                mode = engine.currentInteractionMode(),
+                                resultCode = firstValidation.error
+                            )
+                            return@withTimeout image
+                                .put("error", "STALE_SCREEN")
+                                .put("reason", firstValidation.error)
+                                .put("applied", false)
+                                .put("actionId", id)
+                                .put("effect", effect.toJson())
+                                .put("taskState", taskState)
+                        }
+                        steps[0] = firstArgs
+
+                        val currentLease = lease ?: return@withTimeout failure("NOT_CONNECTED")
+                        val provider = snapshots ?: return@withTimeout failure("CAPTURE_UNAVAILABLE")
+                        val beforeFingerprint = engine.fingerprintCopy()
+                            ?: return@withTimeout failure("OBSERVATION_REQUIRED")
+                        val monitor = AiMotorBurstMonitor(
+                            ownPackage = packageName,
+                            freshFrame = provider::fresh,
+                            display = { CaptureProfile.current(this@AiConnectorService, CaptureTier.BALANCED) },
+                            uiSnapshot = AssistAccessibilityService::aiSnapshot
+                        )
+
+                        engine.ledger.consume()
+                        outcomes[id] = failure("OUTCOME_UNKNOWN", null)
+                        dispatched = true
+                        applied = null
+
+                        var previousFingerprint = beforeFingerprint
+                        var executedSteps = 0
+                        var burstState = "completed"
+
+                        for ((index, step) in steps.withIndex()) {
+                            if (
+                                !monitor.environmentMatches(guard) ||
+                                !SessionRuntime.isAuthorized(
+                                    currentLease.sessionId,
+                                    currentLease.leaseSecret,
+                                    currentLease.displayGeneration
+                                )
+                            ) {
+                                burstState = "BURST_ENVIRONMENT_CHANGED"
+                                break
+                            }
+
+                            val command = AiActionTranslator.translate(
+                                step,
+                                currentLease,
+                                ++sequence,
+                                guard.displayWidthPx,
+                                guard.displayHeightPx
+                            )
+                            val done = CompletableDeferred<Boolean>()
+                            AssistAccessibilityService.dispatch(
+                                command,
+                                precondition = {
+                                    !stopping &&
+                                        socket === ws &&
+                                        monitor.environmentMatches(guard) &&
+                                        SessionRuntime.isAuthorized(
+                                            currentLease.sessionId,
+                                            currentLease.leaseSecret,
+                                            currentLease.displayGeneration
+                                        )
+                                }
+                            ) { done.complete(it) }
+
+                            val stepApplied = withTimeout(2_500) { done.await() }
+                            if (!stepApplied) {
+                                burstState = "BURST_STEP_NOT_APPLIED"
+                                break
+                            }
+                            executedSteps++
+
+                            if (index < steps.lastIndex) {
+                                val checkpoint = monitor.checkpoint(
+                                    guard = guard,
+                                    previousFingerprint = previousFingerprint,
+                                    afterMs = step.optInt("afterMs", 0)
+                                )
+                                checkpoint.fingerprint?.let { previousFingerprint = it }
+                                if (!checkpoint.safe) {
+                                    burstState = checkpoint.reason
+                                    break
+                                }
+                            } else {
+                                val afterMs = step.optInt("afterMs", 0)
+                                if (afterMs > 0) delay(afterMs.toLong())
+                            }
+                        }
+
+                        applied = executedSteps == steps.size && burstState == "completed"
+                        engine.invalidate()
+                        val image = engine.observe()
+                        val (changeRatio, _) = engine.visualChangeRatiosFrom(beforeFingerprint, null)
+                        val effect = AiActionEffectAnalyzer.classify(
+                            "burst",
+                            applied,
+                            changeRatio,
+                            null
+                        )
+                        val taskState = taskMemory.recordAction(
+                            actionId = id,
+                            action = "motor_burst",
+                            rawIntent = args.optString("intent", "").takeIf { it.isNotBlank() },
+                            rawExpectedOutcome = args.optString("expectedOutcome", "").takeIf { it.isNotBlank() },
+                            rawContextNote = args.optString("contextNote", "").takeIf { it.isNotBlank() },
+                            effect = effect,
+                            applied = applied,
+                            packageName = image.optString("currentPackage", "").takeIf { it.isNotBlank() },
+                            mode = engine.currentInteractionMode(),
+                            resultCode = burstState.takeUnless { it == "completed" }
+                        )
+                        image
+                            .put("actionId", id)
+                            .put("applied", applied)
+                            .put("executedSteps", executedSteps)
+                            .put("totalSteps", steps.size)
+                            .put("burstState", burstState)
+                            .put("effect", effect.toJson())
+                            .put("taskState", taskState)
+                    }
                     "phone_action" -> {
                         val id = args.getString("actionId").also { require(it.matches(Regex("[a-zA-Z0-9_-]{8,96}"))) }
                         actionId = id
