@@ -31,6 +31,130 @@ class MotionVideoBudgetTest {
         assertEquals(360, budget.shortEdge)
     }
 
+    @Test fun provenQuietHardwareHeadroomKeepsNativeResolutionAtTouchDown() {
+        val budget = MotionVideoBudget()
+        val capableProfile =
+            profile.copy(maxVideoBitrateBps = 10_000_000)
+        val quietHealthyPath =
+            sender(
+                fps = 1,
+                encode = 5.0,
+                queue = 5.0,
+                implementation = "c2.qti.avc.encoder"
+            ).copy(
+                roundTripTimeMs = 80,
+                packetLossRatio = 0.005,
+                availableOutgoingBitrateBps = 4_500_000.0
+            )
+
+        assertTrue(
+            budget.primeForMotion(
+                profile = capableProfile,
+                nowMs = 1_000L,
+                warmStartEvidence = quietHealthyPath
+            )
+        )
+        assertEquals(720, budget.shortEdge)
+        assertEquals(capableProfile, budget.apply(capableProfile, true))
+    }
+
+    @Test fun provenModerateHeadroomUsesOneSafeMidRungInsteadOfBlindThreeSixty() {
+        val budget = MotionVideoBudget()
+        val quietHealthyPath =
+            sender(
+                fps = 1,
+                encode = 5.0,
+                queue = 5.0,
+                implementation = "OMX.qcom.video.encoder.avc"
+            ).copy(
+                roundTripTimeMs = 90,
+                packetLossRatio = 0.005,
+                availableOutgoingBitrateBps = 2_400_000.0
+            )
+
+        assertTrue(
+            budget.primeForMotion(
+                profile = profile,
+                nowMs = 1_000L,
+                warmStartEvidence = quietHealthyPath
+            )
+        )
+        assertEquals(540, budget.shortEdge)
+        assertEquals(540, budget.apply(profile, true).captureWidthPx)
+    }
+
+    @Test fun softwareOrUnprovenWarmStartEvidenceKeepsConservativeSafetyRung() {
+        val software = MotionVideoBudget()
+        val softwareEvidence =
+            sender(
+                fps = 1,
+                encode = 4.0,
+                queue = 1.0,
+                implementation = "libvpx"
+            ).copy(
+                roundTripTimeMs = 40,
+                packetLossRatio = 0.0,
+                availableOutgoingBitrateBps = 10_000_000.0
+            )
+        assertTrue(
+            software.primeForMotion(
+                profile = profile.copy(maxVideoBitrateBps = 10_000_000),
+                nowMs = 1_000L,
+                warmStartEvidence = softwareEvidence
+            )
+        )
+        assertEquals(360, software.shortEdge)
+
+        val missingBandwidth = MotionVideoBudget()
+        assertTrue(
+            missingBandwidth.primeForMotion(
+                profile = profile,
+                nowMs = 1_000L,
+                warmStartEvidence = sender(fps = 1)
+            )
+        )
+        assertEquals(360, missingBandwidth.shortEdge)
+    }
+
+    @Test fun activeInteractionCanHoldResolutionRecoveryUntilGestureSettles() {
+        val budget = MotionVideoBudget()
+        assertTrue(budget.primeForMotion(profile, 0L))
+        assertEquals(360, budget.shortEdge)
+
+        val healthy =
+            sender().copy(
+                availableOutgoingBitrateBps = 2_400_000.0
+            )
+
+        repeat(20) { index ->
+            budget.observe(
+                outbound = healthy,
+                receiver = receiver(),
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = 20_000L + index * 1_000L,
+                interactionActive = true,
+                allowResolutionRecovery = false
+            )
+        }
+        assertEquals(360, budget.shortEdge)
+
+        repeat(12) { index ->
+            budget.observe(
+                outbound = healthy,
+                receiver = receiver(),
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = 50_000L + index * 1_000L,
+                interactionActive = false,
+                allowResolutionRecovery = true
+            )
+        }
+        assertEquals(540, budget.shortEdge)
+    }
+
     @Test fun recordedSoftwareCollapseGetsPixelAndUrgentCadenceRelief() {
         val budget = MotionVideoBudget()
         val cadence = VideoCadenceGovernor(60, 30)
