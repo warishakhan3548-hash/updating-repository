@@ -691,7 +691,14 @@ class ControllerWebRtcSession(
                         recent.intervalMs,
                         recent.frames,
                         recent.processingMs?.toFloat() ?: -1f,
-                        recent.jitterMs?.toFloat() ?: -1f,
+                        /*
+                         * The wire field stays protocol-compatible, but carries
+                         * the freshness-relevant playout residence: whichever
+                         * is larger of measured jitter-buffer residence or the
+                         * receiver's current target delay. Older hosts safely
+                         * interpret this as a conservative jitter value.
+                         */
+                        recent.playoutDelayMs?.toFloat() ?: -1f,
                         recent.dropped ?: -1,
                         recent.freezes ?: -1
                     )
