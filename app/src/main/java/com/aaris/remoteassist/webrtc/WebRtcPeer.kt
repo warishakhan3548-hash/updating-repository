@@ -140,26 +140,59 @@ class WebRtcPeer(
     }
 
     private val videoHealthWindows = VideoHealthWindowTracker()
+    private val videoStatsInFlight = AtomicBoolean(false)
+
+    @Volatile
+    private var realtimeVideoTelemetry = false
+
+    @Volatile
+    private var videoStatsEnabled = false
+
+    /*
+     * getStats() can be materially more expensive than the tiny policy decisions
+     * made from its output. Keep exactly one native stats request in flight and
+     * change only the sampling cadence: fast while fresh pixels matter, slower
+     * while idle. No media frame is copied, queued or encoded by this loop.
+     */
     private val videoStatsProbe = object : Runnable {
         override fun run() {
-            if (closed.get()) return
+            if (closed.get() || !videoStatsEnabled) return
 
-            peerConnection.getStats { report ->
-                if (closed.get()) return@getStats
-                VideoHealthSnapshot
-                    .from(report, role)
-                    ?.let { snapshot ->
-                        if (role == PeerRole.HOST) {
-                            latestOutboundCodec = snapshot.codec?.substringAfterLast('/')
-                            latestOutboundCodecImplementation = snapshot.codecImplementation
+            if (videoStatsInFlight.compareAndSet(false, true)) {
+                peerConnection.getStats { report ->
+                    try {
+                        if (
+                            closed.get() ||
+                            !videoStatsEnabled
+                        ) {
+                            return@getStats
                         }
-                        listener.onVideoHealth(videoHealthWindows.sample(snapshot))
+
+                        VideoHealthSnapshot
+                            .from(report, role)
+                            ?.let { snapshot ->
+                                if (role == PeerRole.HOST) {
+                                    latestOutboundCodec =
+                                        snapshot.codec
+                                            ?.substringAfterLast('/')
+                                    latestOutboundCodecImplementation =
+                                        snapshot.codecImplementation
+                                }
+                                listener.onVideoHealth(
+                                    videoHealthWindows.sample(snapshot)
+                                )
+                            }
+                    } finally {
+                        videoStatsInFlight.set(false)
                     }
+                }
             }
 
             handler.postDelayed(
                 this,
-                VIDEO_STATS_INTERVAL_MS
+                RealtimeMediaPolicy.videoStatsIntervalMs(
+                    realtimeVideoTelemetry
+                )
             )
         }
     }
@@ -1058,15 +1091,18 @@ class WebRtcPeer(
         handler.removeCallbacks(bootstrapRecovery)
         handler.removeCallbacks(controllerRelayRefresh)
         reconcileRemoteVideoTrack()
+        videoStatsEnabled = true
         handler.removeCallbacks(videoStatsProbe)
         handler.postDelayed(
             videoStatsProbe,
-            VIDEO_STATS_INITIAL_DELAY_MS
+            RealtimeMediaPolicy.VIDEO_STATS_INITIAL_DELAY_MS
         )
         publishPeerConnected()
     }
 
     private fun handleTransportDisconnected() {
+        videoStatsEnabled = false
+        handler.removeCallbacks(videoStatsProbe)
         preLiveDisconnected =
             !connectivity.hasEverConnected()
 
@@ -1086,6 +1122,8 @@ class WebRtcPeer(
     }
 
     private fun handleTransportFailed() {
+        videoStatsEnabled = false
+        handler.removeCallbacks(videoStatsProbe)
         preLiveDisconnected = false
         handler.removeCallbacks(initialIceRestart)
 
@@ -1676,6 +1714,29 @@ class WebRtcPeer(
         }
     }
 
+    /**
+     * Raise health-feedback cadence only while this endpoint is participating
+     * in latency-sensitive screen motion. A fast transition gets one bounded
+     * kick instead of waiting behind an already scheduled idle probe.
+     */
+    fun setRealtimeVideoTelemetry(active: Boolean) {
+        if (closed.get()) return
+
+        val changed = realtimeVideoTelemetry != active
+        realtimeVideoTelemetry = active
+        if (!changed || !videoStatsEnabled) return
+
+        handler.removeCallbacks(videoStatsProbe)
+        handler.postDelayed(
+            videoStatsProbe,
+            if (active) {
+                RealtimeMediaPolicy.VIDEO_STATS_FAST_KICK_MS
+            } else {
+                RealtimeMediaPolicy.VIDEO_STATS_IDLE_INTERVAL_MS
+            }
+        )
+    }
+
     fun updateInteractiveVideoPolicy(
         maxBitrateBps: Int,
         maxFramerate: Int,
@@ -1792,8 +1853,6 @@ class WebRtcPeer(
         private const val MIN_VIDEO_FRAMERATE = 10
         private const val DEFAULT_VIDEO_FRAMERATE = 30
         private const val MAX_VIDEO_FRAMERATE = 60
-        private const val VIDEO_STATS_INITIAL_DELAY_MS = 1_500L
-        private const val VIDEO_STATS_INTERVAL_MS = 1_000L
         private const val RESTART_ICE_REFRESH_TIMEOUT_MS = 1_500L
         private const val PRELIVE_ICE_REFRESH_TIMEOUT_MS = 5_000L
         private const val ICE_RESTART_MIN_INTERVAL_MS = 2_500L
