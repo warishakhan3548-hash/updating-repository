@@ -698,7 +698,7 @@ class HostWebRtcSession(
                 )
             val motionActive = freshnessPriorityActive(now)
             if (!motionActive && sourceFps != null &&
-                sourceFps.isFinite() && sourceFps in 0.0 until 2.5 &&
+                sourceFps.isFinite() && sourceFps >= 0.0 && sourceFps < 2.5 &&
                 (snapshot.recent?.frames ?: Int.MAX_VALUE) <= 3) {
                 lastQuietOutbound = snapshot
                 lastQuietSourceFps = sourceFps
