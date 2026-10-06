@@ -39,7 +39,7 @@ test('strict arguments reject nonfinite, missing and out of range coordinates, u
   assert.equal(validateArguments('phone_action', { ...args, targetId: '   ' }), false);
   assert.equal(validateArguments('phone_action', { ...args, targetId: 'x'.repeat(257) }), false);
   assert.equal(validateArguments('phone_action', { ...args, action: 'swipe', toX: 0.5, toY: 0.5, targetId: 'com.example:id/submit' }), false);
-  assert.equal(TOOLS[2].inputSchema.properties.targetId.maxLength, 256);
+  assert.equal(TOOLS.find(t => t.name === 'phone_action').inputSchema.properties.targetId.maxLength, 256);
   assert.ok(validateArguments('phone_action', { ...args, action: 'type', text: 'Hello' }));
   assert.ok(validateArguments('phone_action', { ...args, action: 'open_app', app: 'ChatGPT' }));
   assert.equal(validateArguments('phone_action', { ...args, action: 'open_app' }), false);
@@ -57,6 +57,18 @@ test('drag accepts bounded normalized paths and rejects malformed paths', () => 
   assert.equal(validateArguments('phone_action', { ...drag, points: Array.from({ length: 25 }, (_, i) => ({ x: i / 24, y: 0.5 })) }), false);
 });
 
+test('task memory and guarded reflex arguments are strict and bounded', () => {
+  assert.equal(validateArguments('phone_task', { operation: 'start', goal: 'Fill the form' }), true);
+  assert.equal(validateArguments('phone_task', { operation: 'start', goal: '   ' }), false);
+  assert.equal(validateArguments('phone_task', { operation: 'update', subgoal: 'Address section' }), true);
+  assert.equal(validateArguments('phone_task', { operation: 'update' }), false);
+  assert.equal(validateArguments('phone_action', { ...args, intent: 'Roll dice', expectedOutcome: 'Dice result appears', rememberReflexId: 'dice-ready' }), true);
+  assert.equal(validateArguments('phone_action', { ...args, action: 'swipe', toX: 0.3, toY: 0.4, rememberReflexId: 'dice-ready' }), false);
+  assert.equal(validateArguments('phone_reflex', { actionId: 'reflex-0000001', reflexId: 'dice-ready', waitMs: 6000, intent: 'Roll dice when ready again' }), true);
+  assert.equal(validateArguments('phone_reflex', { actionId: 'reflex-0000001', reflexId: 'bad id' }), false);
+  assert.equal(validateArguments('phone_reflex', { actionId: 'reflex-0000001', reflexId: 'dice-ready', waitMs: 12001 }), false);
+});
+
 test('deep canonicalization makes nested drag retries independent of object key order', () => {
   const a = { action: 'drag', points: [{ x: 0.2, y: 0.8 }, { x: 0.7, y: 0.3 }], outer: { b: 2, a: 1 } };
   const b = { outer: { a: 1, b: 2 }, points: [{ y: 0.8, x: 0.2 }, { y: 0.3, x: 0.7 }], action: 'drag' };
@@ -68,7 +80,7 @@ test('MCP initialization negotiates a supported version and images are first-cla
   const response = await f.obj.fetch(f.request(`/mcp/${id}/${clientToken}`, { jsonrpc: '2.0', id: 0, method: 'initialize', params: { protocolVersion: '2025-06-18' } }));
   const rpc = await response.json(); assert.equal(rpc.result.protocolVersion, '2025-06-18'); assert.ok(rpc.result.capabilities.tools);
   assert.equal(toolResult({ image: { mimeType: 'image/jpeg', data: 'aaa' }, screenVersion: 1 }).content[1].type, 'image');
-  assert.equal(TOOLS.length, 3);
+  assert.equal(TOOLS.length, 5);
 });
 test('unauthorized links and credential replacement cannot reach a phone', async () => {
   const f = await fixture(); f.connect();
@@ -121,6 +133,17 @@ test('actionId reuse with changed coordinates is refused', async () => {
   const f = await fixture(); f.connect(); const first = f.call('phone_action', args);
   await f.complete({ applied: true }); await first;
   const changed = await result(await f.call('phone_action', { ...args, x: 0.9 })); assert.equal(changed.error, 'ACTION_ID_CONFLICT'); assert.equal(f.sent.length, 1);
+});
+
+test('reflex execution is also durably idempotent', async () => {
+  const f = await fixture(); f.connect();
+  const reflexArgs = { actionId: 'reflex-0000001', reflexId: 'dice-ready', waitMs: 5000, intent: 'Roll dice' };
+  const first = f.call('phone_reflex', reflexArgs);
+  await f.complete({ applied: true, reflexTriggered: true, screenVersion: 8 });
+  assert.equal((await result(await first)).applied, true);
+  const replay = await result(await f.call('phone_reflex', reflexArgs));
+  assert.equal(replay.replayed, true);
+  assert.equal(f.sent.length, 1);
 });
 test('revoke closes the phone and invalidates the MCP link', async () => {
   const f = await fixture(); f.connect();
