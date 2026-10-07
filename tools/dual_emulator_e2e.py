@@ -946,10 +946,22 @@ def pair(host, controller, out_dir):
 
             if controller_path.exists():
                 proof = controller_path.read_text(errors="replace")
-                if (
-                    "Controller WebRTC transport CONNECTED" in proof
-                    and "Controller HELLO received; transport is live" in proof
-                ):
+                durable_live =
+                    "local_state=LIVE" in proof and
+                    "backend_state=LIVE" in proof
+                fast_live =
+                    "Controller WebRTC transport CONNECTED" in proof and
+                    "Controller HELLO received; transport is live" in proof
+                viewer_open =
+                    "remote screen open" in lowered
+
+                # ConnectionFlightRecorder is a bounded rolling buffer. On a
+                # busy media session the early CONNECTED/HELLO entries can age
+                # out before the first CI checkpoint even though the session is
+                # unquestionably live. Durable app/backend LIVE state + the
+                # production viewer being open is therefore authoritative; the
+                # transient CONNECTED+HELLO pair remains a fast-path proof.
+                if fast_live or (durable_live and viewer_open):
                     transport_live = True
                     break
 
@@ -973,9 +985,21 @@ def pair(host, controller, out_dir):
             if controller_timeout.exists()
             else ""
         )
+        final_visible = " | ".join(
+            node_text(n)
+            for n in parse_nodes(last_controller_ui)
+            if node_text(n)
+        ).lower()
         if (
-            "Controller WebRTC transport CONNECTED" in proof
-            and "Controller HELLO received; transport is live" in proof
+            (
+                "Controller WebRTC transport CONNECTED" in proof
+                and "Controller HELLO received; transport is live" in proof
+            )
+            or (
+                "local_state=LIVE" in proof
+                and "backend_state=LIVE" in proof
+                and "remote screen open" in final_visible
+            )
         ):
             transport_live = True
 
