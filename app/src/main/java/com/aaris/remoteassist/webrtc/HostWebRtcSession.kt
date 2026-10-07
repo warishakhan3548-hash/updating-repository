@@ -110,6 +110,16 @@ class HostWebRtcSession(
     private var lastSlowVideoCheckMs = 0L
 
     /*
+     * Measurement can accelerate on real activity without becoming another
+     * quality controller. Quiet screens return to the low-overhead stats clock.
+     */
+    private val mediaTelemetryQuietDown = Runnable {
+        if (!closed.get() && !interactionActive) {
+            peer.setRealtimeVideoTelemetry(false)
+        }
+    }
+
+    /*
      * Policy-lane snapshot of the source shape that is already admitted to the
      * media pipeline. Startup seeds it after the sender envelope is configured;
      * subsequent transitions use it only to choose safe actuator ordering.
@@ -187,11 +197,20 @@ class HostWebRtcSession(
         onProjectionStopped = listener::onProjectionStopped,
         onSourceMotion = {
             /*
-             * Source activity no longer changes FPS/resolution by itself.
-             * MediaProjection may go quiet for a moment during scrolling or app
-             * transitions; the unified controller reacts only to measured
-             * pipeline/network pressure, not motion/idle edges.
+             * Source activity never changes FPS/resolution by itself. It only
+             * accelerates the existing telemetry clock so sustained pressure is
+             * observed sooner; the unified controller still needs hysteresis.
              */
+            policyHandler.post {
+                if (!closed.get()) {
+                    peer.setRealtimeVideoTelemetry(true)
+                    policyHandler.removeCallbacks(mediaTelemetryQuietDown)
+                    policyHandler.postDelayed(
+                        mediaTelemetryQuietDown,
+                        MEDIA_TELEMETRY_ACTIVE_TAIL_MS
+                    )
+                }
+            }
         },
         onSourceGeometryChanged = { observedWidth, observedHeight ->
             /*
@@ -1039,6 +1058,16 @@ class HostWebRtcSession(
         if (interactionActive != active) {
             interactionActive = active
             capture.setInteractionPriority(active)
+            if (active) {
+                policyHandler.removeCallbacks(mediaTelemetryQuietDown)
+                peer.setRealtimeVideoTelemetry(true)
+            } else {
+                policyHandler.removeCallbacks(mediaTelemetryQuietDown)
+                policyHandler.postDelayed(
+                    mediaTelemetryQuietDown,
+                    MEDIA_TELEMETRY_ACTIVE_TAIL_MS
+                )
+            }
 
             /*
              * Touch changes scheduling priority, not the media operating point.
@@ -1100,12 +1129,6 @@ class HostWebRtcSession(
                 interactionActive = interactionActive
             )
         val effective = effectiveCaptureProfile(target)
-
-        /*
-         * Keep one steady telemetry clock. Sampling is frequent, but the master
-         * controller's dwell/hysteresis prevents frequent media reconfiguration.
-         */
-        peer.setRealtimeVideoTelemetry(true)
 
         val maxBitrateBps =
             mediaController.bitrateCeiling(
@@ -1337,6 +1360,7 @@ class HostWebRtcSession(
         private const val MAX_CAPTURE_RECOVERY_ATTEMPTS = 3
         private const val LEASE_WATCHDOG_MS = 3_000L
         private const val INTERACTION_PRIORITY_TIMEOUT_MS = 3_000L
+        private const val MEDIA_TELEMETRY_ACTIVE_TAIL_MS = 3_000L
         private const val MAX_WARM_START_EVIDENCE_AGE_MS = 2_500L
         private const val MAX_SESSION_VIDEO_FPS = 60
         private const val PRESENTATION_HEARTBEAT_FRESH_MS = 1_500
