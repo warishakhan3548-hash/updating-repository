@@ -407,56 +407,30 @@ def ensure_pairing_code(serial, code, timeout=20):
 
 def submit_connect_dialog(serial, timeout=20):
     """
-    Submit the production Connect dialog without assuming the soft keyboard is
-    hidden. Hosted Google images can visually expose the START button while the
-    IME still intercepts coordinate taps.
+    Submit the production Connect dialog without BACK. On full Google emulator
+    images BACK can cancel the AlertDialog rather than only hiding the IME.
     """
-    # The EditText is single-line with IME_ACTION_DONE. Hardware ENTER normally
-    # triggers the same production submit() callback without any screen tap.
-    shell(
-        serial,
-        "input",
-        "keyevent",
-        "KEYCODE_ENTER",
-        check=False,
-    )
-
-    deadline = time.time() + 2.5
-    while time.time() < deadline:
+    def dialog_visible():
         xml = ui_xml(serial)
         values = " | ".join(
             node_text(n)
             for n in parse_nodes(xml)
             if node_text(n)
         ).lower()
-        if "enter the 12-digit one-time code" not in values:
-            return
-        time.sleep(0.2)
+        return "enter the 12-digit one-time code" in values
 
-    # If ENTER was treated as a plain key event, hide the IME once, then tap the
-    # exact clickable START button after re-reading its current bounds.
+    # Ask InputMethodManager to hide the IME without generating a Back event.
     shell(
         serial,
-        "input",
-        "keyevent",
-        "KEYCODE_BACK",
+        "cmd",
+        "input_method",
+        "hide",
         check=False,
     )
-    time.sleep(0.5)
+    time.sleep(0.4)
 
-    xml = ui_xml(serial)
-    values = " | ".join(
-        node_text(n)
-        for n in parse_nodes(xml)
-        if node_text(n)
-    ).lower()
-    if "enter the 12-digit one-time code" not in values:
-        # BACK dismissed the dialog instead of only hiding IME.
-        raise RuntimeError(
-            "Connect dialog disappeared while hiding IME before submit"
-        )
-
-    start = find_node(
+    # Re-read exact button bounds after any IME/inset transition.
+    start_button = find_node(
         serial,
         lambda n:
             n.attrib.get("class") == "android.widget.Button"
@@ -464,7 +438,7 @@ def submit_connect_dialog(serial, timeout=20):
             and "start" in [v.lower() for v in node_values(n)],
         timeout=5,
     )
-    center = bounds_center(start.attrib.get("bounds"))
+    center = bounds_center(start_button.attrib.get("bounds"))
     if not center:
         raise RuntimeError("Connect START button has no bounds")
     shell(
@@ -475,21 +449,47 @@ def submit_connect_dialog(serial, timeout=20):
         str(center[1]),
     )
 
-    deadline = time.time() + timeout
-    last = ""
+    deadline = time.time() + 3
     while time.time() < deadline:
-        last = ui_xml(serial)
-        values = " | ".join(
-            node_text(n)
-            for n in parse_nodes(last)
-            if node_text(n)
-        ).lower()
-        if "enter the 12-digit one-time code" not in values:
+        if not dialog_visible():
+            return
+        time.sleep(0.2)
+
+    # Coordinate taps can still be swallowed during an emulator inset update.
+    # Move hardware focus from EditText through CANCEL to START, then activate.
+    field = find_node(
+        serial,
+        lambda n: n.attrib.get("class") == "android.widget.EditText",
+        timeout=3,
+    )
+    field_center = bounds_center(field.attrib.get("bounds"))
+    if field_center:
+        shell(
+            serial,
+            "input",
+            "tap",
+            str(field_center[0]),
+            str(field_center[1]),
+            check=False,
+        )
+    shell(serial, "input", "keyevent", "KEYCODE_TAB", check=False)
+    shell(serial, "input", "keyevent", "KEYCODE_TAB", check=False)
+    shell(
+        serial,
+        "input",
+        "keyevent",
+        "KEYCODE_DPAD_CENTER",
+        check=False,
+    )
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not dialog_visible():
             return
         time.sleep(0.25)
 
     raise RuntimeError(
-        "Connect START did not submit; dialog remained visible"
+        "Connect START did not submit after tap/focus fallbacks"
     )
 
 
