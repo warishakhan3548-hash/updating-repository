@@ -4,8 +4,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
+import com.aaris.remoteassist.backend.CloudflareBackend
 import com.aaris.remoteassist.diagnostics.ConnectionFlightRecorder
+import com.aaris.remoteassist.session.SessionCoordinator
 import java.io.File
+import java.util.concurrent.Executors
 
 /**
  * Debug-only metrics exporter used by CI dual-emulator tests.
@@ -15,6 +18,18 @@ class E2eDebugReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION_DUMP) return
 
+        val pending = goAsync()
+        val appContext = context.applicationContext
+        EXECUTOR.execute {
+            try {
+                dump(appContext, intent)
+            } finally {
+                pending.finish()
+            }
+        }
+    }
+
+    private fun dump(context: Context, intent: Intent) {
         val label =
             intent.getStringExtra(EXTRA_LABEL)
                 ?.replace(Regex("[^A-Za-z0-9_.-]"), "_")
@@ -27,13 +42,39 @@ class E2eDebugReceiver : BroadcastReceiver() {
                 "setup",
                 Context.MODE_PRIVATE
             )
-        val sessionId =
+        val hostSession =
             prefs.getString(
                 KEY_ACTIVE_HOST_SESSION,
                 null
             )
+        val controllerSession =
+            prefs.getString(
+                KEY_PENDING_CONTROLLER_SESSION,
+                null
+            )
+        val sessionId =
+            hostSession ?: controllerSession
+        val local =
+            SessionCoordinator.snapshot()
+        val backendState =
+            sessionId?.let { id ->
+                runCatching {
+                    CloudflareBackend
+                        .sessionRequest(
+                            context = context,
+                            sessionId = id,
+                            method = "GET"
+                        )
+                        .getJSONObject("session")
+                        .optString("state", "-")
+                }.getOrElse { error ->
+                    "ERROR:${error.javaClass.simpleName}:" +
+                        error.message.orEmpty().take(160)
+                }
+            } ?: "-"
+
         val qd =
-            sessionId
+            hostSession
                 ?.let(ConnectionFlightRecorder::snapshot)
                 .orEmpty()
 
@@ -50,6 +91,17 @@ class E2eDebugReceiver : BroadcastReceiver() {
             buildString {
                 appendLine("label=$label")
                 appendLine("session=${sessionId ?: "-"}")
+                appendLine("side=" +
+                    when {
+                        hostSession != null -> "host"
+                        controllerSession != null -> "controller"
+                        else -> "idle"
+                    }
+                )
+                appendLine("local_state=${local.state}")
+                appendLine("local_session=${local.sessionId ?: "-"}")
+                appendLine("local_generation=${local.displayGeneration}")
+                appendLine("backend_state=$backendState")
                 appendLine("elapsed_ms=$elapsed")
                 appendLine("frame_callbacks=${state.frameCallbacks}")
                 appendLine("draw_calls=${state.drawCalls}")
@@ -58,12 +110,14 @@ class E2eDebugReceiver : BroadcastReceiver() {
                 appendLine("gesture_ends=${state.gestureEnds}")
                 appendLine("last_x=${state.lastX}")
                 appendLine("last_y=${state.lastY}")
-                appendLine("last_touch_age_ms=" +
-                    if (state.lastTouchAtMs > 0L) {
-                        (now - state.lastTouchAtMs).coerceAtLeast(0L)
-                    } else {
-                        -1L
-                    }
+                appendLine(
+                    "last_touch_age_ms=" +
+                        if (state.lastTouchAtMs > 0L) {
+                            (now - state.lastTouchAtMs)
+                                .coerceAtLeast(0L)
+                        } else {
+                            -1L
+                        }
                 )
                 appendLine("---- QD ----")
                 append(qd)
@@ -76,8 +130,6 @@ class E2eDebugReceiver : BroadcastReceiver() {
             )
         dir.mkdirs()
         File(dir, "$label.txt").writeText(body)
-        resultCode = android.app.Activity.RESULT_OK
-        resultData = "wrote:$label"
     }
 
     private companion object {
@@ -86,5 +138,8 @@ class E2eDebugReceiver : BroadcastReceiver() {
         const val EXTRA_LABEL = "label"
         const val KEY_ACTIVE_HOST_SESSION =
             "active_host_session"
+        const val KEY_PENDING_CONTROLLER_SESSION =
+            "pending_controller_session"
+        val EXECUTOR = Executors.newSingleThreadExecutor()
     }
 }
