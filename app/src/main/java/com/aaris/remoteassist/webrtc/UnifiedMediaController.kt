@@ -116,7 +116,7 @@ internal class UnifiedMediaController(
             } else null
         val glassRatio =
             if (expectedGlass != null) {
-                received.presentedFps
+                received?.presentedFps
                     ?.let { (it / expectedGlass).coerceIn(0.0, 2.0) }
             } else null
 
