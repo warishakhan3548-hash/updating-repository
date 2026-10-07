@@ -244,9 +244,52 @@ def gesture_batch(controller):
     time.sleep(0.5)
     shell(controller, "input", "swipe", str(x_r), str(int(h * 0.60)), str(x_l), str(int(h * 0.42)), "1400")
 
+def ensure_accessibility(serial):
+    service = (
+        "com.aaris.remoteassist/"
+        "com.aaris.remoteassist.accessibility.AssistAccessibilityService"
+    )
+    enabled = (
+        shell(
+            serial,
+            "settings", "get", "secure",
+            "enabled_accessibility_services",
+            check=False,
+        ).stdout
+        or ""
+    ).strip()
+    if service.lower() not in enabled.lower():
+        shell(
+            serial,
+            "settings", "put", "secure",
+            "enabled_accessibility_services", service,
+        )
+    shell(
+        serial,
+        "settings", "put", "secure",
+        "accessibility_enabled", "1",
+    )
+    verified = (
+        shell(
+            serial,
+            "settings", "get", "secure",
+            "enabled_accessibility_services",
+            check=False,
+        ).stdout
+        or ""
+    ).strip()
+    if service.lower() not in verified.lower():
+        raise RuntimeError(
+            f"Accessibility service did not persist on {serial}: {verified}"
+        )
+
 def pair(host, controller, out_dir):
-    shell(host, "am", "force-stop", PKG, check=False)
-    shell(controller, "am", "force-stop", PKG, check=False)
+    # Do not force-stop after enabling Accessibility. On some emulator/system
+    # builds force-stop tears down or suppresses the bound AccessibilityService
+    # until the user toggles it again, which is not representative of the
+    # normal permission-granted app lifecycle.
+    ensure_accessibility(host)
+    ensure_accessibility(controller)
     shell(host, "am", "start", "-W", "-n", MAIN)
     shell(controller, "am", "start", "-W", "-n", MAIN)
     wait_text(host, "Aaris Remote", timeout=25)
