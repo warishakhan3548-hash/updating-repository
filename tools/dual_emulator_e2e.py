@@ -505,11 +505,17 @@ def pair(host, controller, out_dir):
     # user can share the one-time code. The E2E driver reads the code from that
     # real system sheet, then returns to Aaris Remote before the controller joins;
     # otherwise the later host approval dialog is hidden behind the chooser.
+    # Exercise the production SEND path so the system chooser is real. The
+    # underlying "Share this code" AlertDialog is intentionally non-cancelable;
+    # returning from the chooser must NOT wait for the activity's home text or
+    # press CANCEL, because CANCEL closes the live host ticket.
+    click_text(host, "SEND", timeout=15)
     chooser_packages = {
         "com.android.intentresolver",
         "com.google.android.intentresolver",
     }
-    chooser_deadline = time.time() + 8
+    chooser_deadline = time.time() + 10
+    chooser_seen = False
     while time.time() < chooser_deadline:
         nodes = parse_nodes(ui_xml(host))
         packages = {
@@ -517,10 +523,19 @@ def pair(host, controller, out_dir):
             for node in nodes
         }
         if packages.intersection(chooser_packages):
+            chooser_seen = True
             shell(host, "input", "keyevent", "KEYCODE_BACK")
-            wait_text(host, "Aaris Remote", timeout=15)
             break
         time.sleep(0.25)
+    if not chooser_seen:
+        # Some emulator builds resolve the chooser so quickly that UIAutomator
+        # misses its package transition. Returning once is harmless if a system
+        # share surface is currently on top; otherwise the host dialog remains.
+        shell(host, "input", "keyevent", "KEYCODE_BACK", check=False)
+
+    # The host share-code dialog is expected to remain visible here. The real
+    # PairingGateway observer will later place "Start remote support?" above it
+    # after the controller redeems the one-time code.
 
     click_text(controller, "Connect", timeout=20)
     wait_text(controller, "12-digit one-time code", timeout=20)
