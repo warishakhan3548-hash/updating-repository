@@ -610,8 +610,88 @@ def pair(host, controller, out_dir):
             "MediaProjection consent was tapped but projection never became active"
         )
 
-    wait_text(controller, "Remote screen open", timeout=65)
-    # Give SCTP telemetry/video lanes time to open before exercising motion.
+    # Observe the actual signaling/ICE/control-channel boot instead of a
+    # blind 65s UI wait. Each checkpoint exports the production flight recorder
+    # from BOTH peers with app-authenticated backend state.
+    live_deadline = time.time() + 65
+    next_checkpoint = time.time() + 6
+    checkpoint_index = 1
+    last_controller_ui = ""
+    while time.time() < live_deadline:
+        last_controller_ui = ui_xml(controller)
+        visible = " | ".join(
+            node_text(n)
+            for n in parse_nodes(last_controller_ui)
+            if node_text(n)
+        )
+        lowered = visible.lower()
+
+        if "remote screen open" in lowered:
+            dump_metrics(
+                host,
+                "transport_live",
+                out_dir,
+                prefix="host",
+            )
+            dump_metrics(
+                controller,
+                "transport_live",
+                out_dir,
+                prefix="controller",
+            )
+            break
+
+        if "session ended" in lowered:
+            dump_metrics(
+                host,
+                "transport_ended",
+                out_dir,
+                prefix="host",
+            )
+            dump_metrics(
+                controller,
+                "transport_ended",
+                out_dir,
+                prefix="controller",
+            )
+            raise RuntimeError(
+                "session ended before remote video became live"
+            )
+
+        now = time.time()
+        if now >= next_checkpoint:
+            label = f"transport_wait_{checkpoint_index:02d}"
+            dump_metrics(host, label, out_dir, prefix="host")
+            dump_metrics(
+                controller,
+                label,
+                out_dir,
+                prefix="controller",
+            )
+            checkpoint_index += 1
+            next_checkpoint = now + 8
+
+        time.sleep(0.5)
+    else:
+        dump_metrics(
+            host,
+            "transport_timeout",
+            out_dir,
+            prefix="host",
+        )
+        dump_metrics(
+            controller,
+            "transport_timeout",
+            out_dir,
+            prefix="controller",
+        )
+        raise RuntimeError(
+            "remote screen did not become live before timeout; last UI:\n" +
+            last_controller_ui[-6000:]
+        )
+
+    # Give SCTP telemetry/video lanes a short stabilization window before
+    # exercising real motion and remote gestures.
     time.sleep(4.0)
 
 def main():
