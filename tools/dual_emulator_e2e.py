@@ -862,35 +862,48 @@ def pair(host, controller, out_dir):
         )
 
     # Observe the actual signaling/ICE/control-channel boot instead of a
-    # blind 65s UI wait. Each checkpoint exports the production flight recorder
-    # from BOTH peers with app-authenticated backend state.
+    # brittle UI string. Android can place a one-time immersive-mode "Viewing
+    # full screen" education overlay above the remote view; that must never make
+    # a healthy WebRTC session look dead. The authoritative live proof is the
+    # production controller flight recorder: CONNECTED + HELLO on control-v1.
     live_deadline = time.time() + 65
-    next_checkpoint = time.time() + 6
+    next_checkpoint = time.time() + 5
     checkpoint_index = 1
     last_controller_ui = ""
+    transport_live = False
+
     while time.time() < live_deadline:
         last_controller_ui = ui_xml(controller)
+
+        # Dismiss Android's one-time immersive education overlay when present.
+        try:
+            got_it = next(
+                n for n in parse_nodes(last_controller_ui)
+                if n.attrib.get("package") == "android"
+                and n.attrib.get("clickable") == "true"
+                and node_text(n).strip().lower() == "got it"
+            )
+            center = bounds_center(got_it.attrib.get("bounds"))
+            if center:
+                shell(
+                    controller,
+                    "input",
+                    "tap",
+                    str(center[0]),
+                    str(center[1]),
+                    check=False,
+                )
+                time.sleep(0.35)
+                last_controller_ui = ui_xml(controller)
+        except StopIteration:
+            pass
+
         visible = " | ".join(
             node_text(n)
             for n in parse_nodes(last_controller_ui)
             if node_text(n)
         )
         lowered = visible.lower()
-
-        if "remote screen open" in lowered:
-            dump_metrics(
-                host,
-                "transport_live",
-                out_dir,
-                prefix="host",
-            )
-            dump_metrics(
-                controller,
-                "transport_live",
-                out_dir,
-                prefix="controller",
-            )
-            break
 
         if "session ended" in lowered:
             dump_metrics(
@@ -913,37 +926,67 @@ def pair(host, controller, out_dir):
         if now >= next_checkpoint:
             label = f"transport_wait_{checkpoint_index:02d}"
             dump_metrics(host, label, out_dir, prefix="host")
-            dump_metrics(
+            controller_path = dump_metrics(
                 controller,
                 label,
                 out_dir,
                 prefix="controller",
             )
             checkpoint_index += 1
-            next_checkpoint = now + 8
+            next_checkpoint = now + 7
 
-        time.sleep(0.5)
-    else:
-        dump_metrics(
+            if controller_path.exists():
+                proof = controller_path.read_text(errors="replace")
+                if (
+                    "Controller WebRTC transport CONNECTED" in proof
+                    and "Controller HELLO received; transport is live" in proof
+                ):
+                    transport_live = True
+                    break
+
+        time.sleep(0.4)
+
+    if not transport_live:
+        host_timeout = dump_metrics(
             host,
             "transport_timeout",
             out_dir,
             prefix="host",
         )
-        dump_metrics(
+        controller_timeout = dump_metrics(
             controller,
             "transport_timeout",
             out_dir,
             prefix="controller",
         )
+        proof = (
+            controller_timeout.read_text(errors="replace")
+            if controller_timeout.exists()
+            else ""
+        )
+        if (
+            "Controller WebRTC transport CONNECTED" in proof
+            and "Controller HELLO received; transport is live" in proof
+        ):
+            transport_live = True
+
+    if not transport_live:
         raise RuntimeError(
-            "remote screen did not become live before timeout; last UI:\n" +
+            "WebRTC control transport never reached CONNECTED + HELLO; last UI:\n" +
             last_controller_ui[-6000:]
         )
 
-    # Give SCTP telemetry/video lanes a short stabilization window before
-    # exercising real motion and remote gestures.
-    time.sleep(4.0)
+    dump_metrics(host, "transport_live", out_dir, prefix="host")
+    dump_metrics(
+        controller,
+        "transport_live",
+        out_dir,
+        prefix="controller",
+    )
+
+    # Give SCTP/video lanes a short stabilization window before switching the
+    # shared phone to the 60 Hz motion target and exercising real gestures.
+    time.sleep(2.0)
 
 def main():
     ap = argparse.ArgumentParser()
