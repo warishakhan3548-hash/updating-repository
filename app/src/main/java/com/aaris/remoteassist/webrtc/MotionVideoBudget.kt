@@ -185,10 +185,12 @@ internal class MotionVideoBudget {
          * alarm. The values are interval averages, so require a complete
          * measured path and the existing multi-sample pressure hysteresis.
          *
-         * At 60 Hz this reacts when roughly three frame periods are already
+         * At 45/60 Hz this reacts when roughly a few frame periods are already
          * being consumed by encode + sender residence + receiver playout +
-         * decode. At 30 Hz the budget expands proportionally, avoiding needless
-         * pixel loss on devices that are healthy at lower cadence.
+         * decode. Keep the signal disabled below the high-cadence ladder:
+         * 30 Hz network/jitter pressure already has established cadence relief,
+         * and must not unlock the 240px emergency codec-resolution rung by
+         * itself.
          */
         val pipelineDeadlineMs =
             if (
@@ -209,9 +211,10 @@ internal class MotionVideoBudget {
                 frameMs * PIPELINE_DEADLINE_BUDGET_MULTIPLIER
             )
         val pipelineDeadlinePressure =
-            pipelineDeadlineMs?.let {
-                it >= pipelineDeadlinePressureThresholdMs
-            } == true
+            goal >= HIGH_CADENCE_FPS &&
+                pipelineDeadlineMs?.let {
+                    it >= pipelineDeadlinePressureThresholdMs
+                } == true
 
         /*
          * Absolute queue thresholds are necessarily reactive. For interactive
