@@ -48,13 +48,18 @@ def parse_nodes(xml_text):
         return []
     return list(root.iter("node"))
 
-def node_text(node):
-    return " ".join(
-        x for x in [
+def node_values(node):
+    return [
+        value.strip()
+        for value in [
             node.attrib.get("text", ""),
             node.attrib.get("content-desc", ""),
-        ] if x
-    ).strip()
+        ]
+        if value and value.strip()
+    ]
+
+def node_text(node):
+    return " ".join(node_values(node)).strip()
 
 def bounds_center(bounds):
     m = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", bounds or "")
@@ -77,8 +82,12 @@ def find_node(serial, predicate, timeout=30):
 def click_text(serial, text, timeout=30, contains=False):
     target = text.lower()
     def pred(node):
-        value = node_text(node).lower()
-        return target in value if contains else value == target
+        values = [value.lower() for value in node_values(node)]
+        return (
+            any(target in value for value in values)
+            if contains
+            else target in values
+        )
     node = find_node(serial, pred, timeout)
     center = bounds_center(node.attrib.get("bounds"))
     if not center:
@@ -91,9 +100,10 @@ def click_first_text(serial, options, timeout=30):
     node = find_node(
         serial,
         lambda n: any(
-            candidate == node_text(n).lower()
-            or candidate in node_text(n).lower()
+            candidate == value.lower()
+            or candidate in value.lower()
             for candidate in lowers
+            for value in node_values(n)
         ),
         timeout,
     )
@@ -107,8 +117,11 @@ def wait_text(serial, text, timeout=45, contains=True):
     target = text.lower()
     return find_node(
         serial,
-        lambda n: target in node_text(n).lower() if contains
-        else node_text(n).lower() == target,
+        lambda n: (
+            any(target in value.lower() for value in node_values(n))
+            if contains
+            else target in [value.lower() for value in node_values(n)]
+        ),
         timeout,
     )
 
