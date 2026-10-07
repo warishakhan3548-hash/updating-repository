@@ -315,6 +315,94 @@ def ensure_pairing_code(serial, code, timeout=20):
     )
 
 
+def submit_connect_dialog(serial, timeout=20):
+    """
+    Submit the production Connect dialog without assuming the soft keyboard is
+    hidden. Hosted Google images can visually expose the START button while the
+    IME still intercepts coordinate taps.
+    """
+    # The EditText is single-line with IME_ACTION_DONE. Hardware ENTER normally
+    # triggers the same production submit() callback without any screen tap.
+    shell(
+        serial,
+        "input",
+        "keyevent",
+        "KEYCODE_ENTER",
+        check=False,
+    )
+
+    deadline = time.time() + 2.5
+    while time.time() < deadline:
+        xml = ui_xml(serial)
+        values = " | ".join(
+            node_text(n)
+            for n in parse_nodes(xml)
+            if node_text(n)
+        ).lower()
+        if "enter the 12-digit one-time code" not in values:
+            return
+        time.sleep(0.2)
+
+    # If ENTER was treated as a plain key event, hide the IME once, then tap the
+    # exact clickable START button after re-reading its current bounds.
+    shell(
+        serial,
+        "input",
+        "keyevent",
+        "KEYCODE_BACK",
+        check=False,
+    )
+    time.sleep(0.5)
+
+    xml = ui_xml(serial)
+    values = " | ".join(
+        node_text(n)
+        for n in parse_nodes(xml)
+        if node_text(n)
+    ).lower()
+    if "enter the 12-digit one-time code" not in values:
+        # BACK dismissed the dialog instead of only hiding IME.
+        raise RuntimeError(
+            "Connect dialog disappeared while hiding IME before submit"
+        )
+
+    start = find_node(
+        serial,
+        lambda n:
+            n.attrib.get("class") == "android.widget.Button"
+            and n.attrib.get("clickable") == "true"
+            and "start" in [v.lower() for v in node_values(n)],
+        timeout=5,
+    )
+    center = bounds_center(start.attrib.get("bounds"))
+    if not center:
+        raise RuntimeError("Connect START button has no bounds")
+    shell(
+        serial,
+        "input",
+        "tap",
+        str(center[0]),
+        str(center[1]),
+    )
+
+    deadline = time.time() + timeout
+    last = ""
+    while time.time() < deadline:
+        last = ui_xml(serial)
+        values = " | ".join(
+            node_text(n)
+            for n in parse_nodes(last)
+            if node_text(n)
+        ).lower()
+        if "enter the 12-digit one-time code" not in values:
+            return
+        time.sleep(0.25)
+
+    raise RuntimeError(
+        "Connect START did not submit; dialog remained visible"
+    )
+
+
 def wm_size(serial):
     out = shell(serial, "wm", "size").stdout or ""
     m = re.search(r"(\d+)x(\d+)", out)
@@ -618,7 +706,7 @@ def pair(host, controller, out_dir):
     )
     wait_text(controller, "12-digit one-time code", timeout=20)
     ensure_pairing_code(controller, code, timeout=20)
-    click_text(controller, "START", timeout=15)
+    submit_connect_dialog(controller, timeout=20)
 
     # Prove redeem succeeded before blaming the host observer. A successful
     # controller must persist a session and enter the verified/waiting state.
