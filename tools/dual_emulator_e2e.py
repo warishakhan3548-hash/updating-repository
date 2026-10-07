@@ -156,18 +156,27 @@ def set_network(serial, speed, delay):
     adb(serial, "emu", "network", "speed", speed, check=False)
     adb(serial, "emu", "network", "delay", delay, check=False)
 
-def dump_metrics(host, label, out_dir):
+def dump_metrics(serial, label, out_dir, prefix="host"):
     shell(
-        host,
+        serial,
         "am", "broadcast",
         "-a", DUMP_ACTION,
         "--es", "label", label,
         check=False,
     )
-    time.sleep(0.5)
+    # The debug receiver may perform one authenticated backend GET before
+    # writing the file, so allow a bounded moment for goAsync() completion.
     remote = f"/sdcard/Android/data/{PKG}/files/dual-e2e/{label}.txt"
-    local = out_dir / f"{label}.txt"
-    adb(host, "pull", remote, str(local), check=False)
+    local = out_dir / f"{prefix}-{label}.txt"
+    deadline = time.time() + 8
+    while time.time() < deadline:
+        pulled = adb(
+            serial, "pull", remote, str(local),
+            check=False, timeout=15,
+        )
+        if pulled.returncode == 0 and local.exists():
+            return local
+        time.sleep(0.4)
     return local
 
 def screenshot(serial, path):
@@ -326,6 +335,12 @@ def pair(host, controller, out_dir):
     time.sleep(0.4)
     click_text(controller, "START", timeout=15)
 
+    # Prove redeem succeeded before blaming the host observer. A successful
+    # controller must persist a session and enter the verified/waiting state.
+    wait_text(controller, "Code verified", timeout=25)
+    dump_metrics(host, "post_redeem", out_dir, prefix="host")
+    dump_metrics(controller, "post_redeem", out_dir, prefix="controller")
+
     wait_text(host, "Start remote support?", timeout=40)
     click_text(host, "START", timeout=15)
 
@@ -395,7 +410,12 @@ def main():
             hp.wait(timeout=seconds + 8)
             cp.wait(timeout=seconds + 8)
 
-            metric_path = dump_metrics(host, label, out_dir)
+            metric_path = dump_metrics(
+                host, label, out_dir, prefix="host"
+            )
+            dump_metrics(
+                controller, label, out_dir, prefix="controller"
+            )
             metrics = parse_metric_file(metric_path)
             screenshot(host, out_dir / f"{label}-host.png")
             screenshot(controller, out_dir / f"{label}-controller.png")
