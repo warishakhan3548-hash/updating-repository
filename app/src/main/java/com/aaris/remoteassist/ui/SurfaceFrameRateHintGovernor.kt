@@ -70,24 +70,28 @@ internal class SurfaceFrameRateHintGovernor(
         resetCandidate()
 
         /*
-         * Keep learning the sustainable presentation cadence while a touch
-         * burst temporarily asks SurfaceFlinger for a 60 Hz-class mode. The
-         * burst owns the Surface hint until finger-up, so measured 30/45 Hz
-         * evidence must not fight the display scheduler in the middle of a
-         * gesture. As soon as interaction ends, the newest learned cadence is
-         * restored without waiting for another multi-window convergence.
+         * Interaction does not own an independent 60 Hz policy anymore. Keep
+         * the Surface hint aligned to cadence that real EGL swaps have already
+         * proven sustainable. A change still needs the same multi-window and
+         * rate-limit evidence, so this cannot flap during a short gesture.
          */
-        return if (interactionHint > 0) null else currentHint
+        if (interactionHint > 0) {
+            if (interactionHint != currentHint) {
+                interactionHint = currentHint
+                return currentHint
+            }
+            return null
+        }
+        return currentHint
     }
 
     /**
-     * Ask Android for the fastest cadence this app can actually produce while
-     * the user is manipulating the remote screen.
+     * Keep Android on the cadence already proven by real presentation while
+     * the user is manipulating the remote screen. If no cadence has been
+     * learned yet, fall back to the bounded realtime ceiling.
      *
      * This is only a Surface scheduling hint. It does not raise WebRTC's
-     * encoder target, create frames, or bypass thermal/network governors. The
-     * video pipeline remains capped at 60 fps, so requesting anything above
-     * that would waste display power without increasing visual freshness.
+     * encoder target, create frames, or bypass the unified media controller.
      */
     fun beginInteraction(
         maxFps: Int = MAX_INTERACTION_HINT_FPS
@@ -95,8 +99,11 @@ internal class SurfaceFrameRateHintGovernor(
         if (maxFps <= 0) return null
 
         val ceiling = minOf(maxFps, MAX_INTERACTION_HINT_FPS)
+        val learned =
+            currentHint.takeIf { it in 1..ceiling }
         val target =
-            CADENCE_RUNGS.lastOrNull { it <= ceiling }
+            learned
+                ?: CADENCE_RUNGS.lastOrNull { it <= ceiling }
                 ?: return null
         val previous = currentHintFps()
         interactionHint = target

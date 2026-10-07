@@ -96,26 +96,28 @@ class HostWebRtcSession(
     private var profile =
         CaptureProfile.current(appContext, captureTier)
 
-    private val captureQualityGovernor =
-        CaptureQualityGovernor(
-            initialTier = captureTier,
-            maxTier = maxCaptureTier
+    /*
+     * One app-level authority owns resolution + cadence + bitrate ceiling.
+     * WebRTC/GCC remains the transport/rate-control authority underneath it.
+     */
+    private val mediaController =
+        UnifiedMediaController(
+            initialProfile = profile,
+            maxFps = MAX_SESSION_VIDEO_FPS
         )
-    private val cadenceGovernor =
-        VideoCadenceGovernor(
-            maxFps = MAX_SESSION_VIDEO_FPS,
-            initialCap = minOf(profile.motionFps, 30)
-        )
-    private val passiveMotionPriority = PassiveMotionPriority()
-    private val motionVideoBudget = MotionVideoBudget()
     private val receiverFeedback = ReceiverVideoFeedback()
-    private val photonGovernor = PhotonFreshnessGovernor()
+    private var controllerRefreshRateHz: Double? = null
     private var lastSlowVideoCheckMs = 0L
-    // Evidence is taken while the producer is quiet, BEFORE fresh motion.
-    // A short-lived snapshot is enough to safely probe one FPS rung.
-    private var lastQuietOutbound: VideoHealthSnapshot? = null
-    private var lastQuietSourceFps: Double? = null
-    private var lastQuietSampleAtMs = 0L
+
+    /*
+     * Measurement can accelerate on real activity without becoming another
+     * quality controller. Quiet screens return to the low-overhead stats clock.
+     */
+    private val mediaTelemetryQuietDown = Runnable {
+        if (!closed.get() && !interactionActive) {
+            peer.setRealtimeVideoTelemetry(false)
+        }
+    }
 
     /*
      * Policy-lane snapshot of the source shape that is already admitted to the
@@ -194,10 +196,20 @@ class HostWebRtcSession(
         grant = projectionGrant,
         onProjectionStopped = listener::onProjectionStopped,
         onSourceMotion = {
-            // Capture stays hot: only enqueue a tiny pulse. Governors and sender
-            // policy run on the independent policy lane, never on capture/UI.
+            /*
+             * Source activity never changes FPS/resolution by itself. It only
+             * accelerates the existing telemetry clock so sustained pressure is
+             * observed sooner; the unified controller still needs hysteresis.
+             */
             policyHandler.post {
-                if (!closed.get()) handleSourceMotionPulse()
+                if (!closed.get()) {
+                    peer.setRealtimeVideoTelemetry(true)
+                    policyHandler.removeCallbacks(mediaTelemetryQuietDown)
+                    policyHandler.postDelayed(
+                        mediaTelemetryQuietDown,
+                        MEDIA_TELEMETRY_ACTIVE_TAIL_MS
+                    )
+                }
             }
         },
         onSourceGeometryChanged = { observedWidth, observedHeight ->
@@ -453,7 +465,12 @@ class HostWebRtcSession(
             )
         peer.addLocalVideoTrack(
             track = capture.videoTrack,
-            maxBitrateBps = profile.maxVideoBitrateBps,
+            maxBitrateBps =
+                mediaController.bitrateCeiling(
+                    profile = profile,
+                    deviceFpsLimit = deviceFpsLimit,
+                    displayRefreshRateHz = controllerRefreshRateHz
+                ),
             maxFramerate = initialEffective.fps,
             preserveResolution =
                 initialVideoPolicy.preserveResolution,
@@ -584,8 +601,7 @@ class HostWebRtcSession(
         peerConnected = false
         transportReady = false
         policyHandler.post {
-            passiveMotionPriority.reset()
-            photonGovernor.reset()
+            mediaController.resetEvidence()
             updateInteractionPriority(false)
         }
         displayHandler.removeCallbacks(startupControlRecovery)
@@ -616,8 +632,7 @@ class HostWebRtcSession(
         controlOpen = false
         transportReady = false
         policyHandler.post {
-            passiveMotionPriority.reset()
-            photonGovernor.reset()
+            mediaController.resetEvidence()
             updateInteractionPriority(false)
         }
         transport.onControlChannelClosed()
@@ -835,44 +850,19 @@ class HostWebRtcSession(
                         sessionId,
                         current.leaseSecret,
                         current.displayGeneration
-                    ) &&
+                    )
+                ) {
+                    /*
+                     * Presentation feedback is evidence only. It is consumed by
+                     * the next unified media sample with sender/network/decoder
+                     * state; it never owns an independent FPS brake.
+                     */
                     receiverFeedback.accept(
                         packet,
                         current.leaseSecret,
                         current.displayGeneration,
                         now
                     )
-                ) {
-                    /*
-                     * EGL cadence is already reported every ~500 ms, sooner than
-                     * the outbound getStats() loop. During active control, use
-                     * that fresh proof-of-glass only as an emergency downshift
-                     * signal so a 60 Hz stream cannot spend another stats cycle
-                     * accumulating obsolete frames on the controller.
-                     *
-                     * This never promotes FPS or estimates bandwidth. The normal
-                     * sender/receiver/GCC telemetry path remains the authority
-                     * for recovery and stronger congestion decisions.
-                     */
-                    val requestedFps =
-                        effectiveCaptureProfile(profile).fps
-                    if (
-                        cadenceGovernor.observeFastPresentation(
-                            intervalMs = packet.intervalMs,
-                            renderedFrames = packet.renderedFrames,
-                            maxGapMs = packet.maxGapMs,
-                            requestedFps = requestedFps,
-                            interactionActive = interactionActive,
-                            nowMs = now
-                        )
-                    ) {
-                        applyVideoPolicy(profile)
-                        listener.onDiagnostic(
-                            "Controller glass hitch → " +
-                                cadenceGovernor.cap +
-                                "fps fast freshness relief"
-                        )
-                    }
                 }
             }
             is ControlPacket.PresentationHeartbeat -> policyHandler.post {
@@ -976,391 +966,75 @@ class HostWebRtcSession(
                 }
 
             val sourceFps = capture.sampleSourceFps(now)
-            val motionChanged =
-                passiveMotionPriority.observe(
-                    window = snapshot.recent,
-                    nowMs = now,
-                    sourceFps = sourceFps
-                )
-            val motionActive = freshnessPriorityActive(now)
-            val oldDeviceLimit = deviceFpsLimit
-            deviceFpsLimit = when {
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-                    (powerManager?.currentThermalStatus ?: 0) >= PowerManager.THERMAL_STATUS_SEVERE -> 24
-                powerManager?.isPowerSaveMode == true -> 30
-                else -> MAX_SESSION_VIDEO_FPS
-            }
-            receiver?.displayRefreshRateHz?.takeIf { it.isFinite() && it > 0.0 }?.let {
-                deviceFpsLimit = minOf(deviceFpsLimit, (it + 0.5).toInt().coerceAtLeast(1))
-            }
-            if (!motionActive && sourceFps != null &&
-                sourceFps.isFinite() && sourceFps >= 0.0 && sourceFps < 2.5 &&
-                (snapshot.recent?.frames ?: Int.MAX_VALUE) <= 3) {
-                lastQuietOutbound = snapshot
-                lastQuietSourceFps = sourceFps
-                lastQuietSampleAtMs = now
-            }
-            /*
-             * Resolution pressure must follow the cadence we are actually asking
-             * libwebrtc to deliver. Capping this evidence at 30 fps hid overload
-             * during healthy 45/60 fps trials: the pixel governor could believe
-             * a 30 fps sender was on target while the controller was waiting for
-             * a 60 fps stream. Bind both governors to one temporal target so the
-             * cheaper pixel lever reacts before stale frames build up.
-             */
-            val motionTargetFps =
-                minOf(
-                    cadenceGovernor.cap,
-                    profile.motionFps,
-                    deviceFpsLimit
-                ).coerceAtLeast(1)
-            val photonPolicy =
-                photonGovernor.observe(
+            val previousDeviceLimit = deviceFpsLimit
+            val previousRefresh = controllerRefreshRateHz
+
+            deviceFpsLimit =
+                when {
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                        (powerManager?.currentThermalStatus ?: 0) >=
+                        PowerManager.THERMAL_STATUS_SEVERE -> 24
+                    powerManager?.isPowerSaveMode == true -> 30
+                    else -> MAX_SESSION_VIDEO_FPS
+                }
+
+            controllerRefreshRateHz =
+                receiver
+                    ?.displayRefreshRateHz
+                    ?.takeIf { it.isFinite() && it > 0.0 }
+                    ?: controllerRefreshRateHz
+
+            val mediaChanged =
+                mediaController.observe(
+                    profile = profile,
                     outbound = snapshot,
                     receiver = receiver,
-                    targetFps = motionTargetFps,
+                    sourceFps = sourceFps,
                     interactionActive = interactionActive,
+                    deviceFpsLimit = deviceFpsLimit,
+                    displayRefreshRateHz = controllerRefreshRateHz,
                     nowMs = now
                 )
-            val resolutionChanged = motionVideoBudget.observe(
-                outbound = snapshot,
-                receiver = receiver,
-                sourceFps = sourceFps,
-                motionActive = motionActive,
-                targetFps = motionTargetFps,
-                nowMs = now,
-                interactionActive = interactionActive,
-                // Upscaling changes the encoder input dimensions. Do not pay
-                // that MediaCodec reconfiguration in the middle of a controller
-                // gesture; active control values fresh motion over extra detail.
-                allowResolutionRecovery =
-                    !cadenceGovernor.probingHighCadence &&
-                    !interactionActive &&
-                    photonPolicy.allowResolutionRecovery
-            )
-            val requestedFps = effectiveCaptureProfile(profile).fps
-            val cadencePressureChanged =
-                cadenceGovernor.observe(
-                    outbound = snapshot,
-                    receiver = receiver,
-                    requestedFps = requestedFps,
-                    nowMs = now,
-                    minimumFps = motionVideoBudget.cadenceFloor(
-                        profile = profile,
-                        motionActive = motionActive,
-                        nowMs = now,
-                        interactionActive = interactionActive
-                    ),
-                    producerFps = sourceFps,
-                    maximumFps = deviceFpsLimit,
-                    allowHighCadenceProbe =
-                        motionActive &&
-                            !resolutionChanged &&
-                            photonPolicy.allowCadencePromotion
-                )
-            val interactionProbeChanged =
-                cadenceGovernor.tryProbeDuringInteraction(
-                    outbound = snapshot,
-                    receiver = receiver,
-                    producerFps = sourceFps,
-                    interactionActive = interactionActive && deviceFpsLimit >= 30,
-                    nowMs = now
-                )
-            val cadenceChanged =
-                cadencePressureChanged || interactionProbeChanged
-            if (motionChanged || cadenceChanged || resolutionChanged || oldDeviceLimit != deviceFpsLimit) {
+
+            if (
+                mediaChanged ||
+                previousDeviceLimit != deviceFpsLimit ||
+                previousRefresh != controllerRefreshRateHz
+            ) {
                 applyVideoPolicy(profile)
             }
-            if (resolutionChanged) {
-                val effective = effectiveCaptureProfile(profile)
-                listener.onDiagnostic(
-                    "Motion video budget → ${effective.captureWidthPx}x${effective.captureHeightPx}@${effective.fps}" +
-                        " • max=${motionVideoBudget.bitrateCeiling(profile, motionActive, effective.fps) / 1000}kbps" +
-                        " • source=${sourceFps?.toInt()}fps"
-                )
-            }
-            if (interactionProbeChanged) {
-                listener.onDiagnostic(
-                    "Interactive path has headroom → ${cadenceGovernor.cap}fps freshness probe"
-                )
-            } else if (cadenceChanged) {
-                listener.onDiagnostic(
-                    "Sustainable video cadence → ${cadenceGovernor.cap}fps ceiling • preserving screen geometry"
-                )
-            }
-            if (motionChanged) {
-                listener.onDiagnostic(
-                    if (freshnessPriorityActive(now)) {
-                        "Visible screen motion → freshness-first video policy"
-                    } else {
-                        "Visible screen motion settled → gradual detail recovery"
-                    }
-                )
-            }
 
-            // Preserve the existing recovery/governor timing despite 1s sampling.
-            if (now - lastSlowVideoCheckMs < 3000) return@post
-            lastSlowVideoCheckMs = now
-            listener.onDiagnostic(snapshot.compact())
-            val presentationState = receiver?.presentedFps?.let {
-                "${it.toInt()}fps"
-            } ?: receiver?.presentationAgeMs?.let {
-                if (it <= PRESENTATION_HEARTBEAT_FRESH_MS) {
-                    "alive(${it}ms)"
-                } else {
-                    "stale(${it}ms)"
-                }
-            } ?: "null"
-            listener.onDiagnostic(
-                "Video delivery • source=${sourceFps?.toInt()}fps target=${effectiveCaptureProfile(profile).fps}fps " +
-                    "decode=${receiver?.fps?.toInt()}fps present=$presentationState gap=${receiver?.maxRenderGapMs}ms " +
-                    "displayMax=${receiver?.displayRefreshRateHz?.toInt()}Hz trial=${cadenceGovernor.probingHighCadence}"
-            )
-
-            /*
-             * Existing QD overlay, richer data. Reuse this already-running
-             * 3-second health callback: no new timer, RTCStats request, frame
-             * copy or media worker is added.
-             */
-            val qdSender = snapshot.recent
-            val effective = effectiveCaptureProfile(profile)
-            val cadenceFloor =
-                motionVideoBudget.cadenceFloor(
-                    profile = profile,
-                    motionActive = motionActive,
-                    nowMs = now,
-                    interactionActive = interactionActive
-                )
-            fun metric(value: Double?, suffix: String = ""): String =
-                value
-                    ?.takeIf { it.isFinite() && it >= 0.0 }
-                    ?.let { "${kotlin.math.round(it).toInt()}$suffix" }
-                    ?: "-"
-            fun metric(value: Int?, suffix: String = ""): String =
-                value?.takeIf { it >= 0 }?.let { "$it$suffix" } ?: "-"
-            fun fps(value: Double?): String = metric(value, "fps")
-            val lossPercent =
-                snapshot.packetLossRatio
-                    ?.takeIf { it.isFinite() && it >= 0.0 }
-                    ?.let { kotlin.math.round(it * 1_000.0) / 10.0 }
-                    ?.let { "$it%" }
-                    ?: "-"
-            val thermal =
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    when (powerManager?.currentThermalStatus) {
-                        PowerManager.THERMAL_STATUS_NONE -> "none"
-                        PowerManager.THERMAL_STATUS_LIGHT -> "light"
-                        PowerManager.THERMAL_STATUS_MODERATE -> "moderate"
-                        PowerManager.THERMAL_STATUS_SEVERE -> "severe"
-                        PowerManager.THERMAL_STATUS_CRITICAL -> "critical"
-                        PowerManager.THERMAL_STATUS_EMERGENCY -> "emergency"
-                        PowerManager.THERMAL_STATUS_SHUTDOWN -> "shutdown"
-                        else -> "unknown"
-                    }
-                } else {
-                    "n/a"
-                }
-            val glassIntervalMs = receiver?.presentationIntervalMs
-            val glassDrawnFrames = receiver?.presentedFrames
-            val glassExpectedFps =
-                listOfNotNull(
-                    effective.fps.toDouble(),
-                    qdSender?.fps,
-                    receiver?.fps
-                )
-                    .filter { it.isFinite() && it >= 0.0 }
-                    .minOrNull()
-            val glassExpectedFrames =
-                if (
-                    glassIntervalMs != null &&
-                    glassIntervalMs > 0 &&
-                    glassExpectedFps != null
-                ) {
-                    kotlin.math.round(
-                        glassExpectedFps * glassIntervalMs / 1_000.0
-                    ).toInt().coerceAtLeast(0)
-                } else {
-                    null
-                }
-            val glassSkippedFrames =
-                if (
-                    glassExpectedFrames != null &&
-                    glassDrawnFrames != null
-                ) {
-                    (glassExpectedFrames - glassDrawnFrames)
-                        .coerceAtLeast(0)
-                } else {
-                    null
-                }
-            val glassDeliveryPercent =
-                if (
-                    glassExpectedFrames != null &&
-                    glassExpectedFrames > 0 &&
-                    glassDrawnFrames != null
-                ) {
-                    (
-                        glassDrawnFrames.toDouble() /
-                            glassExpectedFrames.toDouble() *
-                            100.0
-                        )
-                        .coerceIn(0.0, 100.0)
-                } else {
-                    null
-                }
-
-            val qd =
-                buildString {
-                    append("PIPE • ")
-                    append(effective.captureWidthPx)
-                    append('x')
-                    append(effective.captureHeightPx)
-                    append(" source=")
-                    append(fps(sourceFps))
-                    append(" target=")
-                    append(effective.fps)
-                    append("fps send=")
-                    append(fps(qdSender?.fps))
-                    append(" decode=")
-                    append(fps(receiver?.fps))
-                    append(" present=")
-                    append(presentationState)
-                    append(" display=")
-                    append(metric(receiver?.displayRefreshRateHz, "Hz"))
-                    append('\n')
-
-                    append("LAT • enc=")
-                    append(metric(qdSender?.processingMs, "ms"))
-                    append(" dec=")
-                    append(metric(receiver?.processingMs, "ms"))
-                    append(" queue=")
-                    append(metric(qdSender?.sendQueueMs, "ms"))
-                    append(" jitter=")
-                    append(metric(receiver?.jitterMs, "ms"))
-                    append(" target=")
-                    append(metric(receiver?.jitterTargetMs, "ms"))
-                    append(" playout=")
-                    append(metric(receiver?.playoutDelayMs, "ms"))
-                    append(" gap=")
-                    append(metric(receiver?.maxRenderGapMs, "ms"))
-                    append(" age=")
-                    append(metric(receiver?.presentationAgeMs, "ms"))
-                    append(" glassSample=")
-                    append(metric(receiver?.presentationSampleAgeMs, "ms"))
-                    append(if (receiver?.presentationSampleFresh == false) "(held)" else "")
-                    append(" glassSeq=")
-                    append(receiver?.presentationSampleSequence ?: "-")
-                    append('\n')
-
-                    append("GLASS • draw=")
-                    append(glassDrawnFrames ?: "-")
-                    append('/')
-                    append(glassExpectedFrames ?: "-")
-                    append(" skip=")
-                    append(glassSkippedFrames ?: "-")
-                    append(" ratio=")
-                    append(
-                        glassDeliveryPercent
-                            ?.let {
-                                "${kotlin.math.round(it * 10.0) / 10.0}%"
-                            }
-                            ?: "-"
-                    )
-                    append(" gap=")
-                    append(metric(receiver?.maxRenderGapMs, "ms"))
-                    append('\n')
-
-                    append("PHOTON • ")
-                    append(photonPolicy.compact())
-                    append('\n')
-
-                    append("NET • rtt=")
-                    append(metric(snapshot.roundTripTimeMs, "ms"))
-                    append(" loss=")
-                    append(lossPercent)
-                    append(" bwe=")
-                    append(metric(snapshot.availableOutgoingBitrateBps?.div(1_000.0), "kbps"))
-                    append(" tx=")
-                    append(metric(qdSender?.bitrateBps?.div(1_000.0), "kbps"))
-                    append(" limited=")
-                    append(snapshot.qualityLimitationReason ?: "-")
-                    append(" path=")
-                    append(snapshot.candidatePath ?: "-")
-                    append('\n')
-
-                    append("GOV • ")
-                    append(cadenceGovernor.debugSummary(now))
-                    append(" floor=")
-                    append(cadenceFloor)
-                    append("fps pixel=")
-                    append(motionVideoBudget.shortEdge)
-                    append(" motion=")
-                    append(motionActive)
-                    append(" touch=")
-                    append(interactionActive)
-                    append(" deviceMax=")
-                    append(deviceFpsLimit)
-                    append("fps")
-                    append('\n')
-
-                    append("DEV • codec=")
-                    append(snapshot.codec ?: "-")
-                    append(" impl=")
-                    append(snapshot.codecImplementation ?: "-")
-                    append(" thermal=")
-                    append(thermal)
-                    append(" powerSave=")
-                    append(powerManager?.isPowerSaveMode == true)
-                    append(" drop=")
-                    append(receiver?.dropped ?: "-")
-                    append(" freeze=")
-                    append(receiver?.freezes ?: "-")
-                }
-            listener.onDiagnostic("QD|MEDIA|$qd")
-
-            // One resolution owner during motion: do not simultaneously lower
-            // the legacy quality tier and the motion pixel budget.
-            if (motionActive) return@post
-
-            val sender = snapshot.recent
-            val effectiveRequestedFps = effectiveCaptureProfile(profile).fps
-            val localPipelinePressure =
-                sender?.let {
-                    captureQualityGovernor.hasLocalPipelinePressure(
-                        encodeTimeMs = it.processingMs,
-                        sendQueueMs = it.sendQueueMs,
-                        deliveredFps = it.fps,
-                        requestedFps = effectiveRequestedFps
-                    )
-                } ?: false
-            val pressured =
-                snapshot.qualityLimitationReason == "cpu" ||
-                    (snapshot.packetLossRatio ?: 0.0) >=
-                        CaptureQualityGovernor.PRESSURE_PACKET_LOSS_RATIO ||
-                    (snapshot.roundTripTimeMs ?: 0) >=
-                        CaptureQualityGovernor.PRESSURE_RTT_MS ||
-                    localPipelinePressure
-
-            // Cadence is the cheaper freshness lever. Reduce resolution only
-            // after cadence relief has had a bounded opportunity to drain the
-            // encoder/pacer queue.
-            if (
-                pressured &&
-                !cadenceGovernor.mayReduceResolution(now)
-            ) {
+            if (now - lastSlowVideoCheckMs < 3_000L) {
                 return@post
             }
+            lastSlowVideoCheckMs = now
 
-            captureQualityGovernor
-                .observeQualityLimitation(
-                    reason = snapshot.qualityLimitationReason,
-                    roundTripTimeMs = snapshot.roundTripTimeMs,
-                    packetLossRatio = snapshot.packetLossRatio,
-                    encodeTimeMs = sender?.processingMs,
-                    sendQueueMs = sender?.sendQueueMs,
-                    deliveredFps = sender?.fps,
-                    requestedFps = effectiveRequestedFps
-                )
-                ?.let(::applyCaptureTier)
+            val effective = effectiveCaptureProfile(profile)
+            listener.onDiagnostic(snapshot.compact())
+            listener.onDiagnostic(
+                "Video delivery • source=" +
+                    (sourceFps?.toInt() ?: -1) +
+                    "fps target=" +
+                    effective.fps +
+                    "fps decode=" +
+                    (receiver?.fps?.toInt() ?: -1) +
+                    "fps present=" +
+                    (receiver?.presentedFps?.toInt() ?: -1) +
+                    "fps gap=" +
+                    (receiver?.maxRenderGapMs ?: -1) +
+                    "ms display=" +
+                    (controllerRefreshRateHz?.toInt() ?: -1) +
+                    "Hz"
+            )
+            listener.onDiagnostic(
+                "QD|MEDIA|" +
+                    mediaController.debugSummary(
+                        profile = profile,
+                        deviceFpsLimit = deviceFpsLimit,
+                        displayRefreshRateHz = controllerRefreshRateHz,
+                        nowMs = now
+                    )
+            )
         }
     }
 
@@ -1382,82 +1056,29 @@ class HostWebRtcSession(
         fallbackStreamer.setInteractionActive(active)
 
         if (interactionActive != active) {
-            val wasFreshnessActive = freshnessPriorityActive()
             interactionActive = active
+            capture.setInteractionPriority(active)
+            if (active) {
+                policyHandler.removeCallbacks(mediaTelemetryQuietDown)
+                peer.setRealtimeVideoTelemetry(true)
+            } else {
+                policyHandler.removeCallbacks(mediaTelemetryQuietDown)
+                policyHandler.postDelayed(
+                    mediaTelemetryQuietDown,
+                    MEDIA_TELEMETRY_ACTIVE_TAIL_MS
+                )
+            }
 
             /*
-             * Remote input is the strongest latency signal in the product.
-             * Boost only the lightweight SurfaceTexture delivery lane for the
-             * interaction window; no extra capture/encode work is created.
+             * Touch changes scheduling priority, not the media operating point.
+             * This prevents finger-down/finger-up edges from repeatedly
+             * reconfiguring MediaCodec dimensions or FPS.
              */
-            capture.setInteractionPriority(active)
-
-            if (active) {
-                val now = android.os.SystemClock.elapsedRealtime()
-                // Capture quiet-path proof before cadence recovery consumes it.
-                // MotionVideoBudget uses the same evidence to avoid an
-                // unnecessary resolution/MediaCodec reset at touch-down.
-                val warmStartEvidence =
-                    lastQuietOutbound?.takeIf {
-                        now - lastQuietSampleAtMs in
-                            0L..MAX_WARM_START_EVIDENCE_AGE_MS
-                    }
-                if (!wasFreshnessActive) {
-                    tryRecoverCadenceOnNewMotion(now)
-                }
-
-                /*
-                 * Interaction is not just a floor against future downshifts:
-                 * it must also recover a governor that was already parked at
-                 * 15/20 fps before the finger came down.
-                 */
-                val interactionCadenceRecovered =
-                    cadenceGovernor.ensureInteractionFloor(
-                        minimumFps = minOf(24, profile.motionFps),
-                        nowMs = now
-                    )
-                if (interactionCadenceRecovered) {
-                    listener.onDiagnostic(
-                        "Remote interaction cadence rescue → ${cadenceGovernor.cap}fps ceiling"
-                    )
-                }
-
-                if (
-                    motionVideoBudget.primeForMotion(
-                        profile = profile,
-                        nowMs = now,
-                        warmStartEvidence = warmStartEvidence,
-                        targetFps = currentMotionTargetFps()
-                    )
-                ) {
-                    val effective = effectiveCaptureProfile(profile)
-                    listener.onDiagnostic(
-                        "Remote interaction warm-start → " +
-                            effective.captureWidthPx +
-                            "x" +
-                            effective.captureHeightPx +
-                            "@" +
-                            effective.fps
-                    )
-                }
-            }
-            applyVideoPolicy(profile)
-            val freshnessActive = freshnessPriorityActive()
-            val policy =
-                InteractiveVideoPolicy.forState(
-                    tier = profile.tier,
-                    interactionActive = freshnessActive
-                )
             listener.onDiagnostic(
-                when {
-                    !active && freshnessActive ->
-                        "Remote interaction ended • visible motion remains freshness-first"
-                    !active ->
-                        "Remote interaction ended • native motion adaptation remains enabled"
-                    policy.motionPriority ->
-                        "Remote interaction active • prioritizing fresh motion frames"
-                    else ->
-                        "Remote interaction active • balancing motion smoothness and screen clarity"
+                if (active) {
+                    "Remote interaction active • media point held stable"
+                } else {
+                    "Remote interaction ended • media point unchanged"
                 }
             )
         }
@@ -1477,83 +1098,6 @@ class HostWebRtcSession(
         )
     }
 
-    private fun freshnessPriorityActive(
-        nowMs: Long = android.os.SystemClock.elapsedRealtime()
-    ): Boolean =
-        interactionActive ||
-            passiveMotionPriority.isActive(nowMs)
-
-    private fun currentMotionTargetFps(): Int =
-        minOf(
-            cadenceGovernor.cap,
-            deviceFpsLimit,
-            profile.motionFps
-        ).coerceAtLeast(1)
-
-    private fun tryRecoverCadenceOnNewMotion(nowMs: Long): Boolean {
-        val recovered = cadenceGovernor.tryProbeAfterQuiet(
-            outbound = lastQuietOutbound,
-            producerFps = lastQuietSourceFps,
-            telemetryAtMs = lastQuietSampleAtMs,
-            nowMs = nowMs
-        )
-        // Consume the evidence once. A later touch must not repeatedly borrow
-        // a quiet sample from before the previous animation.
-        lastQuietOutbound = null
-        lastQuietSourceFps = null
-
-        if (recovered) {
-            listener.onDiagnostic(
-                "Fresh motion • quiet-path FPS probe → ${cadenceGovernor.cap}fps ceiling"
-            )
-        }
-        return recovered
-    }
-
-    private fun handleSourceMotionPulse() {
-        if (closed.get()) return
-
-        val now = android.os.SystemClock.elapsedRealtime()
-        // Keep a local reference because the cadence probe intentionally
-        // consumes lastQuietOutbound after using it once.
-        val warmStartEvidence =
-            lastQuietOutbound?.takeIf {
-                now - lastQuietSampleAtMs in
-                    0L..MAX_WARM_START_EVIDENCE_AGE_MS
-            }
-        val motionChanged = passiveMotionPriority.pulse(now)
-        val cadenceChanged =
-            if (motionChanged) tryRecoverCadenceOnNewMotion(now) else false
-        val budgetChanged =
-            motionVideoBudget.primeForMotion(
-                profile = profile,
-                nowMs = now,
-                warmStartEvidence = warmStartEvidence,
-                targetFps = currentMotionTargetFps()
-            )
-
-        if (motionChanged || budgetChanged || cadenceChanged) {
-            applyVideoPolicy(profile)
-        }
-
-        if (budgetChanged) {
-            val effective = effectiveCaptureProfile(profile)
-            listener.onDiagnostic(
-                "Source motion warm-start → " +
-                    effective.captureWidthPx +
-                    "x" +
-                    effective.captureHeightPx +
-                    "@" +
-                    effective.fps +
-                    " • newest frames first"
-            )
-        } else if (motionChanged) {
-            listener.onDiagnostic(
-                "Source motion → freshness-first video policy before stats"
-            )
-        }
-    }
-
     @Suppress("DEPRECATION")
     private fun interactionRefreshDelayMs(): Long {
         val refreshRate =
@@ -1571,48 +1115,26 @@ class HostWebRtcSession(
 
     private fun effectiveCaptureProfile(
         target: CaptureProfile
-    ): CaptureProfile {
-        val freshnessActive = freshnessPriorityActive()
-        val targetFps =
-            minOf(
-                cadenceGovernor.cap,
-                deviceFpsLimit,
-                if (freshnessActive) {
-                    MAX_SESSION_VIDEO_FPS
-                } else {
-                    target.fps
-                }
-            )
-
-        val paced = if (targetFps == target.fps) {
-            target
-        } else {
-            target.copy(fps = targetFps)
-        }
-        return motionVideoBudget.apply(paced, freshnessActive)
-    }
+    ): CaptureProfile =
+        mediaController.effectiveProfile(
+            profile = target,
+            deviceFpsLimit = deviceFpsLimit,
+            displayRefreshRateHz = controllerRefreshRateHz
+        )
 
     private fun applyVideoPolicy(target: CaptureProfile) {
-        val freshnessActive = freshnessPriorityActive()
         val policy =
             InteractiveVideoPolicy.forState(
                 tier = target.tier,
-                interactionActive = freshnessActive
+                interactionActive = interactionActive
             )
         val effective = effectiveCaptureProfile(target)
 
-        /*
-         * Health telemetry follows the same freshness clock as capture. During
-         * controller input or autonomous source motion, sender pressure is
-         * sampled sub-second; quiet screens fall back to a lower-overhead loop.
-         */
-        peer.setRealtimeVideoTelemetry(freshnessActive)
-
         val maxBitrateBps =
-            motionVideoBudget.bitrateCeiling(
+            mediaController.bitrateCeiling(
                 profile = target,
-                motionActive = freshnessActive,
-                targetFps = effective.fps
+                deviceFpsLimit = deviceFpsLimit,
+                displayRefreshRateHz = controllerRefreshRateHz
             )
         val senderFirst =
             RealtimeMediaPolicy.senderBeforeCaptureForTransition(
@@ -1624,28 +1146,15 @@ class HostWebRtcSession(
                 nextFps = effective.fps
             )
         val probeRiskyUpshift =
-            freshnessActive &&
-                RealtimeMediaPolicy.shouldKickVideoStatsAfterTransition(
-                    previousWidthPx = lastAppliedCaptureWidthPx,
-                    previousHeightPx = lastAppliedCaptureHeightPx,
-                    previousFps = lastAppliedCaptureFps,
-                    nextWidthPx = effective.captureWidthPx,
-                    nextHeightPx = effective.captureHeightPx,
-                    nextFps = effective.fps
-                )
+            RealtimeMediaPolicy.shouldKickVideoStatsAfterTransition(
+                previousWidthPx = lastAppliedCaptureWidthPx,
+                previousHeightPx = lastAppliedCaptureHeightPx,
+                previousFps = lastAppliedCaptureFps,
+                nextWidthPx = effective.captureWidthPx,
+                nextHeightPx = effective.captureHeightPx,
+                nextFps = effective.fps
+            )
 
-        /*
-         * Treat source + sender reconfiguration as one ordered transaction.
-         *
-         * Upshift: sender envelope first, then VideoSource. This prevents a
-         * 30 -> 45/60 fps touch transition from briefly feeding frames into the
-         * old RTP limit and building disposable work.
-         *
-         * Relief/downshift: VideoSource first, then sender. That stops expensive
-         * frames at the producer before tightening the network/encoder ceiling.
-         *
-         * No new worker, queue, encoder or frame copy is introduced.
-         */
         if (senderFirst) {
             peer.updateInteractiveVideoPolicy(
                 maxBitrateBps = maxBitrateBps,
@@ -1668,13 +1177,6 @@ class HostWebRtcSession(
         lastAppliedCaptureHeightPx = effective.captureHeightPx
         lastAppliedCaptureFps = effective.fps
 
-        /*
-         * A 30 -> 45/60 fps or heavier pixel-rate transition can fail quickly
-         * on a vendor codec even when the old rung was healthy. Sample once
-         * after the new transaction has actually been applied instead of
-         * waiting for the next periodic 500 ms tick. Steady-state cadence and
-         * CPU cost are unchanged.
-         */
         if (probeRiskyUpshift) {
             peer.requestVideoHealthProbe()
         }
@@ -1719,8 +1221,17 @@ class HostWebRtcSession(
                     peer = createPeer()
                     val effective = effectiveCaptureProfile(profile)
                     val policy = InteractiveVideoPolicy.forState(profile.tier, false)
-                    peer.addLocalVideoTrack(capture.videoTrack, profile.maxVideoBitrateBps, effective.fps,
-                        policy.preserveResolution, policy.motionPriority)
+                    peer.addLocalVideoTrack(
+                        capture.videoTrack,
+                        mediaController.bitrateCeiling(
+                            profile = profile,
+                            deviceFpsLimit = deviceFpsLimit,
+                            displayRefreshRateHz = controllerRefreshRateHz
+                        ),
+                        effective.fps,
+                        policy.preserveResolution,
+                        policy.motionPriority
+                    )
                     peer.start()
                 }
                 displayHandler.post {
@@ -1849,6 +1360,7 @@ class HostWebRtcSession(
         private const val MAX_CAPTURE_RECOVERY_ATTEMPTS = 3
         private const val LEASE_WATCHDOG_MS = 3_000L
         private const val INTERACTION_PRIORITY_TIMEOUT_MS = 3_000L
+        private const val MEDIA_TELEMETRY_ACTIVE_TAIL_MS = 3_000L
         private const val MAX_WARM_START_EVIDENCE_AGE_MS = 2_500L
         private const val MAX_SESSION_VIDEO_FPS = 60
         private const val PRESENTATION_HEARTBEAT_FRESH_MS = 1_500

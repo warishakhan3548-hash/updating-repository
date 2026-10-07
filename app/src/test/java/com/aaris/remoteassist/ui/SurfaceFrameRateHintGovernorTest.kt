@@ -83,7 +83,7 @@ class SurfaceFrameRateHintGovernorTest {
     }
 
     @Test
-    fun interactionBurstOverridesLearnedHintAndRestoresNewestMeasuredCadence() {
+    fun interactionBurstKeepsLearnedHintAndTracksOnlyStableMeasuredCadence() {
         val governor =
             SurfaceFrameRateHintGovernor(
                 initialWindows = 1,
@@ -99,20 +99,23 @@ class SurfaceFrameRateHintGovernorTest {
             )
         )
 
-        assertEquals(60, governor.beginInteraction())
-        assertEquals(60, governor.currentHintFps())
+        // Finger-down does not blindly request 60 Hz and create a display
+        // cadence transition. Keep the already proven 30 fps hint.
+        assertNull(governor.beginInteraction())
+        assertEquals(30, governor.currentHintFps())
 
-        // Presentation evidence continues to be learned, but it must not
-        // fight the temporary high-refresh Surface request mid-gesture.
-        assertNull(
+        // A new cadence may replace it only after normal stable-presentation
+        // evidence accepts that cadence.
+        assertEquals(
+            45,
             governor.observe(
                 window(178, 8, 24),
                 1_200L
             )
         )
-        assertEquals(60, governor.currentHintFps())
+        assertEquals(45, governor.currentHintFps())
 
-        assertEquals(45, governor.endInteraction())
+        assertNull(governor.endInteraction())
         assertEquals(45, governor.currentHintFps())
     }
 
