@@ -250,6 +250,71 @@ def extract_pairing_code(serial, timeout=35):
         time.sleep(0.5)
     raise RuntimeError(f"pairing code not found; last UI:\n{last[-12000:]}")
 
+def ensure_pairing_code(serial, code, timeout=20):
+    """
+    Verify that the Connect dialog really contains the expected one-time code.
+
+    The production deep link is the preferred path. Some hosted Google emulator
+    images open the dialog but drop the initial EditText value during
+    activity/IME restoration. In that test-environment case, enter the digits
+    through Android KeyEvents and verify the UI before pressing START.
+    """
+    if not re.fullmatch(r"\d{12}", code):
+        raise RuntimeError("invalid 12-digit pairing code")
+
+    def field_and_digits():
+        xml = ui_xml(serial)
+        for node in parse_nodes(xml):
+            if node.attrib.get("class") != "android.widget.EditText":
+                continue
+            digits = re.sub(r"\D", "", node.attrib.get("text", ""))
+            return node, digits
+        return None, ""
+
+    node, digits = field_and_digits()
+    if digits == code:
+        return
+
+    if node is None:
+        node = find_node(
+            serial,
+            lambda n: n.attrib.get("class") == "android.widget.EditText",
+            timeout=timeout,
+        )
+
+    center = bounds_center(node.attrib.get("bounds"))
+    if not center:
+        raise RuntimeError("pairing EditText has no bounds")
+
+    shell(serial, "input", "tap", str(center[0]), str(center[1]))
+    for _ in range(16):
+        shell(serial, "input", "keyevent", "KEYCODE_DEL", check=False)
+
+    # KEYCODE_0..KEYCODE_9 are 7..16. This avoids hosted-emulator IME races
+    # seen with `adb shell input text`.
+    for digit in code:
+        shell(
+            serial,
+            "input",
+            "keyevent",
+            str(7 + int(digit)),
+            check=False,
+        )
+
+    deadline = time.time() + timeout
+    last = ""
+    while time.time() < deadline:
+        _, last = field_and_digits()
+        if last == code:
+            return
+        time.sleep(0.25)
+
+    raise RuntimeError(
+        "pairing code did not verify after numeric key injection; "
+        f"visible_digits={len(last)}"
+    )
+
+
 def wm_size(serial):
     out = shell(serial, "wm", "size").stdout or ""
     m = re.search(r"(\d+)x(\d+)", out)
@@ -552,6 +617,7 @@ def pair(host, controller, out_dir):
         "-n", MAIN,
     )
     wait_text(controller, "12-digit one-time code", timeout=20)
+    ensure_pairing_code(controller, code, timeout=20)
     click_text(controller, "START", timeout=15)
 
     # Prove redeem succeeded before blaming the host observer. A successful
