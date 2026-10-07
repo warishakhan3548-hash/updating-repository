@@ -6,31 +6,17 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * Single authority for live screen-video quality.
+ * One app-level authority for resolution, capture FPS and bitrate ceiling.
+ * WebRTC/GCC still owns congestion control, pacing and the actual send rate.
  *
- * WebRTC/GCC still owns packet pacing, congestion control and the actual encoder
- * send rate. This controller owns ONLY the app-level operating point:
- *   resolution + capture FPS + sender bitrate ceiling.
- *
- * The important invariant is that those three actuators move as one decision.
- * No independent FPS governor and no independent motion-resolution governor are
- * allowed to fight each other.
- *
- * Measurements are intentionally frequent; decisions are intentionally slow.
- * A short scroll pause, a single bad RTT sample or one quiet second must never
- * make the stream flap between quality levels.
+ * Measurements can be frequent; quality decisions are intentionally slow.
+ * A quiet second or one bad sample never changes the operating point.
  */
 internal class UnifiedMediaController(
     initialProfile: CaptureProfile,
     private val maxFps: Int = 60
 ) {
-    internal enum class PressureKind {
-        NONE,
-        NETWORK,
-        DEVICE,
-        RECEIVER,
-        MIXED
-    }
+    internal enum class PressureKind { NONE, NETWORK, DEVICE, RECEIVER, MIXED }
 
     internal data class OperatingPoint(
         val level: Int,
@@ -39,15 +25,21 @@ internal class UnifiedMediaController(
         val bitrateCeilingBps: Int
     )
 
-    private var level = initialLevel(initialProfile)
-    private var pressureWindows = 0
-    private var cleanWindows = 0
+    private var level =
+        when (initialProfile.tier) {
+            CaptureTier.HIGH, CaptureTier.STANDARD -> 1
+            CaptureTier.BALANCED -> 3
+            CaptureTier.LOW -> 4
+        }
+
+    private var badWindows = 0
+    private var goodWindows = 0
     private var lastChangeAtMs = Long.MIN_VALUE / 2
     private var recoveryBlockedUntilMs = Long.MIN_VALUE / 2
-    private var filteredBweBps: Double? = null
-    private var lastPressureKind = PressureKind.NONE
-    private var lastDecision = "startup"
     private var lastObservedAtMs = Long.MIN_VALUE / 2
+    private var filteredBweBps: Double? = null
+    private var lastPressure = PressureKind.NONE
+    private var lastDecision = "startup"
 
     fun observe(
         profile: CaptureProfile,
@@ -60,157 +52,140 @@ internal class UnifiedMediaController(
         nowMs: Long
     ): Boolean {
         val sender = outbound.recent ?: return false
-        if (sender.intervalMs !in MIN_SAMPLE_INTERVAL_MS..MAX_SAMPLE_INTERVAL_MS) {
-            return false
-        }
+        if (sender.intervalMs !in 400..6000) return false
 
-        if (nowMs - lastObservedAtMs ! in 0L..MAX_EVIDENCE_GAP_MS) {
-            pressureWindows = 0
-            cleanWindows = 0
+        if (nowMs - lastObservedAtMs !in 0L..6000L) {
+            badWindows = 0
+            goodWindows = 0
         }
         lastObservedAtMs = nowMs
 
         outbound.availableOutgoingBitrateBps
-            .validPositive()
-            ?.let(::updateBandwidthEstimate)
+            ?.takeIf { it.isFinite() && it > 0.0 }
+            ?.let { sample ->
+                filteredBweBps =
+                    filteredBweBps?.let { old ->
+                        old * 0.80 + sample * 0.20
+                    } ?: sample
+            }
 
-        val point =
-            operatingPoint(
-                profile = profile,
-                deviceFpsLimit = deviceFpsLimit,
-                displayRefreshRateHz = displayRefreshRateHz
-            )
-        val frameMs = 1_000.0 / point.fps.coerceAtLeast(1).toDouble()
-        val producerFps = sourceFps.validNonNegative()
-        val producerProvesMotion =
-            producerFps?.let { it >= MIN_MOVING_SOURCE_FPS } == true
+        val point = operatingPoint(profile, deviceFpsLimit, displayRefreshRateHz)
+        val frameMs = 1000.0 / point.fps.coerceAtLeast(1).toDouble()
+        val validSource =
+            sourceFps?.takeIf { it.isFinite() && it >= 0.0 }
+        val producerMoving =
+            validSource?.let { it >= 8.0 } == true
         val activeMedia =
-            interactionActive ||
-                producerProvesMotion ||
-                sender.fps >= MIN_MOVING_SOURCE_FPS
+            interactionActive || producerMoving || sender.fps >= 8.0
 
-        /*
-         * A static screen is not a network test. Hold the existing operating
-         * point instead of interpreting sparse MediaProjection callbacks as
-         * under-delivery or using silence to earn a quality promotion.
-         */
+        // Silence is not a bandwidth test and never earns a promotion.
         if (!activeMedia) {
-            pressureWindows = 0
-            cleanWindows = 0
-            lastPressureKind = PressureKind.NONE
+            badWindows = 0
+            goodWindows = 0
+            lastPressure = PressureKind.NONE
             return false
         }
 
-        val expectedSenderFps =
-            producerFps
-                ?.takeIf { it >= MIN_MOVING_SOURCE_FPS }
+        val expectedSender =
+            validSource
+                ?.takeIf { it >= 8.0 }
                 ?.let { minOf(point.fps.toDouble(), it) }
-        val senderDeliveryRatio =
-            expectedSenderFps
+        val senderRatio =
+            expectedSender
                 ?.takeIf { it > 0.0 }
                 ?.let { (sender.fps / it).coerceIn(0.0, 2.0) }
 
         val received =
             receiver?.takeIf {
-                it.intervalMs in MIN_SAMPLE_INTERVAL_MS..MAX_SAMPLE_INTERVAL_MS &&
-                    it.frames >= 2
+                it.intervalMs in 400..6000 && it.frames >= 2
             }
-        val receiverExpectedFps =
+        val expectedReceiver =
             received?.let {
                 minOf(point.fps.toDouble(), sender.fps)
-                    .takeIf { expected -> expected >= MIN_MOVING_SOURCE_FPS }
+                    .takeIf { value -> value >= 8.0 }
             }
-        val receiverDeliveryRatio =
-            if (received != null && receiverExpectedFps != null) {
-                (received.fps / receiverExpectedFps)
-                    .coerceIn(0.0, 2.0)
-            } else {
-                null
-            }
-        val expectedGlassFps =
+        val receiverRatio =
+            if (received != null && expectedReceiver != null) {
+                (received.fps / expectedReceiver).coerceIn(0.0, 2.0)
+            } else null
+
+        val expectedGlass =
             if (received != null) {
                 minOf(point.fps.toDouble(), sender.fps, received.fps)
-                    .takeIf { it >= MIN_MOVING_SOURCE_FPS }
-            } else {
-                null
-            }
+                    .takeIf { it >= 8.0 }
+            } else null
         val glassRatio =
-            if (expectedGlassFps != null) {
+            if (expectedGlass != null) {
                 received.presentedFps
-                    ?.let { (it / expectedGlassFps).coerceIn(0.0, 2.0) }
-            } else {
-                null
-            }
+                    ?.let { (it / expectedGlass).coerceIn(0.0, 2.0) }
+            } else null
 
-        val encodeMs = sender.processingMs.validNonNegative()
-        val decodeMs = received?.processingMs.validNonNegative()
-        val sendResidenceMs = sender.sendQueueMs.validNonNegative()
-        val playoutMs = received?.playoutDelayMs.validNonNegative()
-        val renderGapMs = received?.maxRenderGapMs?.takeIf { it >= 0 }?.toDouble()
-        val loss = outbound.packetLossRatio.validNonNegative() ?: 0.0
+        fun valid(value: Double?): Double? =
+            value?.takeIf { it.isFinite() && it >= 0.0 }
 
-        val requiredBitrateBps =
+        val encodeMs = valid(sender.processingMs)
+        val decodeMs = valid(received?.processingMs)
+        val sendResidenceMs = valid(sender.sendQueueMs)
+        val playoutMs = valid(received?.playoutDelayMs)
+        val renderGapMs =
+            received?.maxRenderGapMs
+                ?.takeIf { it >= 0 }
+                ?.toDouble()
+        val loss =
+            valid(outbound.packetLossRatio) ?: 0.0
+
+        val requiredBps =
             nominalBitrateBps(point.shortEdge, point.fps)
                 .coerceAtMost(profile.maxVideoBitrateBps.toDouble())
         val bweRatio =
             filteredBweBps
-                ?.takeIf { requiredBitrateBps > 0.0 }
-                ?.div(requiredBitrateBps)
+                ?.takeIf { requiredBps > 0.0 }
+                ?.div(requiredBps)
 
         val bandwidthLimited =
             outbound.qualityLimitationReason
                 .equals("bandwidth", ignoreCase = true)
-        val senderUnderDelivery =
-            senderDeliveryRatio?.let { it < SENDER_PRESSURE_RATIO } == true
+        val senderUnder =
+            senderRatio?.let { it < 0.88 } == true
 
-        /*
-         * Do not punish propagation delay by itself. RTT becomes congestion
-         * evidence only when it arrives with loss/residence pressure.
-         */
         val networkPressure =
             (
                 bandwidthLimited &&
                     (
-                        senderUnderDelivery ||
-                            sendResidenceMs?.let { it >= NETWORK_RESIDENCE_PRESSURE_MS } == true ||
-                            bweRatio?.let { it < BWE_PRESSURE_RATIO } == true
+                        senderUnder ||
+                            sendResidenceMs?.let { it >= 60.0 } == true ||
+                            bweRatio?.let { it < 1.05 } == true
                         )
                 ) ||
                 (
-                    bweRatio?.let { it < BWE_STRONG_PRESSURE_RATIO } == true &&
+                    bweRatio?.let { it < 0.82 } == true &&
                         (
-                            senderUnderDelivery ||
-                                sendResidenceMs?.let {
-                                    it >= NETWORK_RESIDENCE_CORROBORATION_MS
-                                } == true
+                            senderUnder ||
+                                sendResidenceMs?.let { it >= 35.0 } == true
                             )
                     ) ||
-                loss >= PACKET_LOSS_PRESSURE_RATIO ||
+                loss >= 0.05 ||
                 (
-                    (outbound.roundTripTimeMs ?: 0) >= RTT_CORROBORATION_MS &&
+                    (outbound.roundTripTimeMs ?: 0) >= 350 &&
                         (
-                            loss >= PACKET_LOSS_CORROBORATION_RATIO ||
-                            sendResidenceMs?.let {
-                                it >= NETWORK_RESIDENCE_CORROBORATION_MS
-                            } == true
-                        )
+                            loss >= 0.025 ||
+                                sendResidenceMs?.let { it >= 35.0 } == true
+                            )
                     )
 
         val encodePressure =
             encodeMs?.let {
-                it >= frameMs * CODEC_PRESSURE_BUDGET_RATIO &&
+                it >= frameMs * 0.85 &&
                     (
-                        senderUnderDelivery ||
-                            sender.fps < point.fps * CODEC_UNDER_DELIVERY_RATIO
+                        senderUnder ||
+                            sender.fps < point.fps * 0.88
                         )
             } == true
         val decodePressure =
             received != null &&
                 decodeMs?.let {
-                    it >= frameMs * CODEC_PRESSURE_BUDGET_RATIO &&
-                        receiverDeliveryRatio?.let { ratio ->
-                            ratio < CODEC_UNDER_DELIVERY_RATIO
-                        } == true
+                    it >= frameMs * 0.85 &&
+                        receiverRatio?.let { ratio -> ratio < 0.88 } == true
                 } == true
         val devicePressure =
             outbound.qualityLimitationReason
@@ -219,16 +194,13 @@ internal class UnifiedMediaController(
 
         val receiverPressure =
             decodePressure ||
-                playoutMs?.let { it >= PLAYOUT_PRESSURE_MS } == true ||
-                glassRatio?.let { it < GLASS_PRESSURE_RATIO } == true ||
+                playoutMs?.let { it >= 90.0 } == true ||
+                glassRatio?.let { it < 0.82 } == true ||
                 renderGapMs?.let {
-                    it >= maxOf(
-                        MIN_RENDER_GAP_PRESSURE_MS,
-                        frameMs * RENDER_GAP_FRAME_MULTIPLIER
-                    )
+                    it >= maxOf(100.0, frameMs * 5.0)
                 } == true
 
-        val pressureKind =
+        val pressure =
             when {
                 networkPressure && (devicePressure || receiverPressure) ->
                     PressureKind.MIXED
@@ -241,13 +213,336 @@ internal class UnifiedMediaController(
             }
 
         val severe =
-            bweRatio?.let { it < BWE_SEVERE_RATIO } == true ||
-                loss >= PACKET_LOSS_SEVERE_RATIO ||
-                sendResidenceMs?.let { it >= NETWORK_RESIDENCE_SEVERE_MS } == true ||
-                playoutMs?.let { it >= PLAYOUT_SEVERE_MS } == true ||
+            bweRatio?.let { it < 0.60 } == true ||
+                loss >= 0.12 ||
+                sendResidenceMs?.let { it >= 180.0 } == true ||
+                playoutMs?.let { it >= 180.0 } == true ||
                 (
-                    encodeMs?.let { it >= frameMs * CODEC_SEVERE_BUDGET_RATIO } == true &&
-                        sender.fps < point.fps * SEVERE_DELIVERY_RATIO
+                    encodeMs?.let { it >= frameMs * 1.20 } == true &&
+                        sender.fps < point.fps * 0.65
                     ) ||
                 (
-                    decodeMs?.let { it >= frameMs * CODEC_SEVERE_BUQ}IQ%<ôôôÑÉÕ(É¥Ùü¹ÁÌü¹±Ðì¥ÐðÁ½¥¹Ð¹ÁÌ¨MYI}1%YIe}IQ%<ôôôÑÉÕ(¤ñð(±ÍÍIÑ¥¼ü¹±Ðì¥Ðð1MM}MYI}IQ%<ôôôÑÉÕñð(É¹ÉÁ5Ìü¹±Ðì¥ÐøôI9I}A}MYI}5LôôôÑÉÕ((¥¡ÁÉÍÍÕÉ-¥¹ôAÉÍÍÕÉ-¥¹¹9=9¤ì(±¹]¥¹½ÝÌôÀ(ÁÉÍÍÕÉ]¥¹½ÝÌô(¡ÁÉÍÍÕÉ]¥¹½ÝÌ¬Ä¤(¹½ÉÑ5½ÍÐ¡9=I51}AIMMUI}]%9=]M}IEU%I¤(±ÍÑAÉÍÍÕÉ-¥¹ôÁÉÍÍÕÉ-¥¹((Ù°¹¡¹ô(¹½Ý5Ì´±ÍÑ¡¹Ñ5Ìøô5%9}=]9M!%Q}%9QIY1}5L(¥ (¹¡¹( (ÍÙÉñð(ÁÉÍÍÕÉ]¥¹½ÝÌøô9=I51}AIMMUI}]%9=]M}IEU%I(¤(¤ì(Ù°ÍÑÁÌô¥¡ÍÙÉ¤È±ÍÄ(¥ (ÍÑÁ½Ý¸ (ÁÉ½¥±ôÁÉ½¥±°(Ù¥ÁÍ1¥µ¥ÐôÙ¥ÁÍ1¥µ¥Ð°(¥ÍÁ±åIÉÍ¡IÑ!èô¥ÍÁ±åIÉÍ¡IÑ!è°(ÍÑÁÌôÍÑÁÌ(¤(¤ì(±ÍÑ¡¹Ñ5Ìô¹½Ý5Ì(É½ÙÉå	±½­U¹Ñ¥±5Ìô(¹½Ý5Ì¬A=MQ}=]9M!%Q}I=YIe}!=1}5L(ÁÉÍÍÕÉ]¥¹½ÝÌôÀ(±¹]¥¹½ÝÌôÀ(±ÍÑ¥Í¥½¸ô(íÁÉÍÍÕÉ-¥¹¹¹µ¹±½ÝÉÍ ¥ôµÉ±¥¬(¥¡ÍÙÉ¤µÍÙÉ±Í(ÉÑÕÉ¸ÑÉÕ(ô(ô(ÉÑÕÉ¸±Í(ô((ÁÉÍÍÕÉ]¥¹½ÝÌôÀ(±ÍÑAÉÍÍÕÉ-¥¹ôAÉÍÍÕÉ-¥¹¹9=9((Ù°Í¹É±¸ô(Í¹É±¥ÙÉåIÑ¥¼ü¹±Ðì¥Ðøô19}1%YIe}IQ%<ôô±Í(¹½5Ìü¹±Ðì¥ÐðôÉµ5Ì¨19}=}	UQ}IQ%<ôô±Í(Í¹IÍ¥¹5Ìü¹±Ðì¥Ððô19}M9}IM%9}5Lôô±Í(Ù°É¥ÙÉ±¸ô(É¥Ùü¹±Ðì(É¥ÙÉ±¥ÙÉåIÑ¥¼ü¹±ÐìÉÑ¥¼´ø(ÉÑ¥¼øô19}1%YIe}IQ%<(ôô±Í(½5Ìü¹±ÐìÙ±Õ´ø(Ù±ÕðôÉµ5Ì¨19}=}	UQ}IQ%<(ôô±Í(Á±å½ÕÑ5Ìü¹±ÐìÙ±Õ´ø(Ù±Õðô19}A1e=UQ}5L(ôô±Í(±ÍÍIÑ¥¼ü¹±ÐìÉÑ¥¼´ø(ÉÑ¥¼øô19}1MM}IQ%<(ôô±Í(É¹ÉÁ5Ìü¹±ÐìÙ±Õ´ø(Ù±Õðôµá= (19}I9I}A}5L°(Éµ5Ì¨19}I9I}A}I5}5U1Q%A1%H(¤(ôô±Í(ôüèÑÉÕ(Ù°¹ÑÝ½É­±¸ô(±½ÍÌð19}A-Q}1=MM}IQ%<(ÝIÑ¥¼ü¹±Ðì¥Ðøô	]}I=YIe}IQ%<ôô±Í((Ù°½µÁ±Ñ±¹Ù¥¹ô(ÁÉ½ÕÉAÉ½ÙÍ5½Ñ¥½¸(Í¹È¹ÉµÌøô5%9}19}I5L(Í¹É±¸(É¥ÙÉ±¸(¹ÑÝ½É­±¸((±¹]¥¹½ÝÌô(¥¡½µÁ±Ñ±¹Ù¥¹¤ì(¡±¹]¥¹½ÝÌ¬Ä¤(¹½ÉÑ5½ÍÐ¡19}]%9=]M}IEU%I¤(ô±Íì(À(ô((¥ (±¹]¥¹½ÝÌøô19}]%9=]M}IEU%I(¹½Ý5ÌøôÉ½ÙÉå	±½­U¹Ñ¥±5Ì(¹½Ý5Ì´±ÍÑ¡¹Ñ5Ìøô5%9}UAM!%Q}%9QIY1}5L(ÍÑÁUÀ (ÁÉ½¥±ôÁÉ½¥±°(Ù¥ÁÍ1¥µ¥ÐôÙ¥ÁÍ1¥µ¥Ð°(¥ÍÁ±åIÉÍ¡IÑ!èô¥ÍÁ±åIÉÍ¡IÑ!è(¤(¤ì(±ÍÑ¡¹Ñ5Ìô¹½Ý5Ì(±¹]¥¹½ÝÌôÀ(±ÍÑ¥Í¥½¸ôÍÑ±µÉ½ÙÉä(ÉÑÕÉ¸ÑÉÕ(ô((ÉÑÕÉ¸±Í(ô((Õ¸Ñ¥ÙAÉ½¥± (ÁÉ½¥±èÁÑÕÉAÉ½¥±°(Ù¥ÁÍ1¥µ¥Ðè%¹Ð°(¥ÍÁ±åIÉÍ¡IÑ!èè½Õ±ü(¤èÁÑÕÉAÉ½¥±ì(Ù°Á½¥¹Ðô(½ÁÉÑ¥¹A½¥¹Ð (ÁÉ½¥±ôÁÉ½¥±°(Ù¥ÁÍ1¥µ¥ÐôÙ¥ÁÍ1¥µ¥Ð°(¥ÍÁ±åIÉÍ¡IÑ!èô¥ÍÁ±åIÉÍ¡IÑ!è(¤(Ù°¹Ñ¥ÙM¡½ÉÑô(µ¥¹=¡ÁÉ½¥±¹ÁÑÕÉ]¥Ñ¡Aà°ÁÉ½¥±¹ÁÑÕÉ!¥¡ÑAà¤(¹½ÉÑ1ÍÐ È¤(Ù°Í¥ÉM¡½ÉÑô(µ¥¹=¡¹Ñ¥ÙM¡½ÉÑ°Á½¥¹Ð¹Í¡½ÉÑ¤(¹½ÉÑ1ÍÐ È¤((¥ (Í¥ÉM¡½ÉÑôô¹Ñ¥ÙM¡½ÉÑ(Á½¥¹Ð¹ÁÌôôÁÉ½¥±¹ÁÌ(¤ì(ÉÑÕÉ¸ÁÉ½¥±(ô((Ù°Í±ô(Í¥ÉM¡½ÉÑ¹Ñ½½Õ± ¤¼(¹Ñ¥ÙM¡½ÉÑ¹Ñ½½Õ± ¤((Õ¸Ù¸¡Ù±Õè%¹Ð¤è%¹Ðì(Ù°½Õ¹ôÙ±Õ¹½ÉÑ1ÍÐ È¤(ÉÑÕÉ¸¥¡½Õ¹ÈôôÀ¤½Õ¹±Í½Õ¹´Ä(ô((ÉÑÕÉ¸ÁÉ½¥±¹½Áä (ÁÑÕÉ]¥Ñ¡Aàô(Ù¸ (¡ÁÉ½¥±¹ÁÑÕÉ]¥Ñ¡Aà¨Í±¤(¹É½Õ¹Q½%¹Ð ¤(¤°(ÁÑÕÉ!¥¡ÑAàô(Ù¸ (¡ÁÉ½¥±¹ÁÑÕÉ!¥¡ÑAà¨Í±¤(¹É½Õ¹Q½%¹Ð ¤(¤°(ÁÌôÁ½¥¹Ð¹ÁÌ(¤(ô((Õ¸¥ÑÉÑ¥±¥¹ (ÁÉ½¥±èÁÑÕÉAÉ½¥±°(Ù¥ÁÍ1¥µ¥Ðè%¹Ð°(¥ÍÁ±åIÉÍ¡IÑ!èè½Õ±ü(¤è%¹Ðô(½ÁÉÑ¥¹A½¥¹Ð (ÁÉ½¥±ôÁÉ½¥±°(Ù¥ÁÍ1¥µ¥ÐôÙ¥ÁÍ1¥µ¥Ð°(¥ÍÁ±åIÉÍ¡IÑ!èô¥ÍÁ±åIÉÍ¡IÑ!è(¤¹¥ÑÉÑ¥±¥¹	ÁÌ((Õ¸ÕÉÉ¹Ñ1Ù° ¤è%¹Ðô±Ù°((Õ¸ÉÍÑÙ¥¹ ¤ì(ÁÉÍÍÕÉ]¥¹½ÝÌôÀ(±¹]¥¹½ÝÌôÀ(¥±ÑÉ	Ý	ÁÌô¹Õ±°(±ÍÑAÉÍÍÕÉ-¥¹ôAÉÍÍÕÉ-¥¹¹9=9(±ÍÑ=ÍÉÙÑ5Ìô1½¹¹5%9}Y1U¼È(ô((Õ¸ÕMÕµµÉä (ÁÉ½¥±èÁÑÕÉAÉ½¥±°(Ù¥ÁÍ1¥µ¥Ðè%¹Ð°(¥ÍÁ±åIÉÍ¡IÑ!èè½Õ±ü°(¹½Ý5Ìè1½¹(¤èMÑÉ¥¹ì(Ù°Á½¥¹Ðô(½ÁÉÑ¥¹A½¥¹Ð (ÁÉ½¥±ôÁÉ½¥±°(Ù¥ÁÍ1¥µ¥ÐôÙ¥ÁÍ1¥µ¥Ð°(¥ÍÁ±åIÉÍ¡IÑ!èô¥ÍÁ±åIÉÍ¡IÑ!è(¤(Ù°¡¹¼ô(¥¡±ÍÑ¡¹Ñ5Ìðô1½¹¹5%9}Y1U¼Ð¤ì(¹½¹(ô±Íì(ì¡¹½Ý5Ì´±ÍÑ¡¹Ñ5Ì¤¹½ÉÑ1ÍÐ Á0¥õµÌ(ô(Ù°Ýô(¥±ÑÉ	Ý	ÁÌ(ü¹¥Ø Å|ÀÀÀ¸À¤(ü¹É½Õ¹Q½%¹Ð ¤(ü¹±Ðìí¥Ñõ­ÁÌô(üè´((ÉÑÕÉ¸µÍÑÈõ0±Ù°íÁ½¥¹Ð¹Í¡½ÉÑõÁá íÁ½¥¹Ð¹ÁÍõÁÌ¬(µàôíÁ½¥¹Ð¹¥ÑÉÑ¥±¥¹	ÁÌ¼Å|ÀÀÁõ­ÁÌ¬(ÝôÝÁÉÍÍÕÉôí±ÍÑAÉÍÍÕÉ-¥¹¹¹µ¹±½ÝÉÍ ¥ô¬(ôÁÉÍÍÕÉ]¥¹½ÝÌ¼9=I51}AIMMUI}]%9=]M}IEU%Ip¬(½½ô±¹]¥¹½ÝÌ¼19}]%9=]M}IEU%I¬(¥Í¥½¸ô±ÍÑ¥Í¥½¸¡¹¼ô¡¹¼(ô((ÁÉ¥ÙÑÕ¸½ÁÉÑ¥¹A½¥¹Ð (ÁÉ½¥±èÁÑÕÉAÉ½¥±°(Ù¥ÁÍ1¥µ¥Ðè%¹Ð°(¥ÍÁ±åIÉÍ¡IÑ!èè½Õ±ü(¤è=ÁÉÑ¥¹A½¥¹Ðì(Ù°¹Ñ¥ÙM¡½ÉÑô(µ¥¹=¡ÁÉ½¥±¹ÁÑÕÉ]¥Ñ¡Aà°ÁÉ½¥±¹ÁÑÕÉ!¥¡ÑAà¤(¹½ÉÑ1ÍÐ È¤(Ù°¹1¥µ¥Ðô(µ¥¹= (µáÁÌ°(ÁÉ½¥±¹µ½Ñ¥½¹ÁÌ¹½ÉÑ1ÍÐ Ä¤°(Ù¥ÁÍ1¥µ¥Ð¹½ÉÑ1ÍÐ Ä¤(¤(Ù°¡¥¡ÁÌô(¥ÍÁ±å5Ñ¡ÁÌ (±¥µ¥Ðô¹1¥µ¥Ð°(ÉÉÍ¡IÑ!èô¥ÍÁ±åIÉÍ¡IÑ!è(¤(Ù°ÍÁÌô(¥ÍÁ±å5Ñ¡ÁÌ (±¥µ¥Ðôµ¥¹= ÌÀ°¹1¥µ¥Ð¤°(ÉÉÍ¡IÑ!èô¥ÍÁ±åIÉÍ¡IÑ!è(¤(Ù°±½ÝÁÌô(¥ÍÁ±å5Ñ¡ÁÌ (±¥µ¥Ðôµ¥¹= ÈÐ°¹1¥µ¥Ð¤°(ÉÉÍ¡IÑ!èô¥ÍÁ±åIÉÍ¡IÑ!è(¤((Ù°Í¡½ÉÑô(Ý¡¸¡±Ù°¤ì(À´ø¹Ñ¥ÙM¡½ÉÑ(Ä´øµ¥¹=¡¹Ñ¥ÙM¡½ÉÑ°ÜÈÀ¤(È´øµ¥¹=¡¹Ñ¥ÙM¡½ÉÑ°ÔÐÀ¤(Ì´øµ¥¹=¡¹Ñ¥ÙM¡½ÉÑ°ÔÐÀ¤(Ð´øµ¥¹=¡¹Ñ¥ÙM¡½ÉÑ°ÌØÀ¤(±Í´øµ¥¹=¡¹Ñ¥ÙM¡½ÉÑ°ÈÐÀ¤(ô(Ù°ÁÌô(Ý¡¸¡±Ù°¤ì(À°Ä°È´ø¡¥¡ÁÌ(Ì°Ð´øÍÁÌ(±Í´ø±½ÝÁÌ(ô¹½ÉÑ1ÍÐ Ä¤(Ù°¹½µ¥¹°ô(¹½µ¥¹±	¥ÑÉÑ	ÁÌ (Í¡½ÉÑôÍ¡½ÉÑ°(ÁÌôÁÌ(¤(Ù°¥ÑÉÑ¥±¥¹ô(¡¹½µ¥¹°¨	%QIQ}%1%9}!I==4¤(¹É½Õ¹Q½%¹Ð ¤(¹½É%¸ (5%9}Y%=}	%QIQ}	AL°(ÁÉ½¥±¹µáY¥½	¥ÑÉÑ	ÁÌ(¤((ÉÑÕÉ¸=ÁÉÑ¥¹A½¥¹Ð (±Ù°ô±Ù°°(Í¡½ÉÑôÍ¡½ÉÑ°(ÁÌôÁÌ°(¥ÑÉÑ¥±¥¹	ÁÌô¥ÑÉÑ¥±¥¹(¤(ô((ÁÉ¥ÙÑÕ¸ÍÑÁ½Ý¸ (ÁÉ½¥±èÁÑÕÉAÉ½¥±°(Ù¥ÁÍ1¥µ¥Ðè%¹Ð°(¥ÍÁ±åIÉÍ¡IÑ!èè½Õ±ü°(ÍÑÁÌè%¹Ð(¤è	½½±¸ì(ÙÈµ½Ùô±Í(ÉÁÐ¡ÍÑÁÌ¹½ÉÑ1ÍÐ Ä¤¤ì(Ù°½Éô(½ÁÉÑ¥¹A½¥¹Ð (ÁÉ½¥±°(Ù¥ÁÍ1¥µ¥Ð°(¥ÍÁ±åIÉÍ¡IÑ!è(¤(ÙÈ¹¥Ñô±Ù°¬Ä(ÙÈµ½ÙQ¡¥ÍMÑÀô±Í(Ý¡¥±¡¹¥Ñðô5a}1Y0¤ì(Ù°ÁÉÙ¥½ÕÍ1Ù°ô±Ù°(±Ù°ô¹¥Ñ(Ù°¹áÐô(½ÁÉÑ¥¹A½¥¹Ð (ÁÉ½¥±°(Ù¥ÁÍ1¥µ¥Ð°(¥ÍÁ±åIÉÍ¡IÑ!è(¤(¥ (¹áÐ¹Í¡½ÉÑô½É¹Í¡½ÉÑñð(¹áÐ¹ÁÌô½É¹ÁÌñð(¹áÐ¹¥ÑÉÑ¥±¥¹	ÁÌô½É¹¥ÑÉÑ¥±¥¹	ÁÌ(¤ì(µ½ÙôÑÉÕ(µ½ÙQ¡¥ÍMÑÀôÑÉÕ(É¬(ô(±Ù°ôÁÉÙ¥½ÕÍ1Ù°(¹¥Ñ¬ôÄ(ô(¥ µ½ÙQ¡¥ÍMÑÀ¤ÉÑÕÉ¹ÉÁÐ(ô(ÉÑÕÉ¸µ½Ù(ô((ÁÉ¥ÙÑÕ¸ÍÑÁUÀ (ÁÉ½¥±èÁÑÕÉAÉ½¥±°(Ù¥ÁÍ1¥µ¥Ðè%¹Ð°(¥ÍÁ±åIÉÍ¡IÑ!èè½Õ±ü(¤è	½½±¸ì(¥¡±Ù°ðôÀ¤ÉÑÕÉ¸±Í((Ù°½Éô(½ÁÉÑ¥¹A½¥¹Ð (ÁÉ½¥±°(Ù¥ÁÍ1¥µ¥Ð°(¥ÍÁ±åIÉÍ¡IÑ!è(¤(ÙÈ¹¥Ñô±Ù°´Ä(Ý¡¥±¡¹¥ÑøôÀ¤ì(Ù°ÁÉÙ¥½ÕÍ1Ù°ô±Ù°(±Ù°ô¹¥Ñ(Ù°¹áÐô(½ÁÉÑ¥¹A½¥¹Ð (ÁÉ½¥±°(Ù¥ÁÍ1¥µ¥Ð°(¥ÍÁ±åIÉÍ¡IÑ!è(¤(¥ (¹áÐ¹Í¡½ÉÑô½É¹Í¡½ÉÑñð(¹áÐ¹ÁÌô½É¹ÁÌñð(¹áÐ¹¥ÑÉÑ¥±¥¹	ÁÌô½É¹¥ÑÉÑ¥±¥¹	ÁÌ(¤ì(ÉÑÕÉ¸ÑÉÕ(ô(±Ù°ôÁÉÙ¥½ÕÍ1Ù°(¹¥Ñ´ôÄ(ô(ÉÑÕÉ¸±Í(ô((ÁÉ¥ÙÑÕ¸ÕÁÑ	¹Ý¥Ñ¡ÍÑ¥µÑ¡ÍµÁ±	ÁÌè½Õ±¤ì(¥±ÑÉ	Ý	ÁÌô(¥±ÑÉ	Ý	ÁÌü¹±ÐìÁÉÙ¥½ÕÌ´ø(ÁÉÙ¥½ÕÌ¨ Ä¸À´	]}]5}1A!¤¬(ÍµÁ±	ÁÌ¨	]}]5}1A!(ôüèÍµÁ±	ÁÌ(ô((ÁÉ¥ÙÑÕ¸¥ÍÁ±å5Ñ¡ÁÌ (±¥µ¥Ðè%¹Ð°(ÉÉÍ¡IÑ!èè½Õ±ü(¤è%¹Ðì(Ù°½Õ¹ô±¥µ¥Ð¹½É%¸ Ä°µáÁÌ¤(¥¡½Õ¹ð5%9}%MA1e}5Q!}AL¤ÉÑÕÉ¸½Õ¹((Ù°ÉÉÍ ô(ÉÉÍ¡IÑ!è(ü¹Ñ­%ì¥Ð¹¥Í¥¹¥Ñ ¤¥Ðøô5%9}%MA1e}5Q!}ALô(¥¡ÉÉÍ ôô¹Õ±°¤ì(ÉÑÕÉ¸U1Q}M}IU9L(¹¥ÉÍÑ=É9Õ±°ì¥Ððô½Õ¹ô(üè½Õ¹(ô((ÉÑÕÉ¸U1Q}9}IU9L(¹¥ÉÍÑ=É9Õ±°ì¹¥Ñ´ø(¹¥Ñðô½Õ¹(¥Í¥ÍÁ±å½µÁÑ¥± (ÉÉÍ¡IÑ!èôÉÉÍ °(ÁÌô¹¥Ñ(¤(ô(üèU1Q}M}IU9L(¹¥ÉÍÑ=É9Õ±°ì¥Ððô½Õ¹ô(üè½Õ¹(ô((ÁÉ¥ÙÑÕ¸¥Í¥ÍÁ±å½µÁÑ¥± (ÉÉÍ¡IÑ!èè½Õ±°(ÁÌè%¹Ð(¤è	½½±¸ì(¥¡ÁÌðôÀ¤ÉÑÕÉ¸±Í(Ù°ÉÑ¥¼ôÉÉÍ¡IÑ!è¼ÁÌ¹Ñ½½Õ± ¤(Ù°¹ÉÍÐôÉÑ¥¼¹É½Õ¹Q½%¹Ð ¤(ÉÑÕÉ¸¹ÉÍÐøôÄ(Ì¡ÉÑ¥¼´¹ÉÍÐ¹Ñ½½Õ± ¤¤ðô%MA1e}%Y%M=I}Q=1I9(ô((ÁÉ¥ÙÑÕ¸¹½µ¥¹±	¥ÑÉÑ	ÁÌ (Í¡½ÉÑè%¹Ð°(ÁÌè%¹Ð(¤è½Õ±ì(Ù°Í±¥¹ÌÀô(Ý¡¸ì(Í¡½ÉÑðôÈÐÀ´øÔÀÁ|ÀÀÀ¸À(Í¡½ÉÑðôÌØÀ´øäÀÁ|ÀÀÀ¸À(Í¡½ÉÑðôÔÐÀ´øÅ|àÀÁ|ÀÀÀ¸À(Í¡½ÉÑðôÜÈÀ´øÍ|ÈÀÁ|ÀÀÀ¸À(Í¡½ÉÑðôäÀÀ´øÑ|ÈÀÁ|ÀÀÀ¸À(±Í´øÕ|ÀÀÁ|ÀÀÀ¸À(ô(ÉÑÕÉ¸Í±¥¹ÌÀ¨(ÁÌ¹½É%¸ Ä°µáÁÌ¤¹Ñ½½Õ± ¤¼(ÌÀ¸À(ô((ÁÉ¥ÙÑÕ¸¥¹¥Ñ¥±1Ù° (ÁÉ½¥±èÁÑÕÉAÉ½¥±(¤è%¹Ðô(Ý¡¸¡ÁÉ½¥±¹Ñ¥È¤ì(ÁÑÕÉQ¥È¹!% °(ÁÑÕÉQ¥È¹MQ9I´øÄ(ÁÑÕÉQ¥È¹	19´øÌ(ÁÑÕÉQ¥È¹1=\´øÐ(ô((ÁÉ¥ÙÑÕ¸½Õ±ü¹Ù±¥9½¹9Ñ¥Ù ¤è½Õ±üô(Ñ¡¥Ìü¹Ñ­%ì¥Ð¹¥Í¥¹¥Ñ ¤¥ÐøôÀ¸Àô((ÁÉ¥ÙÑÕ¸½Õ±ü¹Ù±¥A½Í¥Ñ¥Ù ¤è½Õ±üô(Ñ¡¥Ìü¹Ñ­%ì¥Ð¹¥Í¥¹¥Ñ ¤¥ÐøÀ¸Àô((ÁÉ¥ÙÑ½µÁ¹¥½¸½©Ðì(½¹ÍÐÙ°5a}1Y0ôÔ((½¹ÍÐÙ°5%9}M5A1}%9QIY1}5LôÐÀÀ(½¹ÍÐÙ°5a}M5A1}%9QIY1}5LôÙ|ÀÀÀ(½¹ÍÐÙ°5a}Y%9}A}5LôÙ|ÀÀÁ0((¼¨(¨MµÁ±¥¹µäÍÕµÍ½¹°ÕÐÑ¡ÁÀµ±Ù°½ÁÉÑ¥¹Á½¥¹Ð¥Ì¹½Ð¸(¨=É¥¹ÉäÁÉÍÍÕÉµÕÍÐÁÉÍ¥ÍÐÉ½ÍÌµÕ±Ñ¥Á±Ý¥¹½ÝÌ°¹É½ÙÉä¥Ì(¨±¥ÉÑ±äÍ±½ÝÈÍÑ¥±°¸MÙÉÍÑ±µÅÕÕ½Ù¥½±±ÁÍ¸(¨åÁÍÌÑ¡Ù½Ñ½Õ¹Ð°ÕÐ¥ÐÍÑ¥±°¹¹½ÐÍ½¹Ñ¥¹Õ½ÕÍ±ä¸(¨¼(½¹ÍÐÙ°9=I51}AIMMUI}]%9=]M}IEU%IôÌ(½¹ÍÐÙ°19}]%9=]M}IEU%Iôà(½¹ÍÐÙ°5%9}=]9M!%Q}%9QIY1}5LôÉ|ÔÀÁ0(½¹ÍÐÙ°5%9}UAM!%Q}%9QIY1}5Lôá|ÀÀÁ0(½¹ÍÐÙ°A=MQ}=]9M!%Q}I=YIe}!=1}5Lôá|ÀÀÁ0((½¹ÍÐÙ°5%9}5=Y%9}M=UI}ALôà¸À(½¹ÍÐÙ°5%9}19}I5LôÔ((½¹ÍÐÙ°M9I}AIMMUI}IQ%<ôÀ¸àà(½¹ÍÐÙ°=}U9I}1%YIe}IQ%<ôÀ¸àà(½¹ÍÐÙ°MYI}1%YIe}IQ%<ôÀ¸ØÔ(½¹ÍÐÙ°19}1%YIe}IQ%<ôÀ¸äÈ((½¹ÍÐÙ°=}AIMMUI}	UQ}IQ%<ôÀ¸àÔ(½¹ÍÐÙ°=}MYI}	UQ}IQ%<ôÄ¸ÈÀ(½¹ÍÐÙ°19}=}	UQ}IQ%<ôÀ¸ØÔ((½¹ÍÐÙ°9Q]=I-}IM%9}=II=	=IQ%=9}5LôÌÔ¸À(½¹ÍÐÙ°9Q]=I-}IM%9}AIMMUI}5LôØÀ¸À(½¹ÍÐÙ°9Q]=I-}IM%9}MYI}5LôÄàÀ¸À(½¹ÍÐÙ°19}M9}IM%9}5LôÈÈ¸À((½¹ÍÐÙ°A1e=UQ}AIMMUI}5LôäÀ¸À(½¹ÍÐÙ°A1e=UQ}MYI}5LôÄàÀ¸À(½¹ÍÐÙ°19}A1e=UQ}5LôÔÀ¸À((½¹ÍÐÙ°1MM}AIMMUI}IQ%<ôÀ¸àÈ(½¹ÍÐÙ°1MM}MYI}IQ%<ôÀ¸ÔÔ(½¹ÍÐÙ°19}1MM}IQ%<ôÀ¸äÈ(½¹ÍÐÙ°5%9}I9I}A}AIMMUI}5LôÄÀÀ¸À(½¹ÍÐÙ°I9I}A}I5}5U1Q%A1%HôÔ¸À(½¹ÍÐÙ°I9I}A}MYI}5LôÈÔÀ¸À(½¹ÍÐÙ°19}I9I}A}5LôÔÔ¸À(½¹ÍÐÙ°19}I9I}A}I5}5U1Q%A1%HôÌ¸À((½¹ÍÐÙ°A-Q}1=MM}=II=	=IQ%=9}IQ%<ôÀ¸ÀÈÔ(½¹ÍÐÙ°A-Q}1=MM}AIMMUI}IQ%<ôÀ¸ÀÔ(½¹ÍÐÙ°A-Q}1=MM}MYI}IQ%<ôÀ¸ÄÈ(½¹ÍÐÙ°19}A-Q}1=MM}IQ%<ôÀ¸ÀÈÔ(½¹ÍÐÙ°IQQ}=II=	=IQ%=9}5LôÌÔÀ((½¹ÍÐÙ°	]}]5}1A!ôÀ¸ÈÀ(½¹ÍÐÙ°	]}AIMMUI}IQ%<ôÄ¸ÀÔ(½¹ÍÐÙ°	]}MQI=9}AIMMUI}IQ%<ôÀ¸àÈ(½¹ÍÐÙ°	]}MYI}IQ%<ôÀ¸ØÀ(½¹ÍÐÙ°	]}I=YIe}IQ%<ôÄ¸Äà((½¹ÍÐÙ°	%QIQ}%1%9}!I==4ôÄ¸ÄÈ(½¹ÍÐÙ°5%9}Y%=}	%QIQ}	ALôÈÔÁ|ÀÀÀ((½¹ÍÐÙ°5%9}%MA1e}5Q!}ALôÄÔ(½¹ÍÐÙ°%MA1e}%Y%M=I}Q=1I9ôÀ¸ÀØ(Ù°U1Q}9}IU9Lô(¥¹ÑÉÉå= (ØÀ°(ÔÀ°(Ðà°(ÐÔ°(ÐÀ°(ÌØ°(ÌÀ°(ÈÔ°(ÈÐ°(ÈÀ°(Äà°(ÄÔ(¤(ô)ô
+                    decodeMs?.let { it >= frameMs * 1.20 } == true &&
+                        received?.fps?.let { it < point.fps * 0.65 } == true
+                    ) ||
+                glassRatio?.let { it < 0.55 } == true ||
+                renderGapMs?.let { it >= 250.0 } == true
+
+        if (pressure != PressureKind.NONE) {
+            goodWindows = 0
+            badWindows = (badWindows + 1).coerceAtMost(3)
+            lastPressure = pressure
+
+            if (
+                nowMs - lastChangeAtMs >= 2500L &&
+                (severe || badWindows >= 3)
+            ) {
+                val steps = if (severe) 2 else 1
+                if (
+                    stepDown(
+                        profile,
+                        deviceFpsLimit,
+                        displayRefreshRateHz,
+                        steps
+                    )
+                ) {
+                    lastChangeAtMs = nowMs
+                    recoveryBlockedUntilMs = nowMs + 8000L
+                    badWindows = 0
+                    goodWindows = 0
+                    lastDecision =
+                        pressure.name.lowercase() +
+                            if (severe) "-relief-severe" else "-relief"
+                    return true
+                }
+            }
+            return false
+        }
+
+        badWindows = 0
+        lastPressure = PressureKind.NONE
+
+        val senderClean =
+            senderRatio?.let { it >= 0.92 } != false &&
+                encodeMs?.let { it <= frameMs * 0.65 } != false &&
+                sendResidenceMs?.let { it <= 22.0 } != false
+        val receiverClean =
+            received?.let {
+                receiverRatio?.let { ratio -> ratio >= 0.92 } != false &&
+                    decodeMs?.let { it <= frameMs * 0.65 } != false &&
+                    playoutMs?.let { it <= 50.0 } != false &&
+                    glassRatio?.let { it >= 0.92 } != false &&
+                    renderGapMs?.let {
+                        it <= maxOf(55.0, frameMs * 3.0)
+                    } != false
+            } ?: true
+        val networkClean =
+            loss < 0.025 &&
+                bweRatio?.let { it >= 1.18 } != false
+
+        val completeClean =
+            producerMoving &&
+                sender.frames >= 5 &&
+                senderClean &&
+                receiverClean &&
+                networkClean
+
+        goodWindows =
+            if (completeClean) {
+                (goodWindows + 1).coerceAtMost(8)
+            } else {
+                0
+            }
+
+        if (
+            goodWindows >= 8 &&
+            nowMs >= recoveryBlockedUntilMs &&
+            nowMs - lastChangeAtMs >= 8000L &&
+            stepUp(profile, deviceFpsLimit, displayRefreshRateHz)
+        ) {
+            lastChangeAtMs = nowMs
+            goodWindows = 0
+            lastDecision = "stable-recovery"
+            return true
+        }
+
+        return false
+    }
+
+    fun effectiveProfile(
+        profile: CaptureProfile,
+        deviceFpsLimit: Int,
+        displayRefreshRateHz: Double?
+    ): CaptureProfile {
+        val point =
+            operatingPoint(profile, deviceFpsLimit, displayRefreshRateHz)
+        val nativeShort =
+            minOf(profile.captureWidthPx, profile.captureHeightPx)
+                .coerceAtLeast(2)
+        val desiredShort =
+            minOf(nativeShort, point.shortEdge)
+                .coerceAtLeast(2)
+
+        val scale = desiredShort.toDouble() / nativeShort.toDouble()
+
+        fun even(value: Int): Int {
+            val bounded = value.coerceAtLeast(2)
+            return if (bounded % 2 == 0) bounded else bounded - 1
+        }
+
+        return profile.copy(
+            captureWidthPx =
+                even((profile.captureWidthPx * scale).roundToInt()),
+            captureHeightPx =
+                even((profile.captureHeightPx * scale).roundToInt()),
+            fps = point.fps
+        )
+    }
+
+    fun bitrateCeiling(
+        profile: CaptureProfile,
+        deviceFpsLimit: Int,
+        displayRefreshRateHz: Double?
+    ): Int =
+        operatingPoint(
+            profile,
+            deviceFpsLimit,
+            displayRefreshRateHz
+        ).bitrateCeilingBps
+
+    fun resetEvidence() {
+        badWindows = 0
+        goodWindows = 0
+        filteredBweBps = null
+        lastPressure = PressureKind.NONE
+        lastObservedAtMs = Long.MIN_VALUE / 2
+    }
+
+    fun debugSummary(
+        profile: CaptureProfile,
+        deviceFpsLimit: Int,
+        displayRefreshRateHz: Double?,
+        nowMs: Long
+    ): String {
+        val point =
+            operatingPoint(profile, deviceFpsLimit, displayRefreshRateHz)
+        val age =
+            if (lastChangeAtMs <= Long.MIN_VALUE / 4) {
+                "none"
+            } else {
+                (nowMs - lastChangeAtMs)
+                    .coerceAtLeast(0L)
+                    .toString() + "ms"
+            }
+        val bwe =
+            filteredBweBps
+                ?.div(1000.0)
+                ?.roundToInt()
+                ?.toString()
+                ?.plus("kbps")
+                ?: "-"
+
+        return "master=L" + level +
+            " " + point.shortEdge + "px@" + point.fps + "fps" +
+            " max=" + (point.bitrateCeilingBps / 1000) + "kbps" +
+            " bwe=" + bwe +
+            " pressure=" + lastPressure.name.lowercase() +
+            " bad=" + badWindows + "/3" +
+            " good=" + goodWindows + "/8" +
+            " decision=" + lastDecision +
+            " changeAgo=" + age
+    }
+
+    private fun operatingPoint(
+        profile: CaptureProfile,
+        deviceFpsLimit: Int,
+        displayRefreshRateHz: Double?
+    ): OperatingPoint {
+        val nativeShort =
+            minOf(profile.captureWidthPx, profile.captureHeightPx)
+                .coerceAtLeast(2)
+        val cadenceLimit =
+            minOf(
+                maxFps,
+                profile.motionFps.coerceAtLeast(1),
+                deviceFpsLimit.coerceAtLeast(1)
+            )
+        val high =
+            displayMatchedFps(cadenceLimit, displayRefreshRateHz)
+        val base =
+            displayMatchedFps(minOf(30, cadenceLimit), displayRefreshRateHz)
+        val low =
+            displayMatchedFps(minOf(24, cadenceLimit), displayRefreshRateHz)
+
+        val shortEdge =
+            when (level) {
+                0 -> nativeShort
+                1 -> minOf(nativeShort, 720)
+                2, 3 -> minOf(nativeShort, 540)
+                4 -> minOf(nativeShort, 360)
+                else -> minOf(nativeShort, 240)
+            }
+        val fps =
+            when (level) {
+                0, 1, 2 -> high
+                3, 4 -> base
+                else -> low
+            }.coerceAtLeast(1)
+
+        val ceiling =
+            (nominalBitrateBps(shortEdge, fps) * 1.12)
+                .roundToInt()
+                .coerceIn(250_000, profile.maxVideoBitrateBps)
+
+        return OperatingPoint(level, shortEdge, fps, ceiling)
+    }
+
+    private fun stepDown(
+        profile: CaptureProfile,
+        deviceFpsLimit: Int,
+        displayRefreshRateHz: Double?,
+        steps: Int
+    ): Boolean {
+        var moved = false
+        repeat(steps.coerceAtLeast(1)) {
+            val before =
+                operatingPoint(profile, deviceFpsLimit, displayRefreshRateHz)
+            var candidate = level + 1
+            var found = false
+            while (candidate <= 5) {
+                val old = level
+                level = candidate
+                val next =
+                    operatingPoint(profile, deviceFpsLimit, displayRefreshRateHz)
+                if (
+                    next.shortEdge != before.shortEdge ||
+                    next.fps != before.fps ||
+                    next.bitrateCeilingBps != before.bitrateCeilingBps
+                ) {
+                    moved = true
+                    found = true
+                    break
+                }
+                level = old
+                candidate += 1
+            }
+            if (!found) return@repeat
+        }
+        return moved
+    }
+
+    private fun stepUp(
+        profile: CaptureProfile,
+        deviceFpsLimit: Int,
+        displayRefreshRateHz: Double?
+    ): Boolean {
+        if (level <= 0) return false
+
+        val before =
+            operatingPoint(profile, deviceFpsLimit, displayRefreshRateHz)
+        var candidate = level - 1
+        while (candidate >= 0) {
+            val old = level
+            level = candidate
+            val next =
+                operatingPoint(profile, deviceFpsLimit, displayRefreshRateHz)
+            if (
+                next.shortEdge != before.shortEdge ||
+                next.fps != before.fps ||
+                next.bitrateCeilingBps != before.bitrateCeilingBps
+            ) {
+                return true
+            }
+            level = old
+            candidate -= 1
+        }
+        return false
+    }
+
+    private fun displayMatchedFps(
+        limit: Int,
+        refreshRateHz: Double?
+    ): Int {
+        val bounded = limit.coerceIn(1, maxFps)
+        if (bounded < 15) return bounded
+
+        val rungs =
+            intArrayOf(60, 50, 48, 45, 40, 36, 30, 25, 24, 20, 18, 15)
+
+        val refresh =
+            refreshRateHz
+                ?.takeIf { it.isFinite() && it >= 15.0 }
+
+        if (refresh != null) {
+            rungs.firstOrNull { fps ->
+                fps <= bounded &&
+                    run {
+                        val ratio = refresh / fps.toDouble()
+                        val nearest = ratio.roundToInt()
+                        nearest >= 1 &&
+                            abs(ratio - nearest.toDouble()) <= 0.06
+                    }
+            }?.let { return it }
+        }
+
+        return rungs.firstOrNull { it <= bounded } ?: bounded
+    }
+
+    private fun nominalBitrateBps(
+        shortEdge: Int,
+        fps: Int
+    ): Double {
+        val baseline30 =
+            when {
+                shortEdge <= 240 -> 500_000.0
+                shortEdge <= 360 -> 900_000.0
+                shortEdge <= 540 -> 1_800_000.0
+                shortEdge <= 720 -> 3_200_000.0
+                shortEdge <= 900 -> 4_200_000.0
+                else -> 5_000_000.0
+            }
+        return baseline30 *
+            fps.coerceIn(1, maxFps).toDouble() /
+            30.0
+    }
+}
