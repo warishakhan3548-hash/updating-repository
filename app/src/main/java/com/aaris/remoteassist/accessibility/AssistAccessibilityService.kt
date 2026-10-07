@@ -225,7 +225,7 @@ class AssistAccessibilityService : AccessibilityService() {
                 command.yPx,
                 command.xPx,
                 command.yPx,
-                40L,
+                REMOTE_TAP_DURATION_MS,
                 onResult
             )
             is LongPressCommand -> gesture(
@@ -1276,6 +1276,9 @@ class AssistAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val MAX_REMOTE_TEXT_CHARS = 1000
+        // Long enough to cross several 60 Hz input samples in games while
+        // remaining perceptually instant for ordinary Android controls.
+        private const val REMOTE_TAP_DURATION_MS = 80L
         private const val MAX_REMOTE_FIELD_CHARS = 4000
         private const val MAX_PENDING_COMMANDS = 16
         private const val COMMAND_EXECUTION_TIMEOUT_MS = 3_000L
