@@ -537,10 +537,21 @@ def pair(host, controller, out_dir):
     # PairingGateway observer will later place "Start remote support?" above it
     # after the controller redeems the one-time code.
 
-    click_text(controller, "Connect", timeout=20)
+    # Use the production deep-link entry point instead of synthesizing
+    # keyboard text. Full Google emulator images can route ADB "input text"
+    # through Gboard in ways that race the dialog/IME and make the E2E flaky.
+    # The deep link exercises MainActivity.handleIncomingJoin() and the exact
+    # same showConnectDialog(code) + START + gateway.redeemCode() production path.
+    join_uri = f"aarisremote://connect?code={code}"
+    shell(
+        controller,
+        "am", "start",
+        "-W",
+        "-a", "android.intent.action.VIEW",
+        "-d", join_uri,
+        "-n", MAIN,
+    )
     wait_text(controller, "12-digit one-time code", timeout=20)
-    shell(controller, "input", "text", code)
-    time.sleep(0.4)
     click_text(controller, "START", timeout=15)
 
     # Prove redeem succeeded before blaming the host observer. A successful
