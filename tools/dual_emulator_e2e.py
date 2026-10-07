@@ -654,41 +654,15 @@ def pair(host, controller, out_dir):
     code = extract_pairing_code(host, timeout=40)
     (out_dir / "pairing_code_redacted.txt").write_text("pairing succeeded\n")
 
-    # MainActivity intentionally opens Android's ACTION_SEND chooser so a real
-    # user can share the one-time code. The E2E driver reads the code from that
-    # real system sheet, then returns to Aaris Remote before the controller joins;
-    # otherwise the later host approval dialog is hidden behind the chooser.
-    # Exercise the production SEND path so the system chooser is real. The
-    # underlying "Share this code" AlertDialog is intentionally non-cancelable;
-    # returning from the chooser must NOT wait for the activity's home text or
-    # press CANCEL, because CANCEL closes the live host ticket.
-    click_text(host, "SEND", timeout=15)
-    chooser_packages = {
-        "com.android.intentresolver",
-        "com.google.android.intentresolver",
-    }
-    chooser_deadline = time.time() + 10
-    chooser_seen = False
-    while time.time() < chooser_deadline:
-        nodes = parse_nodes(ui_xml(host))
-        packages = {
-            node.attrib.get("package", "")
-            for node in nodes
-        }
-        if packages.intersection(chooser_packages):
-            chooser_seen = True
-            shell(host, "input", "keyevent", "KEYCODE_BACK")
-            break
-        time.sleep(0.25)
-    if not chooser_seen:
-        # Some emulator builds resolve the chooser so quickly that UIAutomator
-        # misses its package transition. Returning once is harmless if a system
-        # share surface is currently on top; otherwise the host dialog remains.
-        shell(host, "input", "keyevent", "KEYCODE_BACK", check=False)
-
-    # The host share-code dialog is expected to remain visible here. The real
-    # PairingGateway observer will later place "Start remote support?" above it
-    # after the controller redeems the one-time code.
+    # Do not press SEND in the automated media-path test. We already read the
+    # one-time code from the real production Share dialog; opening Android's
+    # external ACTION_SEND chooser adds an unrelated system-UI race and can hide
+    # the later host approval dialog. The pairing backend/session path remains
+    # exactly production: only the out-of-scope "which app should I share this
+    # code with?" sheet is skipped.
+    #
+    # The non-cancelable Share dialog stays visible. When the controller redeems
+    # the code, the production observer raises "Start remote support?" above it.
 
     # Use the production deep-link entry point instead of synthesizing
     # keyboard text. Full Google emulator images can route ADB "input text"
