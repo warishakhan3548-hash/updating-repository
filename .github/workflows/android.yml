@@ -113,10 +113,32 @@ jobs:
         if: failure()
         run: |
           cat app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt || true
+      - name: Stage unsigned release signing kit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ci-release-signing-kit
+          RELEASE_APK="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | head -1)"
+          test -n "$RELEASE_APK"
+          cp "$RELEASE_APK" ci-release-signing-kit/AarisRemote-1.9.55-unsigned.apk
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          test -f "$BUILD_TOOLS/lib/apksigner.jar"
+          test -x "$BUILD_TOOLS/zipalign"
+          cp "$BUILD_TOOLS/lib/apksigner.jar" ci-release-signing-kit/apksigner.jar
+          cp "$BUILD_TOOLS/zipalign" ci-release-signing-kit/zipalign
+          chmod +x ci-release-signing-kit/zipalign
+          sha256sum ci-release-signing-kit/* > ci-release-signing-kit/SHA256SUMS.txt
+
       - uses: actions/upload-artifact@v7
         with:
           name: AarisRemote-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: AarisRemote-1.9.55-release-signing-kit
+          path: ci-release-signing-kit
           if-no-files-found: error
 
   cloudflare-smoke:
