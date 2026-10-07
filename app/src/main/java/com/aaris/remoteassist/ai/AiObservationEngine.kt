@@ -87,7 +87,12 @@ class AiObservationEngine internal constructor(
                 return error("SCREEN_CHANGING")
             }
             val stable = revision == ledger.eventRevision
-            val mode = AiInteractionClassifier.classify(ui, stable)
+            val mode = AiInteractionClassifier.classify(
+                ui = ui,
+                settled = stable,
+                displayWidthPx = geometry.displayWidthPx,
+                displayHeightPx = geometry.displayHeightPx
+            )
             val id = UUID.randomUUID().toString()
             width = geometry.displayWidthPx; height = geometry.displayHeightPx; rotation = frame.rotation
             issuedUi = ui; issuedMode = mode; lastFingerprint = fingerprint
@@ -247,15 +252,29 @@ class AiObservationEngine internal constructor(
         if (!x.isFinite() || !y.isFinite() || x !in 0.0..1.0 || y !in 0.0..1.0) return false
         if (width <= 0 || height <= 0) return false
 
+        /*
+         * A vision coordinate on a dynamic canvas is authoritative. Games,
+         * SurfaceView/OpenGL apps and custom-rendered boards often expose one
+         * giant Accessibility "clickable" surface covering most or all of the
+         * display. Center-snapping that container silently moves a correct dice/
+         * piece coordinate toward the middle of the board. Keep the model's
+         * fresh pixel coordinate unchanged unless it explicitly supplied a
+         * semantic targetId.
+         */
+        if (issuedMode == AiInteractionMode.DYNAMIC_CANVAS) return true
+
         val tapX = x * width
         val tapY = y * height
+        val displayArea = width.toLong() * height.toLong()
         val clickable = ui.nodes.asSequence()
-            .filter { node -> node.enabled && node.clickable && node.area > 0L }
+            .filter { node ->
+                node.enabled && node.clickable && node.area > 0L &&
+                    node.area < displayArea / 3L
+            }
             .toList()
 
-        // Keep raw coordinate taps as the universal fallback for canvases and
-        // custom views. If Accessibility exposes a stable clickable target that
-        // already contains the request, center inside the smallest enabled node.
+        // Semantic snapping is intentionally limited to bounded controls.
+        // Broad containers/canvases never override the coordinate chosen from pixels.
         val direct = clickable.asSequence()
             .filter { node -> node.contains(tapX, tapY) }
             .minByOrNull { it.area }
@@ -273,10 +292,8 @@ class AiObservationEngine internal constructor(
          * so the fresh-pixel/semantic validation can fail closed instead of
          * guessing which control the model meant.
          */
-        val displayArea = width.toLong() * height.toLong()
         val nearby = clickable.filter { node ->
-            node.area <= displayArea / 3L &&
-                normalizedDistanceSquaredToNode(x, y, node) <= TAP_NEAR_MISS_RADIUS_SQ
+            normalizedDistanceSquaredToNode(x, y, node) <= TAP_NEAR_MISS_RADIUS_SQ
         }
         if (nearby.size == 1) {
             centerTap(args, nearby.single())
