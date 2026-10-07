@@ -230,6 +230,62 @@ def wait_any_text(serial, options, timeout=45):
         timeout,
     )
 
+def dismiss_auto_share_chooser(serial, timeout=12):
+    """
+    beginShare() automatically launches ACTION_SEND after showing the code.
+    Dismiss only the external resolver; never press BACK once Aaris Remote is
+    foreground because the app's own share dialog owns the live ticket.
+    """
+    resolver_packages = {
+        "com.android.intentresolver",
+        "com.google.android.intentresolver",
+    }
+    deadline = time.time() + timeout
+    saw_resolver = False
+
+    while time.time() < deadline:
+        xml = ui_xml(serial)
+        packages = {
+            n.attrib.get("package", "")
+            for n in parse_nodes(xml)
+        }
+        if packages.intersection(resolver_packages):
+            saw_resolver = True
+            shell(
+                serial,
+                "input",
+                "keyevent",
+                "KEYCODE_BACK",
+                check=False,
+            )
+            time.sleep(0.5)
+            continue
+
+        if saw_resolver:
+            wait_text(
+                serial,
+                "Share this code",
+                timeout=5,
+                contains=True,
+            )
+            return
+        time.sleep(0.25)
+
+    if saw_resolver:
+        raise RuntimeError(
+            "Android share chooser did not return to Aaris Remote"
+        )
+
+    # If the system chooser was too brief for UIAutomator to observe, verify
+    # that the host is already back on the production code dialog.
+    wait_text(
+        serial,
+        "Share this code",
+        timeout=5,
+        contains=True,
+    )
+
+
 def extract_pairing_code(serial, timeout=35):
     deadline = time.time() + timeout
     last = ""
@@ -653,6 +709,7 @@ def pair(host, controller, out_dir):
     click_text(host, "Share", timeout=20)
     code = extract_pairing_code(host, timeout=40)
     (out_dir / "pairing_code_redacted.txt").write_text("pairing succeeded\n")
+    dismiss_auto_share_chooser(host, timeout=12)
 
     # Do not press SEND in the automated media-path test. We already read the
     # one-time code from the real production Share dialog; opening Android's
