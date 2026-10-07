@@ -299,6 +299,18 @@ def pair(host, controller, out_dir):
     code = extract_pairing_code(host, timeout=40)
     (out_dir / "pairing_code_redacted.txt").write_text("pairing succeeded\n")
 
+    # MainActivity intentionally opens Android's ACTION_SEND chooser so a real
+    # user can share the one-time code. The E2E driver reads the code from that
+    # real system sheet, then returns to Aaris Remote before the controller joins;
+    # otherwise the later host approval dialog is hidden behind the chooser.
+    if any(
+        node.attrib.get("package") == "android"
+        and "share" in node_text(node).lower()
+        for node in parse_nodes(ui_xml(host))
+    ):
+        shell(host, "input", "keyevent", "KEYCODE_BACK")
+        wait_text(host, "Aaris Remote", timeout=15)
+
     click_text(controller, "Connect", timeout=20)
     wait_text(controller, "12-digit one-time code", timeout=20)
     shell(controller, "input", "text", code)
