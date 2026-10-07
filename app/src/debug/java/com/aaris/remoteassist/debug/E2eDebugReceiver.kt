@@ -74,7 +74,7 @@ class E2eDebugReceiver : BroadcastReceiver() {
             } ?: "-"
 
         val qd =
-            hostSession
+            sessionId
                 ?.let(ConnectionFlightRecorder::snapshot)
                 .orEmpty()
 
