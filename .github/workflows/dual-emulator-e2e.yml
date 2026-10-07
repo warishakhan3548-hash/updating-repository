@@ -46,12 +46,12 @@ jobs:
           sudo chmod 666 /dev/kvm
           ls -l /dev/kvm
 
-      - name: Install Android test-device image
+      - name: Install Android full graphics image
         shell: bash
         run: |
           set -euo pipefail
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager             "platform-tools"             "emulator"             "platforms;android-36"             "system-images;android-35;aosp_atd;x86_64"
+          sdkmanager             "platform-tools"             "emulator"             "platforms;android-36"             "system-images;android-35;google_apis;x86_64"
 
       - name: Build exact debug APK under test
         run: gradle :app:assembleDebug --stacktrace
@@ -60,8 +60,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "no" | avdmanager create avd             -n aaris_host             -k "system-images;android-35;aosp_atd;x86_64"             --device "pixel_6"             --force
-          echo "no" | avdmanager create avd             -n aaris_controller             -k "system-images;android-35;aosp_atd;x86_64"             --device "pixel_6"             --force
+          echo "no" | avdmanager create avd             -n aaris_host             -k "system-images;android-35;google_apis;x86_64"             --device "pixel_6"             --force
+          echo "no" | avdmanager create avd             -n aaris_controller             -k "system-images;android-35;google_apis;x86_64"             --device "pixel_6"             --force
 
           cat >> "$HOME/.android/avd/aaris_host.avd/config.ini" <<'EOF'
           hw.ramSize=2048
