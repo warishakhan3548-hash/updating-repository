@@ -446,7 +446,12 @@ class HostWebRtcSession(
             )
         peer.addLocalVideoTrack(
             track = capture.videoTrack,
-            maxBitrateBps = profile.maxVideoBitrateBps,
+            maxBitrateBps =
+                mediaController.bitrateCeiling(
+                    profile = profile,
+                    deviceFpsLimit = deviceFpsLimit,
+                    displayRefreshRateHz = controllerRefreshRateHz
+                ),
             maxFramerate = initialEffective.fps,
             preserveResolution =
                 initialVideoPolicy.preserveResolution,
@@ -1193,8 +1198,17 @@ class HostWebRtcSession(
                     peer = createPeer()
                     val effective = effectiveCaptureProfile(profile)
                     val policy = InteractiveVideoPolicy.forState(profile.tier, false)
-                    peer.addLocalVideoTrack(capture.videoTrack, profile.maxVideoBitrateBps, effective.fps,
-                        policy.preserveResolution, policy.motionPriority)
+                    peer.addLocalVideoTrack(
+                        capture.videoTrack,
+                        mediaController.bitrateCeiling(
+                            profile = profile,
+                            deviceFpsLimit = deviceFpsLimit,
+                            displayRefreshRateHz = controllerRefreshRateHz
+                        ),
+                        effective.fps,
+                        policy.preserveResolution,
+                        policy.motionPriority
+                    )
                     peer.start()
                 }
                 displayHandler.post {
