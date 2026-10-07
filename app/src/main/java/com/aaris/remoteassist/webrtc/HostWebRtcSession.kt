@@ -826,44 +826,19 @@ class HostWebRtcSession(
                         sessionId,
                         current.leaseSecret,
                         current.displayGeneration
-                    ) &&
+                    )
+                ) {
+                    /*
+                     * Presentation feedback is evidence only. It is consumed by
+                     * the next unified media sample with sender/network/decoder
+                     * state; it never owns an independent FPS brake.
+                     */
                     receiverFeedback.accept(
                         packet,
                         current.leaseSecret,
                         current.displayGeneration,
                         now
                     )
-                ) {
-                    /*
-                     * EGL cadence is already reported every ~500 ms, sooner than
-                     * the outbound getStats() loop. During active control, use
-                     * that fresh proof-of-glass only as an emergency downshift
-                     * signal so a 60 Hz stream cannot spend another stats cycle
-                     * accumulating obsolete frames on the controller.
-                     *
-                     * This never promotes FPS or estimates bandwidth. The normal
-                     * sender/receiver/GCC telemetry path remains the authority
-                     * for recovery and stronger congestion decisions.
-                     */
-                    val requestedFps =
-                        effectiveCaptureProfile(profile).fps
-                    if (
-                        cadenceGovernor.observeFastPresentation(
-                            intervalMs = packet.intervalMs,
-                            renderedFrames = packet.renderedFrames,
-                            maxGapMs = packet.maxGapMs,
-                            requestedFps = requestedFps,
-                            interactionActive = interactionActive,
-                            nowMs = now
-                        )
-                    ) {
-                        applyVideoPolicy(profile)
-                        listener.onDiagnostic(
-                            "Controller glass hitch → " +
-                                cadenceGovernor.cap +
-                                "fps fast freshness relief"
-                        )
-                    }
                 }
             }
             is ControlPacket.PresentationHeartbeat -> policyHandler.post {
