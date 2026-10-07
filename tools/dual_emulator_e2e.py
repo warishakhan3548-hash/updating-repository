@@ -7,6 +7,9 @@ import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+import json
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 PKG = "com.aaris.remoteassist"
@@ -160,6 +163,7 @@ def dump_metrics(serial, label, out_dir, prefix="host"):
     shell(
         serial,
         "am", "broadcast",
+        "-n", f"{PKG}/.debug.E2eDebugReceiver",
         "-a", DUMP_ACTION,
         "--es", "label", label,
         check=False,
@@ -178,6 +182,93 @@ def dump_metrics(serial, label, out_dir, prefix="host"):
             return local
         time.sleep(0.4)
     return local
+
+def read_pref_map(serial, pref_name):
+    result = shell(
+        serial,
+        "run-as", PKG,
+        "cat", f"shared_prefs/{pref_name}.xml",
+        check=False,
+        timeout=15,
+    )
+    raw = result.stdout or ""
+    if result.returncode != 0 or "<map" not in raw:
+        return {}
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError:
+        return {}
+    values = {}
+    for child in root:
+        name = child.attrib.get("name")
+        if not name:
+            continue
+        if child.tag == "string":
+            values[name] = child.text or ""
+        else:
+            values[name] = child.attrib.get("value", "")
+    return values
+
+def backend_checkpoint(serial, side, out_dir):
+    setup = read_pref_map(serial, "setup")
+    sessions = read_pref_map(serial, "cloudflare_sessions")
+    session_id = (
+        setup.get("active_host_session")
+        or setup.get("pending_controller_session")
+    )
+    token = (
+        sessions.get(f"token_{session_id}")
+        if session_id
+        else None
+    )
+    backend_state = "-"
+    backend_error = "-"
+    if session_id and token:
+        request = urllib.request.Request(
+            f"https://aaris-remote-ice.aaris-remote-wk3548.workers.dev/v1/sessions/{session_id}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+                "Cache-Control": "no-store",
+            },
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=12) as response:
+                root = json.loads(response.read().decode("utf-8"))
+                backend_state = (
+                    root.get("session", {}).get("state", "-")
+                )
+        except Exception as error:
+            backend_error = (
+                f"{type(error).__name__}:{error}"
+            )[:220]
+
+    local_xml = ui_xml(serial)
+    visible = " | ".join(
+        node_text(node)
+        for node in parse_nodes(local_xml)
+        if node_text(node)
+    )[:1200]
+
+    path = out_dir / f"{side}-backend-checkpoint.txt"
+    path.write_text(
+        "\n".join([
+            f"side={side}",
+            f"has_session={bool(session_id)}",
+            f"has_token={bool(token)}",
+            f"backend_state={backend_state}",
+            f"backend_error={backend_error}",
+            f"visible_ui={visible}",
+            "",
+        ])
+    )
+    return {
+        "session_id": session_id,
+        "has_token": bool(token),
+        "backend_state": backend_state,
+        "backend_error": backend_error,
+    }
 
 def screenshot(serial, path):
     with open(path, "wb") as f:
@@ -340,6 +431,22 @@ def pair(host, controller, out_dir):
     wait_text(controller, "Code verified", timeout=25)
     dump_metrics(host, "post_redeem", out_dir, prefix="host")
     dump_metrics(controller, "post_redeem", out_dir, prefix="controller")
+    host_checkpoint = backend_checkpoint(
+        host, "host", out_dir
+    )
+    controller_checkpoint = backend_checkpoint(
+        controller, "controller", out_dir
+    )
+    if controller_checkpoint["backend_state"] != "PAIR_PENDING":
+        raise RuntimeError(
+            "controller redeem did not reach PAIR_PENDING: " +
+            str(controller_checkpoint)
+        )
+    if host_checkpoint["backend_state"] != "PAIR_PENDING":
+        raise RuntimeError(
+            "host token does not observe PAIR_PENDING: " +
+            str(host_checkpoint)
+        )
 
     wait_text(host, "Start remote support?", timeout=40)
     click_text(host, "START", timeout=15)
