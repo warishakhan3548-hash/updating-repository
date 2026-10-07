@@ -45,9 +45,9 @@ jobs:
 
           sudo chmod 666 /dev/kvm || true
 
-          nohup emulator @aaris-host             -port 5554             -no-window             -no-audio             -no-boot-anim             -no-snapshot             -gpu swiftshader_indirect             -accel on             -memory 1024             -cores 1             > host-emulator.log 2>&1 &
+          nohup "$ANDROID_SDK_ROOT/emulator/emulator" @aaris-host             -port 5554             -no-window             -no-audio             -no-boot-anim             -no-snapshot             -gpu swiftshader_indirect             -accel on             -memory 1024             -cores 1             > host-emulator.log 2>&1 &
 
-          nohup emulator @aaris-controller             -port 5556             -no-window             -no-audio             -no-boot-anim             -no-snapshot             -gpu swiftshader_indirect             -accel on             -memory 1024             -cores 1             > controller-emulator.log 2>&1 &
+          nohup "$ANDROID_SDK_ROOT/emulator/emulator" @aaris-controller             -port 5556             -no-window             -no-audio             -no-boot-anim             -no-snapshot             -gpu swiftshader_indirect             -accel on             -memory 1024             -cores 1             > controller-emulator.log 2>&1 &
 
           wait_boot() {
             serial="$1"
