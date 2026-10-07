@@ -39,10 +39,48 @@ def adb(serial, *args, check=True, timeout=30):
 def shell(serial, *args, check=True, timeout=30):
     return adb(serial, "shell", *args, check=check, timeout=timeout)
 
-def ui_xml(serial):
-    shell(serial, "uiautomator", "dump", "/sdcard/aaris-ui.xml", check=False, timeout=20)
-    p = shell(serial, "cat", "/sdcard/aaris-ui.xml", check=False)
+def raw_ui_xml(serial):
+    shell(
+        serial,
+        "uiautomator", "dump", "/sdcard/aaris-ui.xml",
+        check=False,
+        timeout=20,
+    )
+    p = shell(
+        serial,
+        "cat", "/sdcard/aaris-ui.xml",
+        check=False,
+    )
     return p.stdout or ""
+
+def ui_xml(serial):
+    raw = raw_ui_xml(serial)
+
+    # Hosted emulators can occasionally surface an ANR for the launcher/System
+    # UI while our app itself is healthy. Treat "Wait" as infrastructure
+    # recovery, never "Close app"; then re-read the foreground UI. Physical
+    # app ANRs are still visible in logcat/artifacts and are not auto-dismissed
+    # unless the dialog belongs to package=android.
+    if "isn't responding" in raw and 'package="android"' in raw:
+        try:
+            root = ET.fromstring(raw)
+            for node in root.iter("node"):
+                if (
+                    node.attrib.get("text", "").strip().lower() == "wait"
+                    and node.attrib.get("package", "") == "android"
+                ):
+                    center = bounds_center(node.attrib.get("bounds"))
+                    if center:
+                        shell(
+                            serial, "input", "tap",
+                            str(center[0]), str(center[1]),
+                            check=False,
+                        )
+                        time.sleep(0.8)
+                        return raw_ui_xml(serial)
+        except ET.ParseError:
+            pass
+    return raw
 
 def parse_nodes(xml_text):
     try:
