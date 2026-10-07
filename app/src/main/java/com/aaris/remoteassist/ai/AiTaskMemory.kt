@@ -215,16 +215,38 @@ class AiTaskMemory {
 }
 
 object AiInteractionClassifier {
-    fun classify(ui: AiUiSnapshot, settled: Boolean): AiInteractionMode {
-        val enabledActionable = ui.nodes.count { it.enabled && (it.clickable || it.editable) }
-        val hasEditable = ui.nodes.any { it.enabled && it.editable }
+    fun classify(
+        ui: AiUiSnapshot,
+        settled: Boolean,
+        displayWidthPx: Int = 0,
+        displayHeightPx: Int = 0
+    ): AiInteractionMode {
+        val actionable = ui.nodes.filter { it.enabled && (it.clickable || it.editable) }
+        val enabledActionable = actionable.size
+        val hasEditable = actionable.any { it.editable }
         if (hasEditable) return AiInteractionMode.STRICT
 
-        // Canvas/OpenGL/custom-rendered UIs commonly expose almost no useful
-        // Accessibility semantics. Treat an animating low-semantics screen as a
-        // dynamic surface so target-local animation does not invalidate every
-        // otherwise safe gesture.
-        if ((!settled && enabledActionable <= 2) || (ui.nodes.size <= 2 && enabledActionable == 0)) {
+        /*
+         * Canvas/OpenGL/custom-rendered UIs commonly expose either no useful
+         * Accessibility semantics or one giant clickable surface. A settled
+         * game board with one full-screen node is still a dynamic canvas; treating
+         * it as ordinary semantic UI makes animation around a dice/piece reject a
+         * perfectly valid coordinate tap and can also invite container snapping.
+         */
+        val displayArea =
+            displayWidthPx.toLong().coerceAtLeast(0L) *
+                displayHeightPx.toLong().coerceAtLeast(0L)
+        val broadSurfaceOnly =
+            displayArea > 0L &&
+                ui.nodes.size <= 4 &&
+                actionable.isNotEmpty() &&
+                actionable.all { node -> node.area >= displayArea / 3L }
+
+        if (
+            (!settled && enabledActionable <= 2) ||
+            (ui.nodes.size <= 2 && enabledActionable == 0) ||
+            broadSurfaceOnly
+        ) {
             return AiInteractionMode.DYNAMIC_CANVAS
         }
         return AiInteractionMode.INTERACTIVE
