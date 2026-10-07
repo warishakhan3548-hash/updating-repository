@@ -303,13 +303,22 @@ def pair(host, controller, out_dir):
     # user can share the one-time code. The E2E driver reads the code from that
     # real system sheet, then returns to Aaris Remote before the controller joins;
     # otherwise the later host approval dialog is hidden behind the chooser.
-    if any(
-        node.attrib.get("package") == "android"
-        and "share" in node_text(node).lower()
-        for node in parse_nodes(ui_xml(host))
-    ):
-        shell(host, "input", "keyevent", "KEYCODE_BACK")
-        wait_text(host, "Aaris Remote", timeout=15)
+    chooser_packages = {
+        "com.android.intentresolver",
+        "com.google.android.intentresolver",
+    }
+    chooser_deadline = time.time() + 8
+    while time.time() < chooser_deadline:
+        nodes = parse_nodes(ui_xml(host))
+        packages = {
+            node.attrib.get("package", "")
+            for node in nodes
+        }
+        if packages.intersection(chooser_packages):
+            shell(host, "input", "keyevent", "KEYCODE_BACK")
+            wait_text(host, "Aaris Remote", timeout=15)
+            break
+        time.sleep(0.25)
 
     click_text(controller, "Connect", timeout=20)
     wait_text(controller, "12-digit one-time code", timeout=20)
