@@ -798,20 +798,26 @@ def pair(host, controller, out_dir):
     wait_text(host, "Start remote support?", timeout=45)
     click_text(host, "START", timeout=15)
 
-    # MediaProjection is a system dialog. Use an exact clickable button match:
-    # a fuzzy "Start" search can hit the non-clickable title
-    # "Start recording or casting?" and leave consent pending forever.
-    wait_text(host, "Start recording or casting?", timeout=30)
+    # MediaProjection wording varies by Android image:
+    #   AOSP/older: "Start recording or casting?" + "START NOW"
+    #   Google API 35: "Start recording or casting with Aaris Remote?" + "Start"
+    # Target the SystemUI positive button resource-id first, not English text.
+    wait_text(host, "Start recording or casting", timeout=30)
     projection_button = find_node(
         host,
         lambda n:
-            n.attrib.get("class") == "android.widget.Button"
+            n.attrib.get("package") == "com.android.systemui"
+            and n.attrib.get("class") == "android.widget.Button"
             and n.attrib.get("clickable") == "true"
-            and node_text(n).strip().lower() in {
-                "start now",
-                "share screen",
-                "start sharing",
-            },
+            and (
+                n.attrib.get("resource-id") == "android:id/button1"
+                or node_text(n).strip().lower() in {
+                    "start",
+                    "start now",
+                    "share screen",
+                    "start sharing",
+                }
+            ),
         timeout=30,
     )
     projection_center = bounds_center(
