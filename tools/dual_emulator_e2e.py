@@ -137,22 +137,74 @@ def click_text(serial, text, timeout=30, contains=False):
     return center
 
 def click_first_text(serial, options, timeout=30):
+    """
+    Click an actual actionable control, never a title/message that merely
+    contains the same word.
+
+    MediaProjection dialogs contain both:
+      title  = "Start recording or casting?"
+      button = "START NOW"
+    A naive substring match on "Start" taps the title and silently leaves the
+    consent dialog open. Prefer clickable exact matches first, then clickable
+    contains matches as a last resort.
+    """
     lowers = [x.lower() for x in options]
-    node = find_node(
-        serial,
-        lambda n: any(
-            candidate == value.lower()
-            or candidate in value.lower()
-            for candidate in lowers
-            for value in node_values(n)
-        ),
-        timeout,
+    deadline = time.time() + timeout
+    last = ""
+
+    while time.time() < deadline:
+        last = ui_xml(serial)
+        nodes = parse_nodes(last)
+
+        def clickable(node):
+            return node.attrib.get("clickable", "").lower() == "true"
+
+        selected = None
+
+        for candidate in lowers:
+            for node in nodes:
+                if not clickable(node):
+                    continue
+                values = [value.lower() for value in node_values(node)]
+                if candidate in values:
+                    selected = node
+                    break
+            if selected is not None:
+                break
+
+        if selected is None:
+            for candidate in lowers:
+                for node in nodes:
+                    if not clickable(node):
+                        continue
+                    values = [value.lower() for value in node_values(node)]
+                    if any(candidate in value for value in values):
+                        selected = node
+                        break
+                if selected is not None:
+                    break
+
+        if selected is not None:
+            center = bounds_center(selected.attrib.get("bounds"))
+            if not center:
+                raise RuntimeError(
+                    f"clickable node has no bounds: {selected.attrib}"
+                )
+            shell(
+                serial,
+                "input",
+                "tap",
+                str(center[0]),
+                str(center[1]),
+            )
+            return node_text(selected)
+
+        time.sleep(0.35)
+
+    raise RuntimeError(
+        f"clickable UI option not found on {serial}; last UI:\n"
+        f"{last[-12000:]}"
     )
-    center = bounds_center(node.attrib.get("bounds"))
-    if not center:
-        raise RuntimeError(f"node has no bounds: {node.attrib}")
-    shell(serial, "input", "tap", str(center[0]), str(center[1]))
-    return node_text(node)
 
 def wait_text(serial, text, timeout=45, contains=True):
     target = text.lower()
