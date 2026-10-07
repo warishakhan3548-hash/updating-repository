@@ -140,6 +140,71 @@ class AiObservationEngineTest {
         assertTrue(validation.stillValid())
     }
 
+    @Test fun settledBroadClickableGameSurfaceKeepsVisionTapCoordinate() = runBlocking {
+        val gameSurface = AiUiNode(
+            "game-surface", "SurfaceView", "",
+            0, 0, 120, 240,
+            true, false, false, true
+        )
+        ui = AiUiSnapshot(
+            "game.app",
+            JSONArray(),
+            emptyList(),
+            false,
+            false,
+            9,
+            listOf(gameSurface)
+        )
+
+        val observed = engine.observe()
+        assertEquals("dynamic_canvas", observed.getString("interactionMode"))
+
+        val args = action(observed)
+            .put("x", 0.23)
+            .put("y", 0.31)
+        val validation = engine.validate(args)
+
+        assertNull(validation.error)
+        assertEquals(0.23, args.getDouble("x"), 0.0001)
+        assertEquals(0.31, args.getDouble("y"), 0.0001)
+        assertTrue(validation.stillValid())
+    }
+
+    @Test fun broadClickableContainerNeverRecentersCoordinateTap() = runBlocking {
+        val root = AiUiNode(
+            "root", "View", "",
+            0, 0, 120, 240,
+            true, false, false, true
+        )
+        val labels = listOf(
+            AiUiNode("", "TextView", "A", 0, 0, 20, 20, false, false, false, true),
+            AiUiNode("", "TextView", "B", 25, 0, 45, 20, false, false, false, true),
+            AiUiNode("", "TextView", "C", 50, 0, 70, 20, false, false, false, true),
+            AiUiNode("", "TextView", "D", 75, 0, 95, 20, false, false, false, true)
+        )
+        ui = AiUiSnapshot(
+            "custom.app",
+            JSONArray(),
+            emptyList(),
+            false,
+            false,
+            11,
+            listOf(root) + labels
+        )
+
+        val observed = engine.observe()
+        assertEquals("interactive", observed.getString("interactionMode"))
+
+        val args = action(observed)
+            .put("x", 0.26)
+            .put("y", 0.72)
+        val validation = engine.validate(args)
+
+        assertNull(validation.error)
+        assertEquals(0.26, args.getDouble("x"), 0.0001)
+        assertEquals(0.72, args.getDouble("y"), 0.0001)
+    }
+
     @Test fun privacyContextChangingDuringCaptureNeverReturnsUnmaskedImage() = runBlocking {
         onFrame = { ui = ui!!.copy(masks = listOf(Rect(0, 0, (++clock % 100).toInt(), 120))) }
         val observed = engine.observe()
