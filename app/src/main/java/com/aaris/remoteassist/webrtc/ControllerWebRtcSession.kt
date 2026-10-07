@@ -140,6 +140,13 @@ class ControllerWebRtcSession(
 
     fun remoteGeometry(): RemoteGeometry? = geometry
 
+    /**
+     * Re-resolve the receiver that WebRTC actually negotiated and replay it to
+     * the runtime/UI. Used when a viewer attaches after signaling already ran.
+     */
+    fun refreshRemoteVideoTrack(): Boolean =
+        peer.refreshRemoteVideoTrack()
+
     fun confirmPrimaryVideoRendered(): Boolean {
         if (closed.get()) return false
         val lease = leaseSecret ?: return false
