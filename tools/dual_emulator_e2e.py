@@ -553,17 +553,62 @@ def pair(host, controller, out_dir):
     wait_text(host, "Start remote support?", timeout=45)
     click_text(host, "START", timeout=15)
 
-    # API 33 MediaProjection prompt. Text differs slightly by image/vendor.
-    try:
-        wait_text(host, "recording or casting", timeout=25)
-    except Exception:
-        # Some images phrase this as "start sharing/recording".
-        pass
-    click_first_text(
+    # MediaProjection is a system dialog. Use an exact clickable button match:
+    # a fuzzy "Start" search can hit the non-clickable title
+    # "Start recording or casting?" and leave consent pending forever.
+    wait_text(host, "Start recording or casting?", timeout=30)
+    projection_button = find_node(
         host,
-        ["Start now", "START NOW", "Share", "Start"],
+        lambda n:
+            n.attrib.get("class") == "android.widget.Button"
+            and n.attrib.get("clickable") == "true"
+            and node_text(n).strip().lower() in {
+                "start now",
+                "share screen",
+                "start sharing",
+            },
         timeout=30,
     )
+    projection_center = bounds_center(
+        projection_button.attrib.get("bounds")
+    )
+    if not projection_center:
+        raise RuntimeError(
+            "MediaProjection consent button has no bounds"
+        )
+    shell(
+        host,
+        "input",
+        "tap",
+        str(projection_center[0]),
+        str(projection_center[1]),
+    )
+
+    # Do not wait blindly for the controller. First prove Android actually
+    # accepted the projection request on the shared phone.
+    projection_deadline = time.time() + 20
+    projection_active = False
+    while time.time() < projection_deadline:
+        state = shell(
+            host,
+            "dumpsys",
+            "media_projection",
+            check=False,
+            timeout=10,
+        ).stdout or ""
+        if (
+            "Media Projection:" in state
+            and "null" not in state.split(
+                "Media Projection:", 1
+            )[1][:80].lower()
+        ):
+            projection_active = True
+            break
+        time.sleep(0.5)
+    if not projection_active:
+        raise RuntimeError(
+            "MediaProjection consent was tapped but projection never became active"
+        )
 
     wait_text(controller, "Remote screen open", timeout=65)
     # Give SCTP telemetry/video lanes time to open before exercising motion.
