@@ -684,52 +684,128 @@ class WebRtcPeer(
     }
 
     private fun publishRemoteVideoTrack(
-        track: VideoTrack?
-    ) {
+        track: VideoTrack?,
+        forceNotify: Boolean = false,
+        source: String = "callback"
+    ): Boolean {
         if (
             closed.get() ||
             role != PeerRole.CONTROLLER ||
             track == null
         ) {
-            return
+            return false
         }
 
         track.setEnabled(true)
 
-        if (publishedRemoteVideoTrack === track) {
-            return
+        if (
+            publishedRemoteVideoTrack === track &&
+            !forceNotify
+        ) {
+            return true
         }
 
         publishedRemoteVideoTrack = track
-        listener.onDiagnostic("Remote video track discovered")
+        listener.onDiagnostic(
+            "Remote video track selected • source=" +
+                source +
+                " id=" +
+                track.id()
+        )
         listener.onRemoteVideoTrack(track)
+        return true
     }
 
-    private fun reconcileRemoteVideoTrack() {
+    /**
+     * Resolve the track from the transceiver that WebRTC actually negotiated
+     * to receive media.
+     *
+     * A controller pre-creates one RECV_ONLY transceiver before the remote
+     * offer arrives. Some Unified-Plan implementations can later expose the
+     * live inbound receiver on a different negotiated transceiver while the
+     * pre-created receiver still owns a non-null VideoTrack object. Blindly
+     * preferring that cached object produces the exact failure we observed in
+     * the real two-Android lab: inbound RTP/decoder counters advance while the
+     * EglRenderer sink receives zero frames.
+     */
+    private fun reconcileRemoteVideoTrack(
+        forceNotify: Boolean = false
+    ): Boolean {
         if (
             closed.get() ||
             role != PeerRole.CONTROLLER
         ) {
-            return
+            return false
         }
 
-        val preferred =
-            controllerVideoTransceiver
-                ?.receiver
-                ?.track() as? VideoTrack
-        if (preferred != null) {
-            publishRemoteVideoTrack(preferred)
-            return
+        val negotiated =
+            peerConnection.transceivers
+                .asSequence()
+                .mapNotNull { transceiver ->
+                    val direction =
+                        transceiver.currentDirection
+                    val receiving =
+                        direction ==
+                            RtpTransceiver.RtpTransceiverDirection.RECV_ONLY ||
+                            direction ==
+                            RtpTransceiver.RtpTransceiverDirection.SEND_RECV
+                    if (!receiving) {
+                        return@mapNotNull null
+                    }
+
+                    val track =
+                        transceiver.receiver.track()
+                            as? VideoTrack
+                            ?: return@mapNotNull null
+                    Triple(
+                        transceiver,
+                        direction,
+                        track
+                    )
+                }
+                .firstOrNull()
+
+        if (negotiated != null) {
+            val (_, direction, track) = negotiated
+            return publishRemoteVideoTrack(
+                track = track,
+                forceNotify = forceNotify,
+                source = "negotiated-" +
+                    direction.name.lowercase()
+            )
         }
 
-        peerConnection.transceivers
-            .asSequence()
-            .mapNotNull { transceiver ->
-                transceiver.receiver.track() as? VideoTrack
-            }
-            .firstOrNull()
-            ?.let(::publishRemoteVideoTrack)
+        /*
+         * Before currentDirection is available, keep the previous permissive
+         * fallback so early onTrack/onAddTrack callbacks are not lost.
+         */
+        val fallback =
+            peerConnection.transceivers
+                .asSequence()
+                .mapNotNull { transceiver ->
+                    transceiver.receiver.track()
+                        as? VideoTrack
+                }
+                .firstOrNull()
+                ?: controllerVideoTransceiver
+                    ?.receiver
+                    ?.track() as? VideoTrack
+
+        return publishRemoteVideoTrack(
+            track = fallback,
+            forceNotify = forceNotify,
+            source = "pre-negotiation-fallback"
+        )
     }
+
+    /**
+     * Re-resolve and replay the current negotiated receiver to a newly attached
+     * UI sink. No frame copy or additional media queue is introduced.
+     */
+    fun refreshRemoteVideoTrack(): Boolean =
+        reconcileRemoteVideoTrack(
+            forceNotify = true
+        )
 
     fun requestRemoteRecovery(): Boolean {
         if (
@@ -1221,7 +1297,12 @@ class WebRtcPeer(
         handler.removeCallbacks(initialIceRestart)
         handler.removeCallbacks(bootstrapRecovery)
         handler.removeCallbacks(controllerRelayRefresh)
-        reconcileRemoteVideoTrack()
+        /*
+         * currentDirection is authoritative only after negotiation/transport
+         * settles. Force a replay here so a stale pre-offer VideoTrack cannot
+         * stay bound to the controller renderer.
+         */
+        reconcileRemoteVideoTrack(forceNotify = true)
         videoStatsEpoch.incrementAndGet()
         videoStatsEnabled = true
         scheduleVideoStatsProbe(
