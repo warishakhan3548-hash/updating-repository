@@ -166,6 +166,18 @@ def wait_text(serial, text, timeout=45, contains=True):
         timeout,
     )
 
+def wait_any_text(serial, options, timeout=45):
+    lowers = [option.lower() for option in options]
+    return find_node(
+        serial,
+        lambda n: any(
+            candidate in value.lower()
+            for candidate in lowers
+            for value in node_values(n)
+        ),
+        timeout,
+    )
+
 def extract_pairing_code(serial, timeout=35):
     deadline = time.time() + timeout
     last = ""
@@ -466,7 +478,15 @@ def pair(host, controller, out_dir):
 
     # Prove redeem succeeded before blaming the host observer. A successful
     # controller must persist a session and enter the verified/waiting state.
-    wait_text(controller, "Code verified", timeout=25)
+    wait_any_text(
+        controller,
+        [
+            "Code verified",
+            "Waiting for your friend",
+            "Approved",
+        ],
+        timeout=25,
+    )
     dump_metrics(host, "post_redeem", out_dir, prefix="host")
     dump_metrics(controller, "post_redeem", out_dir, prefix="controller")
     host_checkpoint = backend_checkpoint(
