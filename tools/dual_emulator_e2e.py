@@ -905,6 +905,15 @@ def pair(host, controller, out_dir):
         )
         lowered = visible.lower()
 
+        # MainActivity's "Remote screen open" state is itself a production
+        # signal: it is driven only after the controller session is live and the
+        # remote renderer has been attached. Keep this as an independent proof
+        # alongside CONNECTED+HELLO so flight-recorder ring/timing cannot create
+        # a false negative.
+        if "remote screen open" in lowered:
+            transport_live = True
+            break
+
         if "session ended" in lowered:
             dump_metrics(
                 host,
