@@ -233,8 +233,21 @@ def wait_any_text(serial, options, timeout=45):
 def dismiss_auto_share_chooser(serial, timeout=12):
     """
     beginShare() automatically launches ACTION_SEND after showing the code.
-    Dismiss only the external resolver; never press BACK once Aaris Remote is
-    foreground because the app's own share dialog owns the live ticket.
+
+    Android's full Google chooser can consume BACK as "collapse sheet" instead
+    of "finish resolver", and a short transition can fool UIAutomator into
+    thinking the app is foreground before the chooser expands again.
+
+    The deterministic E2E action is therefore:
+      1) observe the real production resolver,
+      2) request BACK,
+      3) reorder the existing singleTop MainActivity to the foreground,
+      4) verify the *same live* "Share this code" dialog still exists.
+
+    Reordering does not force-stop the app and does not cancel/replace the host
+    ticket, so pairing state remains production-real while the unrelated choice
+    of which external app to send the invite through is removed from the media
+    benchmark.
     """
     resolver_packages = {
         "com.android.intentresolver",
@@ -258,31 +271,52 @@ def dismiss_auto_share_chooser(serial, timeout=12):
                 "KEYCODE_BACK",
                 check=False,
             )
-            time.sleep(0.5)
-            continue
+            time.sleep(0.35)
+            # FLAG_ACTIVITY_REORDER_TO_FRONT: bring the existing MainActivity
+            # instance above the chooser without creating/clearing the session.
+            shell(
+                serial,
+                "am",
+                "start",
+                "-W",
+                "-f",
+                "0x00020000",
+                "-n",
+                MAIN,
+                check=False,
+                timeout=15,
+            )
+            time.sleep(0.45)
 
-        if saw_resolver:
+        try:
             wait_text(
                 serial,
                 "Share this code",
-                timeout=5,
+                timeout=2,
                 contains=True,
             )
-            return
-        time.sleep(0.25)
+            # Require the resolver to stay gone for multiple samples so a
+            # chooser animation cannot create a false success.
+            stable = True
+            for _ in range(3):
+                time.sleep(0.35)
+                packages = {
+                    n.attrib.get("package", "")
+                    for n in parse_nodes(ui_xml(serial))
+                }
+                if packages.intersection(resolver_packages):
+                    stable = False
+                    break
+            if stable:
+                return
+        except Exception:
+            pass
 
-    if saw_resolver:
-        raise RuntimeError(
-            "Android share chooser did not return to Aaris Remote"
-        )
+        time.sleep(0.2)
 
-    # If the system chooser was too brief for UIAutomator to observe, verify
-    # that the host is already back on the production code dialog.
-    wait_text(
-        serial,
-        "Share this code",
-        timeout=5,
-        contains=True,
+    raise RuntimeError(
+        "Android share chooser could not be stably backgrounded " +
+        f"(resolver_seen={saw_resolver})"
     )
 
 
