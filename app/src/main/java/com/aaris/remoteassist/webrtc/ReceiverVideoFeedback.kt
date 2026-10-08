@@ -237,7 +237,23 @@ class ReceiverVideoFeedback {
         return true
     }
 
-    fun consume(secret: Long, generation: Int, nowMs: Long): VideoHealthWindow? {
+    /**
+     * Only take one-use receiver measurements when the sender has completed a
+     * real >=500 ms stats window. An early startup/reconfiguration getStats()
+     * callback has no outbound interval to pair with this evidence; draining it
+     * there would silently discard decoder stalls and EGL gaps before the
+     * adaptation governors could use them.
+     *
+     * Keep pending reports bounded by their existing age limits. This is
+     * control-plane retention only; no video frames are buffered here.
+     */
+    fun consume(
+        secret: Long,
+        generation: Int,
+        nowMs: Long,
+        senderWindowReady: Boolean = true
+    ): VideoHealthWindow? {
+        if (!senderWindowReady) return null
         if (identity != secret to generation) return null
 
         val video = pending?.takeIf { nowMs - receivedAt in 0..MAX_AGE_MS }
