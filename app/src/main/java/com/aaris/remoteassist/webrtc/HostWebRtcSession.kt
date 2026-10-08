@@ -986,6 +986,15 @@ class HostWebRtcSession(
             if (closed.get()) return@post
 
             val now = android.os.SystemClock.elapsedRealtime()
+
+            // A quick getStats() kick may arrive before WebRTC has assembled a
+            // complete outbound delta. Do not drain producer FPS or feed an
+            // empty sender/receiver interval to the freshness governors: that
+            // discards the real motion evidence needed by the next full window
+            // and can reset otherwise healthy EGL promotion history.
+            // Peer identity/codec diagnostics are still handled in WebRtcPeer.
+            if (snapshot.recent == null) return@post
+
             val current = lease
             val receiver =
                 current?.let {
