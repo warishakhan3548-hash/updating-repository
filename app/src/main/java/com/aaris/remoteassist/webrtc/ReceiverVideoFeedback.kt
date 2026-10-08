@@ -131,7 +131,17 @@ class ReceiverVideoFeedback {
          * buffering to the media path: this is a small control-plane window.
          */
         val previous = pending?.takeIf {
-            nowMs - receivedAt in 0L..MAX_AGE_MS
+            /*
+             * A delayed or missing decoder report is not proof that the time
+             * between two reported intervals played smoothly. Merge only
+             * neighboring windows, allowing bounded telemetry callback jitter.
+             * This stays in the control plane; RTP frames are never buffered.
+             */
+            val reportGapMs = nowMs - receivedAt
+            reportGapMs in 0L..minOf(
+                MAX_AGE_MS,
+                incoming.intervalMs.toLong() + VIDEO_REPORT_JITTER_TOLERANCE_MS
+            )
         }
         pending = previous?.let { combineVideoWindows(it, incoming) } ?: incoming
         receivedAt = nowMs
