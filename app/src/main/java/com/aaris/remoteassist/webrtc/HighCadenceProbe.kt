@@ -107,6 +107,9 @@ internal class HighCadenceProbe {
                 ?.takeIf { it > 0L }
         val newPresentationProof =
             freshProof &&
+                // Retained proof never votes twice, even on mixed-version
+                // receivers that do not attach a presentation sequence.
+                receiver?.presentationSampleFresh != false &&
                 (
                     presentationSequence == null ||
                         presentationSequence != lastPresentationSequenceSeen
