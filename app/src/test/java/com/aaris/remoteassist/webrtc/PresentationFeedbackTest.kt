@@ -122,4 +122,55 @@ class PresentationFeedbackTest {
         assertEquals(50.0, merged.presentedFps!!, 0.001)
         assertEquals(140, merged.maxRenderGapMs)
     }
+
+    @Test fun missingCompositorReportsCannotBeFabricatedIntoContinuousFps() {
+        val feedback = ReceiverVideoFeedback()
+        val beforeDrop = ControlPacket.PresentationFeedback(42, 2, 1, 500, 30, 30)
+        val afterDrop = ControlPacket.PresentationFeedback(42, 2, 2, 500, 8, 210)
+
+        assertTrue(feedback.accept(beforeDrop, 42, 2, 100))
+        // A lost telemetry packet or hidden/stalled viewer leaves a 1.3 s
+        // arrival hole. These two measured 500 ms windows are not contiguous.
+        assertTrue(feedback.accept(afterDrop, 42, 2, 1_400))
+
+        val sample = checkNotNull(feedback.consume(42, 2, 1_420))
+        assertEquals(500, sample.presentationIntervalMs)
+        assertEquals(8, sample.presentedFrames)
+        assertEquals(16.0, sample.presentedFps!!, 0.001)
+        assertEquals(210, sample.maxRenderGapMs)
+        assertTrue(sample.presentationSampleFresh)
+        assertEquals(2L, sample.presentationSampleSequence)
+    }
+
+    @Test fun veryOldJankCannotPolluteNewHealthyPresentationEvidence() {
+        val feedback = ReceiverVideoFeedback()
+        val oldJank = ControlPacket.PresentationFeedback(42, 2, 1, 500, 1, 490)
+        val newHealthy = ControlPacket.PresentationFeedback(42, 2, 2, 500, 30, 20)
+
+        assertTrue(feedback.accept(oldJank, 42, 2, 100))
+        assertTrue(feedback.accept(newHealthy, 42, 2, 4_200))
+
+        val sample = checkNotNull(feedback.consume(42, 2, 4_250))
+        assertEquals(500, sample.presentationIntervalMs)
+        assertEquals(30, sample.presentedFrames)
+        assertEquals(60.0, sample.presentedFps!!, 0.001)
+        assertEquals(20, sample.maxRenderGapMs)
+    }
+
+    @Test fun normalArrivalJitterStillAllowsConsecutiveWindowsToAggregate() {
+        val feedback = ReceiverVideoFeedback()
+        val first = ControlPacket.PresentationFeedback(42, 2, 1, 500, 30, 20)
+        val second = ControlPacket.PresentationFeedback(42, 2, 2, 500, 29, 35)
+
+        assertTrue(feedback.accept(first, 42, 2, 100))
+        // 900 ms between receive callbacks is allowed for a 500 ms sample
+        // plus network/scheduler jitter; do not fragment all healthy traffic.
+        assertTrue(feedback.accept(second, 42, 2, 1_000))
+
+        val sample = checkNotNull(feedback.consume(42, 2, 1_050))
+        assertEquals(1_000, sample.presentationIntervalMs)
+        assertEquals(59, sample.presentedFrames)
+        assertEquals(59.0, sample.presentedFps!!, 0.001)
+        assertEquals(35, sample.maxRenderGapMs)
+    }
 }
