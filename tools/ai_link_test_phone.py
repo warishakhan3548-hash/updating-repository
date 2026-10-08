@@ -24,6 +24,8 @@ async def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--state-file', type=Path, required=True)
     parser.add_argument('--seconds', type=int, default=600)
+    parser.add_argument('--stop-after-actions', type=int, default=0,
+        help='Revoke the synthetic session after this many applied actions (0: timer only).')
     args = parser.parse_args()
     base = 'https://aaris-remote-ice.aaris-remote-wk3548.workers.dev'
 
@@ -113,6 +115,10 @@ async def main():
                     break
                 if message.get('kind') != 'agent_request':
                     continue
+                # Match BrowserAgentBridge: queued expired observations must
+                # not claim a newer request that reuses the observe id.
+                if message.get('expiresAtMs', 0) <= time.time() * 1000:
+                    continue
                 request_id = message['requestId']
                 try:
                     await asyncio.to_thread(call, route + '/agent-start', host, {'requestId': request_id})
@@ -155,6 +161,9 @@ async def main():
                     if failure.get('error') != 'REQUEST_EXPIRED_OR_USED':
                         raise
                     print('Expired/replaced fixture request fenced; awaiting a new observation.', flush=True)
+                if args.stop_after_actions > 0 and action_count >= args.stop_after_actions:
+                    print('Synthetic action results: ' + json.dumps(state['actions']), flush=True)
+                    break
     finally:
         try:
             await asyncio.to_thread(call, route + '/close', host, {})
