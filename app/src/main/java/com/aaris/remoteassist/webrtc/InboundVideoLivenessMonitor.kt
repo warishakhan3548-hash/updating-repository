@@ -14,20 +14,24 @@ enum class InboundVideoLivenessAction {
  * deadlines depending on the current stats cadence. Use elapsed time instead,
  * without adding a poll, timer, frame copy, or media queue.
  *
- * Incoming RTP without decoded frames is strong decoder-stall evidence, so it
- * receives a shorter deadline. When neither counter advances, tolerate a much
- * longer network/quiet-screen gap. Alternating packet bursts never inherit a
- * decoder-stall deadline from an earlier unrelated interval.
+ * Incoming RTP without decoder progress is strong stall evidence. Before
+ * the first decoded frame we allow a longer bounded startup/keyframe grace
+ * before requesting recovery; after startup a stalled decoder reacts faster.
+ * When neither counter advances, tolerate a much longer network/quiet-screen
+ * gap. Alternating packet bursts never inherit decoder-stall evidence from
+ * an unrelated interval.
  */
 class InboundVideoLivenessMonitor(
     private val decoderStallMs: Long = 2_500L,
+    private val firstFrameDecodeStallMs: Long = 5_000L,
     private val transportStallMs: Long = 12_000L,
     private val retryCooldownMs: Long = 4_000L,
     private val maxRecoveryAttempts: Int = 2
 ) {
     init {
         require(decoderStallMs >= 1_000L)
-        require(transportStallMs > decoderStallMs)
+        require(firstFrameDecodeStallMs > decoderStallMs)
+        require(transportStallMs > firstFrameDecodeStallMs)
         require(retryCooldownMs >= 1_000L)
         require(maxRecoveryAttempts in 1..4)
     }
@@ -69,6 +73,7 @@ class InboundVideoLivenessMonitor(
             return InboundVideoLivenessAction.NONE
         }
 
+        val sampleGapMs = nowMs - lastSampleAtMs
         val receivedAdvanced = framesReceived > lastFramesReceived
         val decodedAdvanced = framesDecoded > lastFramesDecoded
         lastFramesReceived = framesReceived
@@ -85,11 +90,21 @@ class InboundVideoLivenessMonitor(
             }
         }
 
-        // Do not diagnose a freeze before primary video has ever decoded.
-        if (framesReceived == 0L || framesDecoded == 0L) {
+        // Without any received frame, no decoder exists to diagnose. But RTP
+        // that *continues* to arrive without even one decoded picture is a real
+        // first-frame black-screen failure. The viewer's first-swap watchdog
+        // cannot establish decoder health from the absence of render events.
+        if (framesReceived == 0L) {
             decoderStallSinceMs = null
             transportStallSinceMs = null
             return InboundVideoLivenessAction.NONE
+        }
+
+        // A long stats-report hole does not prove uninterrupted RTP supply.
+        // Require contiguous evidence before diagnosing a first-frame stall.
+        // Idle getStats runs every 1.5s, so 3s allows ordinary scheduling jitter.
+        if (framesDecoded == 0L && sampleGapMs > 3_000L) {
+            decoderStallSinceMs = null
         }
 
         if (receivedAdvanced) {
@@ -103,7 +118,11 @@ class InboundVideoLivenessMonitor(
 
         val stalled =
             if (receivedAdvanced) {
-                decoderStallSinceMs?.let { nowMs - it >= decoderStallMs } == true
+                decoderStallSinceMs?.let {
+                    nowMs - it >=
+                        if (framesDecoded == 0L) firstFrameDecodeStallMs
+                        else decoderStallMs
+                } == true
             } else {
                 transportStallSinceMs?.let { nowMs - it >= transportStallMs } == true
             }
