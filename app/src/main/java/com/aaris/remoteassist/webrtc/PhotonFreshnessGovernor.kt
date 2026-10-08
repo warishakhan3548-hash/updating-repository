@@ -169,6 +169,37 @@ internal class PhotonFreshnessGovernor {
                     ?.let { it >= WATCH_POST_ACK_PRESENT_MS } == true ||
                 packetLoss?.let { it >= WATCH_PACKET_LOSS } == true
 
+        /*
+         * Missing sender fractionLost must not freeze the high-FPS ladder on
+         * WebRTC/OEMs which omit remote-inbound-rtp. Infer a *limited* clean
+         * signal only from an entirely delivered, genuinely new EGL window,
+         * zero decoder drops/freezes, known low RTT and steady source supply.
+         * Invalid or explicitly high loss never invokes the missing-stat path.
+         */
+        val lossCleanWithoutCounter =
+            outbound.packetLossRatio == null &&
+                outbound.roundTripTimeMs?.let {
+                    it in 0..MAX_MISSING_LOSS_RTT_MS
+                } == true &&
+                receiver?.let { measured ->
+                    measured.presentationSampleFresh &&
+                        measured.dropped == 0 &&
+                        measured.freezes == 0 &&
+                        measured.maxRenderGapMs?.let {
+                            it in 0..MAX_MISSING_LOSS_GLASS_GAP_MS
+                        } == true &&
+                        senderFps?.let { supplied ->
+                            supplied >= MIN_MISSING_LOSS_SUPPLY_FPS &&
+                                measured.fps >= minOf(
+                                    supplied,
+                                    targetFps.toDouble()
+                                ) * MIN_MISSING_LOSS_DELIVERY_RATIO
+                        } == true
+                } == true
+        val packetDeliveryClean =
+            packetLoss?.let { it < CLEAN_PACKET_LOSS }
+                ?: lossCleanWithoutCounter
+
         val completeCleanEvidence =
             sender != null &&
                 sender.intervalMs in 500..6000 &&
@@ -181,7 +212,7 @@ internal class PhotonFreshnessGovernor {
                 glassRatio?.let { it >= CLEAN_GLASS_RATIO } == true &&
                 queueMs?.let { it <= CLEAN_QUEUE_MS } == true &&
                 playoutMs?.let { it <= CLEAN_PLAYOUT_MS } == true &&
-                packetLoss?.let { it < CLEAN_PACKET_LOSS } == true &&
+                packetDeliveryClean &&
                 receiver.presentationAgeMs
                     ?.let { it <= CLEAN_PRESENTATION_AGE_MS } != false &&
                 postAckPresent
@@ -267,6 +298,10 @@ internal class PhotonFreshnessGovernor {
         const val PRESSURE_PLAYOUT_MS = 160.0
 
         const val CLEAN_PACKET_LOSS = 0.025
+        const val MAX_MISSING_LOSS_RTT_MS = 300
+        const val MAX_MISSING_LOSS_GLASS_GAP_MS = 70
+        const val MIN_MISSING_LOSS_SUPPLY_FPS = 20.0
+        const val MIN_MISSING_LOSS_DELIVERY_RATIO = 0.92
         const val WATCH_PACKET_LOSS = 0.04
 
         const val CLEAN_PRESENTATION_AGE_MS = 250
