@@ -64,6 +64,16 @@ A useful fluid-tank analogy: input rate must be at least output drain rate in th
 
 This is an **adaptive-observability correction**, not a measured FPS increase. Unit tests cover phase-skew retention, upper bounds/expiry and absent statistics. Do not claim that this change alone resolves a 2 FPS network/capture condition.
 
+## Decoder-feedback continuity correction (follow-up, 2026-10-08)
+
+The native video frame path is unchanged. On the controller, `ControllerWebRtcSession.onVideoHealth` serializes completed decoder-stat deltas as `VideoFeedback` on the best-effort telemetry DataChannel. On the host, `ReceiverVideoFeedback.accept` holds these scalar windows until the next completed outbound sample calls `consume`. `VideoCadenceGovernor`, `MotionVideoBudget`, and `PhotonFreshnessGovernor` then compare sender/receiver health and choose source ceilings.
+
+**Verified code defect:** before this correction, `ReceiverVideoFeedback.accept(VideoFeedback)` merged receiver windows whenever the previous report was less than three seconds old. Unlike the existing `PresentationFeedback` path, it did not check whether the decoder-report arrival spacing matched the incoming measurement interval. A missing 500 ms report could therefore join two non-contiguous intervals and manufacture healthy continuous decoder FPS. This could distort adaptation, although the missing feedback alone does not prove that actual RTP frames were dropped.
+
+**Surgical correction:** reuse the existing one-use decoder aggregation but require the last report arrival to be within `min(3_000 ms, incoming interval + 750 ms)`. The incoming interval is essential: using the growing combined interval would admit unrelated decoder samples. Consecutive reports with ordinary scheduler/network jitter still merge. No new frame buffer, adaptive queue, extra thread, stats poll, RTP setting, codec, or wire format is introduced.
+
+**Regression gate:** `VideoFeedbackTest` asserts that 30 decoded frames in one 500 ms interval followed by a 1.6 s reporting hole and a 3-frame/500 ms interval yields **6 FPS** for the fresh report—not a fabricated 33 FPS average. A 900 ms callback gap for consecutive 500 ms samples must still aggregate normally. These tests verify scalar feedback accounting, not real-device video smoothness.
+
 ## 5. Critical diagnostic decision tree for two physical phones
 
 | Observation from matched 10-minute runs | Likely bottleneck | Safe follow-up |
