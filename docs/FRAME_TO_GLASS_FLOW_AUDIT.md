@@ -310,3 +310,33 @@ render gap, RTP jitter/queue, ICE route and action-to-changed-pixels. A
 unit/CI pass confirms the corrected state transitions but cannot guarantee
 smooth physical playback. Persistent 2 FPS while source/encoder/network
 throughput is inadequate is outside this surgical recovery fix.
+
+
+## Follow-up: presentation telemetry cannot bridge missing compositor time (October 8, 2026)
+
+**Source-level defect:** The controller sends measured EGL cadence over an unordered,
+non-retransmitted telemetry DataChannel. In `ReceiverVideoFeedback.accept(PresentationFeedback)`,
+the pending presentation window was combined with the next packet without
+checking when the preceding packet arrived. If compositor samples were lost
+during a stall/visibility transition, this fabricated contiguous playback from
+two separated intervals. It could retain an obsolete worst render gap or report
+an inflated delivered FPS, misleading the existing cadence governor. The
+decoder feedback path already enforced age bounds; presentation aggregation did not.
+
+**Surgical fix:** Before combining, require the latest measured packet to
+arrive within `incoming.intervalMs + 750 ms` of the preceding received packet,
+also bounded by 3000 ms. If a measured interval is missing, discard the
+unconsumed old presentation window and begin a new measured segment. This
+guard is against missing **telemetry**, not a new video jitter buffer.
+The prior valid sequence/lease checks, EGL rendering, codec negotiation,
+frame timestamps, RTP transport, fallback behavior and independent heartbeat
+remain unchanged. Three regression tests cover normal jitter-tolerant
+aggregation, a lost-interval gap, and an expired bad window.
+
+**Performance claim boundary:** This removes a false sampling signal; it does
+not invent frames and cannot remedy source/encoded FPS dropping to 2 when
+the codec, link capacity or screen producer is the actual bottleneck. The
+physical acceptance gate remains a 10-minute A/B test on identical Android
+devices, measuring source FPS, encoded FPS, decoded FPS, actual EGL swaps,
+p95/max presentation gaps, round trip time, sender queue and touch-to-pixel
+causality. Passing CI is not proof of Google Meet-like responsiveness.
