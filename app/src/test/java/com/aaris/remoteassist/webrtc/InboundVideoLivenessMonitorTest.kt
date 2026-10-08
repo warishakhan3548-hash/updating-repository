@@ -70,6 +70,50 @@ class InboundVideoLivenessMonitorTest {
     }
 
     @Test
+    fun continuousStartupRtpWithZeroDecodedFramesTriggersBoundedRecovery() {
+        val monitor = InboundVideoLivenessMonitor()
+        assertEquals(none, monitor.observe(0, 0, 0))
+        assertEquals(none, monitor.observe(10, 0, 500))
+        assertEquals(none, monitor.observe(40, 0, 2_000))
+        assertEquals(none, monitor.observe(70, 0, 4_000))
+        assertEquals(repair, monitor.observe(90, 0, 5_500))
+        // No additional repair storms after a successful request.
+        assertEquals(none, monitor.observe(95, 0, 6_000))
+        assertEquals(none, monitor.observe(110, 0, 9_499))
+        assertEquals(repair, monitor.observe(120, 0, 9_500))
+        assertEquals(none, monitor.observe(140, 0, 30_000))
+        // Decoder progress is not proof of EGL: wait for glass confirmation.
+        assertEquals(resumed, monitor.observe(145, 5, 30_500))
+        monitor.markPrimaryRecoveredConfirmed()
+        assertEquals(none, monitor.observe(150, 10, 31_000))
+    }
+
+    @Test
+    fun oneStartupRtpBurstCannotFalselyDiagnoseDecoderStall() {
+        val monitor = InboundVideoLivenessMonitor()
+        assertEquals(none, monitor.observe(0, 0, 0))
+        assertEquals(none, monitor.observe(12, 0, 500))
+        // No additional RTP: the decoder's first picture cannot be expected.
+        assertEquals(none, monitor.observe(12, 0, 2_000))
+        assertEquals(none, monitor.observe(12, 0, 9_000))
+        assertEquals(none, monitor.observe(12, 0, 25_000))
+    }
+
+    @Test
+    fun missingStartupStatsWindowMustNotManufactureContinuousRtp() {
+        val monitor = InboundVideoLivenessMonitor()
+        assertEquals(none, monitor.observe(0, 0, 0))
+        assertEquals(none, monitor.observe(5, 0, 500))
+        assertEquals(none, monitor.observe(10, 0, 2_000))
+        // Even growing cumulative counters cannot prove a continuous decoder
+        // stall across a 12-second telemetry outage.
+        assertEquals(none, monitor.observe(90, 0, 14_000))
+        assertEquals(none, monitor.observe(100, 0, 15_500))
+        assertEquals(none, monitor.observe(110, 0, 17_000))
+        assertEquals(repair, monitor.observe(120, 0, 19_000))
+    }
+
+    @Test
     fun decoderResumeNeedsGlassConfirmationAndThenStopsRepeating() {
         val monitor = InboundVideoLivenessMonitor()
         monitor.observe(100, 100, 0)
