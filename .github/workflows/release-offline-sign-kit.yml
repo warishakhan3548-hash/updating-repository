@@ -1,0 +1,62 @@
+name: Unsigned Release for Secure Offline Signing
+
+# This job never receives any keystore, password, or signing secret.
+# Uploading an unsigned release and public Android SDK signing utility
+# permits the owner to sign privately on their own machine.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/release-offline-sign-kit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  assemble-unsigned-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v4
+      - name: Install API 36
+        run: sdkmanager "platforms;android-36"
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "9.6.0"
+      - name: Assemble unsigned release variant
+        run: gradle :app:assembleRelease --stacktrace
+      - name: Prepare unsigned APK and offline signing tool
+        shell: bash
+        run: |
+          set -euo pipefail
+          UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
+          test -s "$UNSIGNED"
+
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          BUILD_TOOLS="$SDK_ROOT/build-tools"
+          ZIPALIGN="$(find "$BUILD_TOOLS" -type f -name zipalign | sort -V | tail -n 1)"
+          APKSIGNER_JAR="$(find "$BUILD_TOOLS" -type f -name apksigner.jar | sort -V | tail -n 1)"
+          test -x "$ZIPALIGN"
+          test -s "$APKSIGNER_JAR"
+
+          mkdir -p offline-signing-kit
+          "$ZIPALIGN" -f 4 "$UNSIGNED" "offline-signing-kit/app-release-aligned-unsigned.apk"
+          "$ZIPALIGN" -c 4 "offline-signing-kit/app-release-aligned-unsigned.apk"
+          cp "$APKSIGNER_JAR" "offline-signing-kit/apksigner.jar"
+          sha256sum offline-signing-kit/* > offline-signing-kit/checksums.sha256
+          ls -lh offline-signing-kit/
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: AarisRemote-unsigned-release-offline-signing
+          path: offline-signing-kit/
+          if-no-files-found: error
+          retention-days: 7
