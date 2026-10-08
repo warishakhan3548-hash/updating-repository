@@ -59,11 +59,11 @@ jobs:
             exit 1
           fi
 
-      - name: Build signed release APK
+      - name: Build signed release APK (CI tests run separately)
         shell: bash
         run: |
           set -euo pipefail
-          gradle :app:testDebugUnitTest :app:lintRelease :app:assembleRelease \
+          gradle :app:assembleRelease \
             -PrequireReleaseSigning=true --stacktrace
 
       - name: Validate, fingerprint, and stage signed APK
