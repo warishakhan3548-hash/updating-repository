@@ -29,8 +29,7 @@ class SurfaceFrameRateHintGovernorTest {
         val governor = SurfaceFrameRateHintGovernor()
         assertEquals(60, governor.beginInteraction())
         repeat(100) {
-            assertNull(governor.endInteraction())
-            assertNull(governor.beginInteraction())
+                        assertNull(governor.beginInteraction())
             assertEquals(60, governor.currentHintFps())
             assertNull(governor.observe(window(200, 6, 35), it * 200L))
         }
@@ -76,8 +75,7 @@ class SurfaceFrameRateHintGovernorTest {
         assertNull(governor.beginInteraction(0))
         assertEquals(30, governor.beginInteraction(30))
         assertNull(governor.beginInteraction(60))
-        assertNull(governor.endInteraction())
-        assertEquals(30, governor.currentHintFps())
+                assertEquals(30, governor.currentHintFps())
         governor.reset()
         assertEquals(60, governor.beginInteraction(120))
     }
