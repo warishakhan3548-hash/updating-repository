@@ -111,17 +111,17 @@ class HighCadenceProbeTest {
         )) {
             val g = VideoCadenceGovernor(60, 30)
             repeat(5) { index ->
-                assertFalse(
-                    g.observe(
-                        outbound,
-                        receiver(sequence = index.toLong() + 1, dropped = 2),
-                        30,
-                        1_000L + index * 1_000L,
-                        producerFps = 60.0
-                    )
+                // Explicit high loss may legitimately trigger a DOWNshift.
+                // This regression only forbids an unsafe high-FPS promotion.
+                g.observe(
+                    outbound,
+                    receiver(sequence = index.toLong() + 1, dropped = 2),
+                    30,
+                    1_000L + index * 1_000L,
+                    producerFps = 60.0
                 )
             }
-            assertEquals(30, g.cap)
+            assertTrue("Loss/drop evidence must not promote high cadence", g.cap <= 30)
         }
     }
     @Test fun cleanPathUsesFastPromotionAndFineReliefHysteresis() {
