@@ -52,6 +52,25 @@ class MotionVideoBudgetTest {
         assertEquals(240, budget.shortEdge)
     }
 
+    @Test fun replacementCodecOrStreamCannotInheritOldPressure() {
+        val budget = MotionVideoBudget()
+        assertTrue(budget.primeForMotion(profile, 0L))
+        val previousStream = sender(fps = 20, encode = 35.0, queue = 5.0)
+            .copy(streamId = "video-old")
+
+        assertFalse(budget.observe(previousStream, null, 30.0, true, 30, 4_000L, true))
+        val replacement = previousStream.copy(streamId = "video-new", codec = "video/H264")
+        // New stream/codec starts with a short native probe; old pressure must
+        // be forgotten before the first new-stream complete sender window.
+        assertFalse(
+            budget.observe(replacement.copy(recent = null), null, 30.0, true, 30, 4_120L, true)
+        )
+        assertFalse(budget.observe(replacement, null, 30.0, true, 30, 5_000L, true))
+        assertEquals(360, budget.shortEdge)
+        assertTrue(budget.observe(replacement, null, 30.0, true, 30, 6_000L, true))
+        assertEquals(240, budget.shortEdge)
+    }
+
     @Test fun newMotionWarmStartsAtThreeSixtyBeforeTelemetryArrives() {
         val budget = MotionVideoBudget()
 
