@@ -217,9 +217,21 @@ internal class HighCadenceProbe {
                 } == true &&
                 outbound.qualityLimitationReason.equals("none", ignoreCase = true) &&
                 outbound.roundTripTimeMs?.let { it in 0..MAX_PROBE_RTT_MS } == true &&
-                outbound.packetLossRatio.valid()?.let {
-                    it < MAX_PROBE_PACKET_LOSS
-                } == true
+                (
+                    // Some WebRTC builds omit remote-inbound fractionLost.
+                    // Do not permanently cap a proven-clean renderer at 30fps
+                    // merely because this OPTIONAL statistic is absent.
+                    // A present high/invalid loss report never gets this exception.
+                    outbound.packetLossRatio.valid()?.let {
+                        it < MAX_PROBE_PACKET_LOSS
+                    } ?: (
+                        outbound.packetLossRatio == null &&
+                            newPresentationProof &&
+                            delivered &&
+                            receiver?.dropped == 0 &&
+                            receiver.freezes == 0
+                        )
+                    ) == true
 
         if (!eligible) {
             if (newPresentationProof || !freshProof || overloaded) {
