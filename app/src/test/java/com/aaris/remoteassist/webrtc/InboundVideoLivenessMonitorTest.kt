@@ -79,7 +79,9 @@ class InboundVideoLivenessMonitorTest {
         assertEquals(repair, monitor.observe(90, 0, 5_500))
         // No additional repair storms after a successful request.
         assertEquals(none, monitor.observe(95, 0, 6_000))
-        assertEquals(none, monitor.observe(110, 0, 9_499))
+        assertEquals(none, monitor.observe(105, 0, 7_500))
+        assertEquals(none, monitor.observe(110, 0, 9_000))
+        assertEquals(none, monitor.observe(115, 0, 9_499))
         assertEquals(repair, monitor.observe(120, 0, 9_500))
         assertEquals(none, monitor.observe(140, 0, 30_000))
         // Decoder progress is not proof of EGL: wait for glass confirmation.
