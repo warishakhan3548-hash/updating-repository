@@ -311,6 +311,53 @@ unit/CI pass confirms the corrected state transitions but cannot guarantee
 smooth physical playback. Persistent 2 FPS while source/encoder/network
 throughput is inadequate is outside this surgical recovery fix.
 
+## RTP stream identity during recovery (October 8, 2026)
+
+### Code and visual intersection
+
+`WebRtcPeer.videoStatsProbe` → `VideoHealthSnapshot.from` →
+`VideoHealthWindowTracker.sample` → `ControllerWebRtcSession.onVideoHealth` /
+`HostWebRtcSession.onVideoHealth` → codec/cadence/pixel governors →
+`ScreenCaptureTrack.update` and `WebRtcPeer.updateInteractiveVideoPolicy`.
+
+When a session replaces a video SSRC, a retired `outbound-rtp` or
+`inbound-rtp` object can still appear in a WebRTC stats report. Counters
+such as `bytesSent` and `bytesReceived` are **lifetime counters**, not
+instantaneous transport throughput. Picking the greatest accumulated bytes
+can select the old stream even if a new video stream is already active.
+The UI can then show apparently frozen/stale stats and the host's adaptation
+loop may optimize against the wrong RTP stream.
+
+**Targeted change:** reject explicitly inactive candidates whenever at least
+one candidate is not marked inactive; prioritize explicitly active candidates;
+use the prior largest-lifetime-bytes choice when the SDK omits activity metadata.
+The stats stream ID still fences interval histories on an actual stream switch.
+No encoder, capture loop, RTP packet, native playout target, extra queue, input
+lane or decoder callback is changed.
+
+### Device trace to diagnose remaining stutter
+
+1. Record concurrent moving-screen 500–1500 ms windows at source, encoder,
+   receiver decoder, and actual controller EGL swaps; also retain the video
+   stats object's stream ID and `active` state across reconnection.
+2. If source FPS is low, inspect MediaProjection producer/thermal/OEM before
+   adding buffering. If source is high but encoded FPS is low, inspect encode
+   service time, hardware implementation and pixel envelope.
+3. If encoded FPS is high but received/decoded FPS is low, inspect bandwidth
+   estimate, send queue, selected ICE candidate route, jitter residence, RTP
+   loss and decode cost. If decoded FPS is high but EGL swaps are low, investigate
+   Surface lifecycle, EGL thread and presentation gap.
+4. A 100–500 ms adaptive jitter buffer trades responsiveness for short-lived
+   network recovery. It cannot reconstruct missing unique frames, and the
+   Android native receiver has no browser-style application target setter in
+   this pinned SDK.
+
+**Tests:** three synthetic RTCStats reports check an active low-byte stream
+against a high-byte retired SSRC; a not-explicitly-inactive stream against an
+inactive one; and the older no-`active` compatibility fallback. Android
+unit/lint/build CI and two physical phones remain required. This fix restores
+stream-identity correctness; it does not by itself establish a higher FPS on
+the user's bandwidth-limited 2 FPS path.
 
 ## Follow-up: presentation telemetry cannot bridge missing compositor time (October 8, 2026)
 
