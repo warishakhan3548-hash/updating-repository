@@ -135,3 +135,38 @@ encoded, decoded and presented FPS, max frame gap, codec service time, encoder
 frame dimensions, send queue and receiver jitter residence. Check especially
 for resolution oscillation or hardware codec reinitialization. No guarantee
 of 60 unique FPS is possible when capture or bandwidth cannot supply it.
+
+
+## Controller display-clock stabilization (October 2026)
+
+Scope: **Android controller Surface scheduling**, not sender RTP or buffering.
+The native controller's `SurfaceFrameRateHintGovernor` was using measured
+*video* FPS (15/20/24/30/45/60) as a target *physical display* hint, then
+overriding that hint to 60 at every finger-down and restoring the lower
+measured rate on every finger-up. Measured decode/presentation FPS is a
+congestion/producer outcome; it is not a safe representation of display
+hardware capacity. Repeated `Surface.setFrameRate` votes may cause display
+refresh transitions and may compound judder during rapid gestures on some
+Android devices. This is a **code-level scheduling risk**, not proof that
+it caused the observed 2 fps bandwidth-limited sessions.
+
+The controller now makes **one 60 Hz-class best-effort Surface vote per
+video stream**, either after three clean EGL presentation windows or at
+the first remote gesture. It does not vote down to the fluctuating network
+video FPS and does not clear/reapply the preference on every finger-up.
+An explicitly lower caller ceiling is respected. Existing video-stop/track
+replacement and recovery lifecycle resets clear the vote; Surface lifecycle
+recreation reapplies the retained vote. `CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS`
+continues to be used where Android supports it. No frame duplication,
+interpolation, extra media queue, altered encoder bitrate, network transport
+or playout buffering is introduced.
+
+Unit tests cover clean-start requirements, passive 24 fps streaming,
+repeated tap/swipe transitions, frozen/stalled windows, bounded caller
+ceiling and stream reset. The patch still requires physical validation:
+capture Android controller display refresh/mode transitions and EGL
+presentation-gap p95/max during ten-minute touch/scroll/video/game
+sessions; compare against the preceding build on identical phones and
+network, including power/thermal effects. If the measured stutter remains
+while source/encoded FPS is low, investigate host codec, source adaptation,
+network bitrate and selected ICE route before increasing jitter buffering.
