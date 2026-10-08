@@ -24,6 +24,7 @@ class AiSnapshotProvider(private val track: ScreenCaptureTrack) : AutoCloseable 
     private data class Pending(val result: CompletableDeferred<AiRawFrame>)
     private val pending = AtomicReference<Pending?>(null)
     private val closed = AtomicBoolean(false)
+    private val conversionInFlight = AtomicBoolean(false)
     private val converter = Executors.newSingleThreadExecutor { task ->
         Thread(task, "AarisAiSnapshotConversion").apply {
             priority = Thread.NORM_PRIORITY - 1
@@ -33,7 +34,12 @@ class AiSnapshotProvider(private val track: ScreenCaptureTrack) : AutoCloseable 
     private val sink = VideoSink { frame ->
         if (closed.get()) return@VideoSink
         val request = pending.get() ?: return@VideoSink
-        if (!pending.compareAndSet(request, null)) return@VideoSink
+        if (!conversionInFlight.compareAndSet(false, true)) return@VideoSink
+        if (!pending.compareAndSet(request, null)) {
+            conversionInFlight.set(false)
+            return@VideoSink
+        }
+        val rotation = frame.rotation
 
         // Never enqueue frame.buffer or the original GPU-backed VideoFrame.
         // toI420() yields an independently owned CPU buffer.
@@ -42,6 +48,7 @@ class AiSnapshotProvider(private val track: ScreenCaptureTrack) : AutoCloseable 
                 ?: throw IllegalStateException("CAPTURE_UNAVAILABLE")
         } catch (error: Throwable) {
             request.result.completeExceptionally(error)
+            conversionInFlight.set(false)
             return@VideoSink
         }
 
@@ -56,7 +63,7 @@ class AiSnapshotProvider(private val track: ScreenCaptureTrack) : AutoCloseable 
                                 FrameImageEncoder.toNv21(cpu),
                                 cpu.width,
                                 cpu.height,
-                                frame.rotation,
+                                rotation,
                                 SystemClock.elapsedRealtime()
                             )
                         )
@@ -65,10 +72,12 @@ class AiSnapshotProvider(private val track: ScreenCaptureTrack) : AutoCloseable 
                     request.result.completeExceptionally(error)
                 } finally {
                     cpu.release()
+                    conversionInFlight.set(false)
                 }
             }
         } catch (error: RejectedExecutionException) {
             cpu.release()
+            conversionInFlight.set(false)
             request.result.completeExceptionally(error)
         }
     }
@@ -77,6 +86,7 @@ class AiSnapshotProvider(private val track: ScreenCaptureTrack) : AutoCloseable 
 
     suspend fun fresh(): AiRawFrame {
         check(!closed.get()) { "CAPTURE_STOPPED" }
+        check(!conversionInFlight.get()) { "CAPTURE_BUSY" }
         val waiter = CompletableDeferred<AiRawFrame>()
         val request = Pending(waiter)
         check(pending.compareAndSet(null, request)) { "CAPTURE_BUSY" }
