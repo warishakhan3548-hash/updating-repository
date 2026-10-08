@@ -82,6 +82,48 @@ class HighCadenceProbeTest {
         return time
     }
 
+
+    @Test
+    fun missingRemoteLossCounterDoesNotTrapGenuinelyCleanSixtyHzPath() {
+        val g = VideoCadenceGovernor(60, 30)
+        val outbound = sender().copy(packetLossRatio = null)
+        assertFalse(
+            g.observe(
+                outbound, receiver(sequence = 1), 30, 1_000L,
+                producerFps = 60.0
+            )
+        )
+        assertTrue(
+            g.observe(
+                outbound, receiver(sequence = 2), 30, 2_000L,
+                producerFps = 60.0
+            )
+        )
+        assertEquals(36, g.cap)
+    }
+
+    @Test
+    fun missingLossFallbackCannotBypassDropOrExplicitBadLoss() {
+        for (outbound in listOf(
+            sender().copy(packetLossRatio = null),
+            sender().copy(packetLossRatio = 0.15),
+            sender().copy(packetLossRatio = Double.NaN)
+        )) {
+            val g = VideoCadenceGovernor(60, 30)
+            repeat(5) { index ->
+                assertFalse(
+                    g.observe(
+                        outbound,
+                        receiver(sequence = index.toLong() + 1, dropped = 2),
+                        30,
+                        1_000L + index * 1_000L,
+                        producerFps = 60.0
+                    )
+                )
+            }
+            assertEquals(30, g.cap)
+        }
+    }
     @Test fun cleanPathUsesFastPromotionAndFineReliefHysteresis() {
         val g = VideoCadenceGovernor(60, 30)
         val seen = linkedSetOf(g.cap)
