@@ -184,10 +184,12 @@ meet two-sample hysteresis whenever early probes interleaved them.
 A missing or incomplete sender interval now makes **no policy observation**
 and leaves the existing pressure evidence intact. If the next completed
 sender interval arrives more than six seconds after the previous completed
-one, the stale evidence expires before that interval is evaluated. Actual
-non-motion observations still clear the motion state as before. Regression
-tests exercise a complete overload interval, an incomplete 120 ms probe,
-a second overload interval, and expiration after a long measurement gap.
+one, the stale evidence expires before that interval is evaluated. A changed
+RTP stream identifier or codec also clears the previous stream's pressure
+state immediately, including when the first replacement probe is incomplete.
+Actual non-motion observations still clear the motion state as before.
+Regression tests exercise a complete overload interval, an incomplete 120 ms
+probe, a second overload interval, long-gap expiry and stream/codec replacement.
 This changes neither capture/codec/pacer behavior nor media buffering;
 it fixes when the existing resolution governor decides to act. Hardware
 device smoothness remains unmeasured.
