@@ -93,3 +93,32 @@ The supplied recording has a black main application area for about the first
 foreground package, capture error or installed build. Protected-window capture
 and vendor Accessibility behavior still need a physical-device run. These fixes
 do not bypass secure-window capture or make every AI client capable of browsing.
+
+## Deployed website inspection: 2026-10-08
+
+Production fixes were merged in [PR #564](https://github.com/warishakhan3548-hash/updating-repository/pull/564)
+and deployed to the existing Worker. All six CI jobs passed again after deployment
+in [run 37789404260](https://github.com/warishakhan3548-hash/updating-repository/actions/runs/37789404260),
+including both deployed browser-session smoke scripts and real Chromium RTP/SCTP
+and screenshot-control integration tests. Android had 444 passing unit tests,
+successful debug/release lint and APK assembly.
+
+The cloud browser was connected to `tools/ai_link_test_phone.py` on a disposable
+GitHub runner, using the actual deployed console and HTTPS/WS routes. Local
+fixture HTTPS requests had timed out; moving the generated test phone to the
+runner allowed the complete website interaction to be inspected.
+
+| Website action | Synthetic phone result |
+| --- | --- |
+| Tap phone: WhatsApp (test) | `tap x=0.500 y=0.347222…`; test WhatsApp image returned; Applied |
+| Home | Test launcher image and named targets returned; Applied |
+| X=0.5, Y=0.5 → Tap point | `tap x=0.500 y=0.500`; test Gallery image returned; Applied |
+| Pixel JSON `x=810, y=1188, space=pixel` | `tap x=0.750 y=0.550` for the 1080×2160 phone; Applied |
+
+The final screenshot shows the entire test display, four applied actions, the
+normalized coordinates reported by the fixture, the original pixel JSON and the
+Applied result. The fifth Home action was used to end and revoke the fixture.
+No physical Android device was attached. This verifies browser targeting and
+transport, not physical capture latency, Accessibility dispatch or video FPS.
+
+![Deployed AI link: entire synthetic phone screen and pixel-coordinate result](images/ai-link-cloud-control.jpg)
