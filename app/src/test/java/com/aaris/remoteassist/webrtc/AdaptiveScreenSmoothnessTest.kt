@@ -39,6 +39,37 @@ class AdaptiveScreenSmoothnessTest {
                 )
         )
 
+
+    @Test
+    fun retainedUnsequencedPresentationDoesNotPromoteCadence() {
+        val governor = VideoCadenceGovernor(maxFps = 60, initialCap = 30)
+        val cleanSender = outbound(fps = 30, processingMs = 4.0, queueMs = 4.0)
+        val retainedGlass = VideoHealthWindow(
+            intervalMs = 1_000,
+            frames = 30,
+            processingMs = 4.0,
+            jitterMs = 5.0,
+            dropped = 0,
+            freezes = 0,
+            presentationIntervalMs = 1_000,
+            presentedFrames = 30,
+            maxRenderGapMs = 34,
+            presentationAgeMs = 100,
+            displayRefreshRateHz = 60.0,
+            presentationSampleFresh = false
+        )
+
+        // Legacy controllers may not send a sequence. A reused window is not
+        // fresh proof even when its values look perfect.
+        assertFalse(governor.observe(
+            cleanSender, retainedGlass, 30, 1_000L, producerFps = 60.0
+        ))
+        assertFalse(governor.observe(
+            cleanSender, retainedGlass, 30, 2_000L, producerFps = 60.0
+        ))
+        assertEquals(30, governor.cap)
+    }
+
     @Test
     fun startupCadenceBeginsAtThirtyAndRecoversThroughFineCadenceSteps() {
         val governor =
