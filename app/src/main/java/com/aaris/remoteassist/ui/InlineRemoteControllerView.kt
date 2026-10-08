@@ -265,7 +265,13 @@ class InlineRemoteControllerView(
                 if (!attached) return
                 val now = android.os.SystemClock.elapsedRealtime()
 
-                if (!rawFrameSeen.get() || now - lastRawFrameAtMs > FIRST_FRAME_DEADLINE_MS) {
+                // After a successful render, silence can mean an unchanged
+                // remote screen; it is not evidence of a broken transport.
+                // Startup/explicit recovery still use the first-frame deadline.
+                val hasRendered = renderedFrameSeen.get()
+                if (!rawFrameSeen.get() ||
+                    (!hasRendered && now - lastRawFrameAtMs > FIRST_FRAME_DEADLINE_MS)
+                ) {
                     clearSurfaceFrameRateHintIfNeeded()
                     if (mediaRecoveryAttempts < MAX_MEDIA_RECOVERY_ATTEMPTS) {
                         mediaRecoveryAttempts += 1
