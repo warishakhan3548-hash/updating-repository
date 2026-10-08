@@ -112,9 +112,8 @@ class ReceiverVideoFeedback {
         bindIdentity(secret, generation)
         if (packet.sequence <= lastSequence) return false
         lastSequence = packet.sequence
-        receivedAt = nowMs
         if (packet.decodedFrames > 0) lastDecodedAtMs = nowMs
-        pending = VideoHealthWindow(
+        val incoming = VideoHealthWindow(
             packet.intervalMs,
             packet.decodedFrames,
             packet.decodeMs.takeIf { it >= 0 }?.toDouble(),
@@ -122,7 +121,57 @@ class ReceiverVideoFeedback {
             packet.droppedFrames.takeIf { it >= 0 },
             packet.freezeEvents.takeIf { it >= 0 }
         )
+        /*
+         * Controller decoder statistics and host outbound getStats() are not
+         * phase-locked. Last-writer-wins could erase a freeze, a dropped-frame
+         * burst or low decoded cadence when two receiver reports arrived before
+         * the host consumed its next outbound sample.
+         *
+         * Combine ONLY consecutive, fresh reports for this lease. Do not add
+         * buffering to the media path: this is a small control-plane window.
+         */
+        val previous = pending?.takeIf {
+            nowMs - receivedAt in 0L..MAX_AGE_MS
+        }
+        pending = previous?.let { combineVideoWindows(it, incoming) } ?: incoming
+        receivedAt = nowMs
         return true
+    }
+
+    private fun combineVideoWindows(
+        previous: VideoHealthWindow,
+        incoming: VideoHealthWindow
+    ): VideoHealthWindow {
+        val interval = previous.intervalMs + incoming.intervalMs
+        val frames = previous.frames + incoming.frames
+        if (
+            interval > MAX_PRESENTATION_INTERVAL_MS ||
+            frames > MAX_PRESENTED_FRAMES
+        ) {
+            // The bounds are the same as a single controller feedback window.
+            // Start clean rather than report truncated or invented averages.
+            return incoming
+        }
+
+        fun frameWeighted(before: Double?, after: Double?): Double? {
+            if (before == null || after == null || frames == 0) return null
+            return (
+                (before * previous.frames + after * incoming.frames) / frames
+            ).takeIf { it.isFinite() }
+        }
+
+        fun sumKnown(before: Int?, after: Int?): Int? =
+            if (before == null || after == null) null else
+                (before + after).takeIf { it <= MAX_PRESENTED_FRAMES }
+
+        return VideoHealthWindow(
+            intervalMs = interval,
+            frames = frames,
+            processingMs = frameWeighted(previous.processingMs, incoming.processingMs),
+            jitterMs = frameWeighted(previous.jitterMs, incoming.jitterMs),
+            dropped = sumKnown(previous.dropped, incoming.dropped),
+            freezes = sumKnown(previous.freezes, incoming.freezes)
+        )
     }
 
     /** Consuming a tuning window must not erase evidence of a working decoder. */
