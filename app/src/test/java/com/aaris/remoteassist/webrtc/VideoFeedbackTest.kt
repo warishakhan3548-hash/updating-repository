@@ -84,6 +84,24 @@ class VideoFeedbackTest {
         assertNull(feedback.consume(42, 2, 3401))
     }
 
+
+    @Test fun decoderFeedbackDoesNotBridgeMissingReportingIntervals() {
+        val receiver = ReceiverVideoFeedback()
+        val first = ControlPacket.VideoFeedback(42, 2, 1, 500, 5, 25f, 180f, 4, 1)
+        val recovered = ControlPacket.VideoFeedback(42, 2, 2, 500, 30, 5f, 10f, 0, 0)
+
+        assertTrue(receiver.accept(first, 42, 2, 100))
+        // A 2 s callback gap is not represented by two 500 ms measurements.
+        // Keep the new island rather than merging a disjoint old one.
+        assertTrue(receiver.accept(recovered, 42, 2, 2_100))
+        val sample = checkNotNull(receiver.consume(42, 2, 2_200))
+        assertEquals(500, sample.intervalMs)
+        assertEquals(30, sample.frames)
+        assertEquals(0, sample.dropped)
+        assertEquals(0, sample.freezes)
+        assertEquals(5.0, sample.processingMs!!, 0.001)
+    }
+
     @Test fun decoderFeedbackRetainsMultipleWindowsUntilHostConsumes() {
         val receiver = ReceiverVideoFeedback()
         val first = ControlPacket.VideoFeedback(42, 2, 1, 500, 10, 20f, 150f, 5, 1)
