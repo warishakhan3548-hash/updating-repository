@@ -3,6 +3,10 @@ workflows:
     name: Aaris Remote - Release APK
     max_build_duration: 60
     instance_type: mac_mini_m2
+    cache:
+      cache_paths:
+        - $HOME/.gradle/caches
+        - $HOME/.gradle/gradle-distributions
     environment:
       java: 17
       android_signing:
@@ -34,12 +38,21 @@ workflows:
           set -euo pipefail
           rm -rf "$CM_BUILD_DIR/app/build/outputs/apk/release"
           rm -rf "$CM_BUILD_DIR/release-artifacts"
-          GRADLE_HOME="/tmp/gradle-$GRADLE_VERSION"
+          GRADLE_DIST_DIR="$HOME/.gradle/gradle-distributions"
+          GRADLE_HOME="$GRADLE_DIST_DIR/gradle-$GRADLE_VERSION"
           if [ ! -x "$GRADLE_HOME/bin/gradle" ]; then
-            curl -fsSL "https://services.gradle.org/distributions/gradle-$GRADLE_VERSION-bin.zip" -o /tmp/gradle.zip
-            unzip -q /tmp/gradle.zip -d /tmp
+            mkdir -p "$GRADLE_DIST_DIR"
+            TMP_GRADLE_ZIP="$(mktemp /tmp/aaris-gradle-XXXXXX.zip)"
+            trap 'rm -f "$TMP_GRADLE_ZIP"' EXIT
+            curl --retry 3 -fsSL "https://services.gradle.org/distributions/gradle-$GRADLE_VERSION-bin.zip" -o "$TMP_GRADLE_ZIP"
+            unzip -q "$TMP_GRADLE_ZIP" -d "$GRADLE_DIST_DIR"
           fi
-          "$GRADLE_HOME/bin/gradle"             :app:testDebugUnitTest             :app:lintRelease             :app:assembleRelease             -PrequireReleaseSigning=true             --stacktrace
+          # Standard GitHub CI runs unit tests and lint. Avoid repeating them
+          # on the release runner and keep this workflow focused on signing.
+          "$GRADLE_HOME/bin/gradle" \
+            :app:assembleRelease \
+            -PrequireReleaseSigning=true \
+            --stacktrace
       - name: Verify and stage installable APK
         script: |
           set -euo pipefail
