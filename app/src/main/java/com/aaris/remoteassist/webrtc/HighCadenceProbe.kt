@@ -107,6 +107,9 @@ internal class HighCadenceProbe {
                 ?.takeIf { it > 0L }
         val newPresentationProof =
             freshProof &&
+                // No-sequence legacy samples still require an actual NEW glass
+                // measurement. A retained sample must never vote repeatedly.
+                receiver?.presentationSampleFresh != false &&
                 (
                     presentationSequence == null ||
                         presentationSequence != lastPresentationSequenceSeen
