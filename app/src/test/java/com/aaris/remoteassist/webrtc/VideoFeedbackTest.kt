@@ -98,6 +98,37 @@ class VideoFeedbackTest {
         assertEquals(5, combined.dropped)
         assertEquals(1, combined.freezes)
     }
+    @Test fun decoderFeedbackDoesNotBlendOldOrOversizedSamples() {
+        val feedback = ReceiverVideoFeedback()
+        val first = ControlPacket.VideoFeedback(42, 2, 1, 4000, 200, 7f, 30f, 2, 1)
+        val second = ControlPacket.VideoFeedback(42, 2, 2, 3000, 100, 6f, 20f, 0, 0)
+        assertTrue(feedback.accept(first, 42, 2, 100))
+        assertTrue(feedback.accept(second, 42, 2, 200))
+        val bounded = checkNotNull(feedback.consume(42, 2, 300))
+        assertEquals(3000, bounded.intervalMs)
+        assertEquals(100, bounded.frames)
+        assertEquals(0, bounded.freezes)
+        assertTrue(feedback.accept(first.copy(sequence = 3), 42, 2, 400))
+        assertTrue(feedback.accept(second.copy(sequence = 4), 42, 2, 3501))
+        val recent = checkNotNull(feedback.consume(42, 2, 3600))
+        assertEquals(3000, recent.intervalMs)
+        assertEquals(100, recent.frames)
+    }
+
+    @Test fun decoderFeedbackDoesNotInventUnknownSamples() {
+        val feedback = ReceiverVideoFeedback()
+        val first = ControlPacket.VideoFeedback(42, 2, 1, 500, 20, 9f, 50f, 3, 1)
+        val unknown = ControlPacket.VideoFeedback(42, 2, 2, 500, 10, -1f, -1f, -1, -1)
+        assertTrue(feedback.accept(first, 42, 2, 100))
+        assertTrue(feedback.accept(unknown, 42, 2, 650))
+        val sample = checkNotNull(feedback.consume(42, 2, 700))
+        assertEquals(1000, sample.intervalMs)
+        assertEquals(30, sample.frames)
+        assertNull(sample.processingMs)
+        assertNull(sample.jitterMs)
+        assertNull(sample.dropped)
+        assertNull(sample.freezes)
+    }
     @Test fun presentationCadenceSurvivesStatsPhaseSkewWithoutBecomingNewProofTwice() {
         val feedback = ReceiverVideoFeedback()
         val presentation =
