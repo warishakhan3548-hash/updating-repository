@@ -170,3 +170,24 @@ sessions; compare against the preceding build on identical phones and
 network, including power/thermal effects. If the measured stutter remains
 while source/encoded FPS is low, investigate host codec, source adaptation,
 network bitrate and selected ICE route before increasing jitter buffering.
+
+## Governor continuity across incomplete stats probes (October 2026)
+
+The host `WebRtcPeer` requests one-shot video-health samples 100/120 ms
+after motion/reconfiguration. `VideoHealthWindowTracker` intentionally does
+not generate an interval window before 500 ms, to avoid misleading FPS. In
+`MotionVideoBudget.observe`, a missing `outbound.recent` previously erased
+`pressureSamples`, `healthySamples`, and rising queue-residence history.
+The regular completed encoder/receiver windows could therefore struggle to
+meet two-sample hysteresis whenever early probes interleaved them.
+
+A missing or incomplete sender interval now makes **no policy observation**
+and leaves the existing pressure evidence intact. If the next completed
+sender interval arrives more than six seconds after the previous completed
+one, the stale evidence expires before that interval is evaluated. Actual
+non-motion observations still clear the motion state as before. Regression
+tests exercise a complete overload interval, an incomplete 120 ms probe,
+a second overload interval, and expiration after a long measurement gap.
+This changes neither capture/codec/pacer behavior nor media buffering;
+it fixes when the existing resolution governor decides to act. Hardware
+device smoothness remains unmeasured.
