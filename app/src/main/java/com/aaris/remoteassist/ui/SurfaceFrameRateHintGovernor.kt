@@ -1,197 +1,83 @@
 package com.aaris.remoteassist.ui
 
 import com.aaris.remoteassist.webrtc.PresentationCadenceWindow
-import kotlin.math.abs
 import kotlin.math.max
 
 /**
- * Converts measured controller EGL presentation cadence into a stable Android
- * Surface frame-rate hint.
+ * Keeps the controller's display scheduling stable for an interactive stream.
  *
- * This is advisory only: it never paces WebRTC, drops frames or overrides the
- * display mode. Android remains free to choose a compatible refresh rate. The
- * governor emits only after multiple clean presentation windows and rate-limits
- * changes so a decoder/GPU hitch cannot make the display flap between modes.
+ * The observed VIDEO cadence is not the display's sustainable refresh rate:
+ * native WebRTC may temporarily deliver 15/24/30 fps due to network or codec
+ * pressure, then recover on the next gesture. Voting for every measured rate
+ * may switch the display exactly when the stream needs spare presentation
+ * capacity, amplifying perceived judder on some Android devices.
+ *
+ * Request a 60 Hz-class Surface hint once per live stream. Android may ignore
+ * the request or choose a supported refresh rate. Media timing, frame dropping,
+ * WebRTC bitrate control and native playout remain untouched.
  */
 internal class SurfaceFrameRateHintGovernor(
-    private val initialWindows: Int = DEFAULT_INITIAL_WINDOWS,
-    private val switchWindows: Int = DEFAULT_SWITCH_WINDOWS,
-    private val minSwitchIntervalMs: Long = DEFAULT_MIN_SWITCH_INTERVAL_MS
+    private val initialWindows: Int = DEFAULT_INITIAL_WINDOWS
 ) {
     private var currentHint = 0
-    private var candidateHint = 0
-    private var candidateWindows = 0
-    private var lastChangedAtMs = Long.MIN_VALUE / 2
-    private var interactionHint = 0
+    private var cleanWindows = 0
 
     init {
         require(initialWindows >= 1)
-        require(switchWindows >= 1)
-        require(minSwitchIntervalMs >= 0L)
     }
 
-    fun observe(
-        window: PresentationCadenceWindow,
-        nowMs: Long
-    ): Int? {
-        if (nowMs < 0L) return null
+    /** Passive streaming can establish the one-time hint without a touch. */
+    fun observe(window: PresentationCadenceWindow, nowMs: Long): Int? {
+        if (nowMs < 0 || currentHint != 0) return null
 
-        val measuredHint = stableCadence(window)
-        if (measuredHint == null) {
-            resetCandidate()
-            return null
-        }
+        val fps = window.fps
+        val clean =
+            window.renderedFrames >= MIN_PRESENTED_FRAMES &&
+                fps.isFinite() &&
+                fps in MIN_MEASURED_FPS..MAX_MEASURED_FPS &&
+                window.maxGapMs <= max(
+                    MAX_STABLE_GAP_MS,
+                    1_000.0 / fps * MAX_STABLE_GAP_FRAME_MULTIPLIER
+                )
+        cleanWindows = if (clean) cleanWindows + 1 else 0
+        if (cleanWindows < initialWindows) return null
 
-        if (measuredHint == currentHint) {
-            resetCandidate()
-            return null
-        }
-
-        if (candidateHint != measuredHint) {
-            candidateHint = measuredHint
-            candidateWindows = 1
-        } else {
-            candidateWindows += 1
-        }
-
-        val requiredWindows =
-            if (currentHint == 0) initialWindows else switchWindows
-        if (candidateWindows < requiredWindows) return null
-
-        if (
-            currentHint != 0 &&
-            nowMs - lastChangedAtMs < minSwitchIntervalMs
-        ) {
-            return null
-        }
-
-        currentHint = measuredHint
-        lastChangedAtMs = nowMs
-        resetCandidate()
-
-        /*
-         * Keep learning the sustainable presentation cadence while a touch
-         * burst temporarily asks SurfaceFlinger for a 60 Hz-class mode. The
-         * burst owns the Surface hint until finger-up, so measured 30/45 Hz
-         * evidence must not fight the display scheduler in the middle of a
-         * gesture. As soon as interaction ends, the newest learned cadence is
-         * restored without waiting for another multi-window convergence.
-         */
-        return if (interactionHint > 0) null else currentHint
+        currentHint = PREFERRED_SURFACE_FPS
+        return currentHint
     }
 
     /**
-     * Ask Android for the fastest cadence this app can actually produce while
-     * the user is manipulating the remote screen.
-     *
-     * This is only a Surface scheduling hint. It does not raise WebRTC's
-     * encoder target, create frames, or bypass thermal/network governors. The
-     * video pipeline remains capped at 60 fps, so requesting anything above
-     * that would waste display power without increasing visual freshness.
+     * The first gesture may precede any measured presentation windows.
+     * Request the display-class hint immediately, but never toggle it on
+     * finger-up. Honor a smaller caller ceiling without switching again.
      */
-    fun beginInteraction(
-        maxFps: Int = MAX_INTERACTION_HINT_FPS
-    ): Int? {
-        if (maxFps <= 0) return null
-
-        val ceiling = minOf(maxFps, MAX_INTERACTION_HINT_FPS)
-        val target =
-            CADENCE_RUNGS.lastOrNull { it <= ceiling }
-                ?: return null
-        val previous = currentHintFps()
-        interactionHint = target
-        resetCandidate()
-        return target.takeIf { it != previous }
+    fun beginInteraction(maxFps: Int = PREFERRED_SURFACE_FPS): Int? {
+        if (maxFps <= 0 || currentHint != 0) return null
+        currentHint = minOf(maxFps, PREFERRED_SURFACE_FPS)
+        cleanWindows = 0
+        return currentHint
     }
 
-    /**
-     * Drop the temporary interaction override and immediately restore the
-     * cadence learned from real EGL swaps. Returning 0 tells the Surface owner
-     * to clear an otherwise stale high-refresh request.
-     */
-    fun endInteraction(): Int? {
-        if (interactionHint == 0) return null
+    /** The hint is stream-owned, not touch-owned. */
+    fun endInteraction(): Int? = null
 
-        val previous = currentHintFps()
-        interactionHint = 0
-        resetCandidate()
-        return currentHint.takeIf { it != previous }
-    }
+    fun currentHintFps(): Int = currentHint
 
-    fun currentHintFps(): Int =
-        interactionHint.takeIf { it > 0 } ?: currentHint
-
-    /**
-     * Forget an established cadence after a stream stop/replacement.
-     *
-     * Returns true only when Android may still hold a non-zero preference that
-     * the Surface owner should clear with setFrameRate(0).
-     */
+    /** Clear the Surface preference only when the stream resets/ends. */
     fun reset(): Boolean {
-        val hadHint = currentHintFps() > 0
+        val hadHint = currentHint > 0
         currentHint = 0
-        interactionHint = 0
-        lastChangedAtMs = Long.MIN_VALUE / 2
-        resetCandidate()
+        cleanWindows = 0
         return hadHint
     }
 
-    private fun stableCadence(
-        window: PresentationCadenceWindow
-    ): Int? {
-        if (window.renderedFrames < MIN_PRESENTED_FRAMES) return null
-
-        val measuredFps = window.fps
-        if (
-            !measuredFps.isFinite() ||
-            measuredFps < MIN_MEASURED_FPS ||
-            measuredFps > MAX_MEASURED_FPS
-        ) {
-            return null
-        }
-
-        val nearest =
-            CADENCE_RUNGS.minByOrNull { rung ->
-                abs(measuredFps - rung.toDouble())
-            } ?: return null
-
-        val allowedError =
-            max(
-                MIN_FPS_TOLERANCE,
-                nearest * RELATIVE_FPS_TOLERANCE
-            )
-        if (abs(measuredFps - nearest) > allowedError) return null
-
-        val framePeriodMs = 1_000.0 / nearest.toDouble()
-        val allowedGapMs =
-            max(
-                MIN_STABLE_GAP_MS,
-                framePeriodMs * MAX_STABLE_GAP_FRAME_MULTIPLIER
-            )
-        if (window.maxGapMs > allowedGapMs) return null
-
-        return nearest
-    }
-
-    private fun resetCandidate() {
-        candidateHint = 0
-        candidateWindows = 0
-    }
-
     private companion object {
-        val CADENCE_RUNGS = intArrayOf(15, 20, 24, 30, 45, 60)
-
-        const val MAX_INTERACTION_HINT_FPS = 60
+        const val PREFERRED_SURFACE_FPS = 60
+        const val DEFAULT_INITIAL_WINDOWS = 3
         const val MIN_PRESENTED_FRAMES = 5
         const val MIN_MEASURED_FPS = 10.0
         const val MAX_MEASURED_FPS = 72.0
-        const val MIN_FPS_TOLERANCE = 2.5
-        const val RELATIVE_FPS_TOLERANCE = 0.12
-        const val MIN_STABLE_GAP_MS = 72.0
+        const val MAX_STABLE_GAP_MS = 72.0
         const val MAX_STABLE_GAP_FRAME_MULTIPLIER = 2.75
-
-        const val DEFAULT_INITIAL_WINDOWS = 3
-        const val DEFAULT_SWITCH_WINDOWS = 4
-        const val DEFAULT_MIN_SWITCH_INTERVAL_MS = 2_500L
     }
 }
