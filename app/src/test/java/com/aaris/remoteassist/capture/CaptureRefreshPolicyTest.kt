@@ -31,6 +31,30 @@ class CaptureRefreshPolicyTest {
         assertFalse(policy.shouldRefreshForInteraction(2_020))
     }
 
+    @Test fun oldTextureHeartbeatCannotCancelAnUnrenderedPostTouchRefresh() {
+        val policy = CaptureRefreshPolicy()
+        policy.onSample(1_000, textureTimestampNs = 123_000L)
+        policy.onInteractionApplied(1_010)
+
+        // An idle/compatibility forceFrame callback arrived after input, but
+        // reused the same compositor texture; the touch is still unobserved.
+        policy.onSample(1_012, textureTimestampNs = 123_000L)
+        assertFalse(policy.shouldRefreshForInteraction(1_015))
+        assertTrue(policy.shouldRefreshForInteraction(1_016))
+        assertFalse(policy.shouldRefreshForInteraction(1_017))
+    }
+
+    @Test fun genuinelyNewTextureCancelsAnUnnecessaryPostTouchRefresh() {
+        val policy = CaptureRefreshPolicy()
+        policy.onSample(2_000, textureTimestampNs = 123_000L)
+        policy.onInteractionApplied(2_010)
+
+        // Native capture produced a new texture even though the scheduler
+        // timestamps could have the same millisecond resolution.
+        policy.onSample(2_010, textureTimestampNs = 123_001L)
+        assertFalse(policy.shouldRefreshForInteraction(2_020))
+    }
+
     @Test fun rapidInteractionsKeepFirstDeadlineAndNeverBuildSyntheticRefreshBacklog() {
         val policy = CaptureRefreshPolicy()
         policy.onSample(10_000)
