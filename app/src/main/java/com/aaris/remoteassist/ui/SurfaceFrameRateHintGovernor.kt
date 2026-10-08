@@ -58,9 +58,6 @@ internal class SurfaceFrameRateHintGovernor(
         return currentHint
     }
 
-    /** The hint is stream-owned, not touch-owned. */
-    fun endInteraction(): Int? = null
-
     fun currentHintFps(): Int = currentHint
 
     /** Clear the Surface preference only when the stream resets/ends. */
