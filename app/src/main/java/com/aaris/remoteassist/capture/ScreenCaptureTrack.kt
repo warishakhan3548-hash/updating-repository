@@ -90,7 +90,10 @@ class ScreenCaptureTrack(
                 override fun onCapturerStarted(success: Boolean) { videoSource.capturerObserver.onCapturerStarted(success) }
                 override fun onCapturerStopped() { videoSource.capturerObserver.onCapturerStopped() }
                 override fun onFrameCaptured(frame: VideoFrame) {
-                    refreshPolicy.onSample(android.os.SystemClock.elapsedRealtime())
+                    refreshPolicy.onSample(
+                        android.os.SystemClock.elapsedRealtime(),
+                        frame.timestampNs
+                    )
 
                     /*
                      * MediaProjection/OEM rotation callbacks are not perfectly
