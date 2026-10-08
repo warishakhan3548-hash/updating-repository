@@ -98,6 +98,51 @@ class VideoFeedbackTest {
         assertEquals(5, combined.dropped)
         assertEquals(1, combined.freezes)
     }
+    @Test fun lostDecoderReportCannotFabricateHealthyContinuousFps() {
+        val feedback = ReceiverVideoFeedback()
+        val beforeDrop = ControlPacket.VideoFeedback(
+            42, 2, 1, 500, 30, 6f, 12f, 0, 0
+        )
+        val afterDrop = ControlPacket.VideoFeedback(
+            42, 2, 2, 500, 3, 18f, 160f, 4, 1
+        )
+
+        assertTrue(feedback.accept(beforeDrop, 42, 2, 100))
+        // This 1.6 s arrival gap cannot be described by the second 500 ms
+        // measurement plus ordinary callback jitter. The missing time was
+        // never observed, so do not report (30 + 3) / 1 s = 33 fps.
+        assertTrue(feedback.accept(afterDrop, 42, 2, 1_700))
+
+        val recent = checkNotNull(feedback.consume(42, 2, 1_750))
+        assertEquals(500, recent.intervalMs)
+        assertEquals(3, recent.frames)
+        assertEquals(6.0, recent.fps, 0.001)
+        assertEquals(18.0, recent.processingMs!!, 0.001)
+        assertEquals(160.0, recent.jitterMs!!, 0.001)
+        assertEquals(4, recent.dropped)
+        assertEquals(1, recent.freezes)
+    }
+
+    @Test fun delayedButContiguousDecoderReportsStillAggregate() {
+        val feedback = ReceiverVideoFeedback()
+        val first = ControlPacket.VideoFeedback(
+            42, 2, 1, 500, 15, 20f, 50f, 2, 1
+        )
+        val second = ControlPacket.VideoFeedback(
+            42, 2, 2, 500, 14, 10f, 20f, 1, 0
+        )
+
+        assertTrue(feedback.accept(first, 42, 2, 100))
+        // A 900 ms callback gap is tolerated for one 500 ms measurement.
+        assertTrue(feedback.accept(second, 42, 2, 1_000))
+        val recent = checkNotNull(feedback.consume(42, 2, 1_050))
+        assertEquals(1_000, recent.intervalMs)
+        assertEquals(29, recent.frames)
+        assertEquals(29.0, recent.fps, 0.001)
+        assertEquals(3, recent.dropped)
+        assertEquals(1, recent.freezes)
+    }
+
     @Test fun fastSenderProbeCannotDiscardUnpairedDecoderAndGlassEvidence() {
         val feedback = ReceiverVideoFeedback()
         val first = ControlPacket.VideoFeedback(42, 2, 1, 500, 10, 20f, 150f, 5, 1)
