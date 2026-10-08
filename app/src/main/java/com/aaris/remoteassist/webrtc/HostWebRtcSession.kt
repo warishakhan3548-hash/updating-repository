@@ -992,7 +992,8 @@ class HostWebRtcSession(
                     receiverFeedback.consume(
                         it.leaseSecret,
                         it.displayGeneration,
-                        now
+                        now,
+                        senderWindowReady = snapshot.recent != null
                     )
                 }
 
