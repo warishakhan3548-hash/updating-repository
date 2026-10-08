@@ -84,6 +84,20 @@ class VideoFeedbackTest {
         assertNull(feedback.consume(42, 2, 3401))
     }
 
+    @Test fun decoderFeedbackRetainsMultipleWindowsUntilHostConsumes() {
+        val receiver = ReceiverVideoFeedback()
+        val first = ControlPacket.VideoFeedback(42, 2, 1, 500, 10, 20f, 150f, 5, 1)
+        val second = ControlPacket.VideoFeedback(42, 2, 2, 500, 30, 5f, 10f, 0, 0)
+        assertTrue(receiver.accept(first, 42, 2, 100))
+        assertTrue(receiver.accept(second, 42, 2, 620))
+        val combined = checkNotNull(receiver.consume(42, 2, 700))
+        assertEquals(1000, combined.intervalMs)
+        assertEquals(40, combined.frames)
+        assertEquals(8.75, combined.processingMs!!, 0.001)
+        assertEquals(45.0, combined.jitterMs!!, 0.001)
+        assertEquals(5, combined.dropped)
+        assertEquals(1, combined.freezes)
+    }
     @Test fun presentationCadenceSurvivesStatsPhaseSkewWithoutBecomingNewProofTwice() {
         val feedback = ReceiverVideoFeedback()
         val presentation =
