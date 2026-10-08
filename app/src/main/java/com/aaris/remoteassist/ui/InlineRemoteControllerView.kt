@@ -98,6 +98,8 @@ class InlineRemoteControllerView(
             }
         }
 
+    // RenderListener runs on EGL while lifecycle transitions run on the UI thread.
+    @Volatile
     private var eglRenderer: EglRenderer? = null
     private var renderEglThread: EglThread? = null
     private var renderInteractionPriorityActive = false
@@ -1329,12 +1331,15 @@ class InlineRemoteControllerView(
             // FrameListener is a ONE-SHOT screenshot API. RenderListener fires
             // after every real EGL swap, so recovery can be confirmed repeatedly.
             renderer.addRenderListener {
+                // Release/rebuild is asynchronous: an old EGL surface can
+                // complete a swap after its renderer was detached. It must
+                // never advance glass cadence or acknowledge remote input.
+                if (eglRenderer !== renderer) return@addRenderListener
+
                 val generation = recoveryGeneration.get()
                 val presentedAtMs =
                     android.os.SystemClock.elapsedRealtime()
-                if (eglRenderer === renderer) {
-                    lastPresentedFrameAtMs = presentedAtMs
-                }
+                lastPresentedFrameAtMs = presentedAtMs
 
                 /*
                  * One synchronized O(1) check per actual EGL swap. It emits no
