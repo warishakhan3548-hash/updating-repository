@@ -71,7 +71,7 @@ class BrowserAgentBridge(
                     val granted = runCatching { request("agent-start", JSONObject().put("requestId", id)) }.getOrNull()
                     if (granted?.optBoolean("ok") != true || !isActive()) return@withLock
                     val result = runCatching {
-                        if (message.optString("operation") == "observe") observe() else execute(message.getJSONObject("args"), null)
+                        if (message.optString("operation") == "observe") observe() else execute(message.getJSONObject("args"))
                     }.getOrElse { failure("ACTION_FAILED", null) }
                     runCatching { publish(result, id) }
                 }
@@ -96,7 +96,12 @@ class BrowserAgentBridge(
         val currentPackage = AssistAccessibilityService.aiSnapshot()?.packageName
         val cached = latest
         if (currentPackage in BrowserAgentCommand.chatPackages && cached != null &&
-            engine.ledger.valid(cached.optString("observationId"), cached.optLong("screenVersion"), SystemClock.elapsedRealtime())) return JSONObject(cached.toString())
+            engine.ledger.valid(cached.optString("observationId"), cached.optLong("screenVersion"), SystemClock.elapsedRealtime())) {
+            return JSONObject(cached.toString()).apply {
+                put("observationContext", "held-target-while-ai-chat")
+                put("note", "The owner is reading an AI chat. This image holds the last observed target screen. A target action resumes that app and rechecks its pixels before tapping.")
+            }
+        }
         val result = engine.observe().put("commandNonce", nonce)
         if (result.has("observationId")) latest = JSONObject(result.toString())
         return result
@@ -106,7 +111,7 @@ class BrowserAgentBridge(
         if (result.has("observationId")) acquireLease()
         publish(result)
     }
-    private suspend fun execute(raw: JSONObject, chatPackage: String?): JSONObject {
+    private suspend fun execute(raw: JSONObject): JSONObject {
         val args = runCatching { BrowserAgentCommand.validate(JSONObject(raw.toString()), nonce) }.getOrElse { return failure("INVALID_COMMAND", false) }
         val id = args.getString("actionId"); val digest = args.toString()
         outcomes[id]?.let { return if (it.first == digest) JSONObject(it.second.toString()) else failure("ACTION_ID_CONFLICT", false) }
@@ -115,7 +120,11 @@ class BrowserAgentBridge(
         if (!engine.ledger.valid(args.getString("observationId"), args.getLong("screenVersion"), SystemClock.elapsedRealtime())) return finish(id, digest, false, "STALE_SCREEN")
         val lease = acquireLease() ?: return finish(id, digest, false, "CONTROL_UNAVAILABLE")
         var resumed = false
-        if (chatPackage != null && action !in setOf("home", "open_app")) {
+        // The owner may read ChatGPT on this same phone while its cloud browser
+        // acts on the held target image. HTTPS actions need the same guarded
+        // resume as the visible-chat adapter; otherwise only Home can work.
+        val foregroundPackage = AssistAccessibilityService.aiSnapshot()?.packageName
+        if (BrowserAgentCommand.requiresTargetResume(action, foregroundPackage)) {
             val target = seen.optString("currentPackage")
             if (target.isBlank() || target == context.packageName || target in BrowserAgentCommand.chatPackages) return finish(id, digest, false, "TARGET_SCREEN_REQUIRED")
             val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
@@ -164,7 +173,7 @@ class BrowserAgentBridge(
             chatExecuting = true
             try { mutex.withLock {
                 if (!isActive()) return@withLock
-                val result = runCatching { execute(args, candidate.first) }.getOrElse { failure("ACTION_FAILED", null) }
+                val result = runCatching { execute(args) }.getOrElse { failure("ACTION_FAILED", null) }
                 runCatching { publish(result) }
                 BrowserLinkRuntime.update(if (result.optBoolean("applied") && result.has("observationId")) "AI command applied • next screenshot ready" else "AI command paused • ${result.optString("error", "inspect the result")}")
                 // Return to the AI after caching the target screen; hidden chat windows cannot be read.

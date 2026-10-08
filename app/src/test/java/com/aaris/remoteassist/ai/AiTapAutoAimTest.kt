@@ -8,6 +8,7 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -109,6 +110,38 @@ class AiTapAutoAimTest {
         assertEquals(0.72, args.getDouble("x"), 0.0001)
         ui = ui.copy(packageName = "chat")
         assertEquals("FOREGROUND_CHANGED", engine.validate(args, exactCoordinates = true, allowWindowResume = true).error)
+    }
+
+    @Test
+    fun cloudBrowserTapResumesTheHeldTargetAfterTheOwnerReadsChatGpt() = runBlocking {
+        val observed = engine.observe()
+        val target = ui
+        val args = tap(observed, 0.72, 0.81)
+        ui = ui.copy(packageName = "com.openai.chatgpt", windowId = 21)
+        engine.changed()
+        assertEquals("FOREGROUND_CHANGED", engine.validate(args, exactCoordinates = true).error)
+        assertTrue(BrowserAgentCommand.requiresTargetResume("tap", ui.packageName))
+
+        ui = target.copy(windowId = 22)
+        val resumed = engine.validate(args, exactCoordinates = true, allowWindowResume = true)
+        assertNull(resumed.error)
+        assertEquals(0.72, args.getDouble("x"), 0.0001)
+        assertTrue(resumed.stillValid())
+
+        ui = ui.copy(packageName = "another.app")
+        assertFalse(resumed.stillValid())
+        assertFalse(BrowserAgentCommand.requiresTargetResume("tap", ui.packageName))
+    }
+
+    @Test
+    fun resumingFromAiChatCannotAuthorizeAChangedTargetScene() = runBlocking {
+        val observed = engine.observe()
+        val args = tap(observed, 0.72, 0.81)
+        ui = ui.copy(windowId = 22)
+        pixels.fill(150.toByte())
+        assertEquals("RESTORED_SCREEN_CHANGED", engine.validate(args, exactCoordinates = true, allowWindowResume = true).error)
+        assertFalse(BrowserAgentCommand.requiresTargetResume("home", "com.openai.chatgpt"))
+        assertFalse(BrowserAgentCommand.requiresTargetResume("open_app", "com.openai.chatgpt"))
     }
 
 }

@@ -207,6 +207,7 @@ test('server-rendered screenshot links carry one observation and can be read wit
   const url=`https://remote.test/remote/?session=${sid}&access=${controller}`;
   const html=await (await worker.fetch(new Request(url),f.env)).text();
   assert.match(html,/AARIS_ACTION_BEGIN/);assert.match(html,/View current phone screenshot/);
+  assert.match(html,/data-observation-id=/);assert.ok(html.includes('src="data:image/jpeg;base64,'+btoa('jpeg')));
   assert.ok(!html.includes('<script>alert(1)</script>'));
   assert.equal((await f.storage.get('session')).browser,undefined);
   const frame=await worker.fetch(new Request(url.replace('/remote/','/remote/frame')+`&observationId=${id}`),f.env);
@@ -233,6 +234,8 @@ test('observation reads refresh old frames once; image downloads do not invalida
   await f.room.agentPublish(f.h,{observationId:id,screenVersion:1,commandNonce:'nonce',image});
   const stored=await f.storage.get('agent:observation');stored.receivedAtMs=Date.now()-5000;await f.storage.put('agent:observation',stored);
   const query=`?session=${sid}&access=${controller}`;
+  await worker.fetch(new Request(`https://remote.test/remote/${query}`),f.env);
+  assert.equal(sent.length,0,'Rendering an existing image cannot start a capture that invalidates its action ticket');
   const frame=await worker.fetch(new Request(`https://remote.test/remote/frame${query}&observationId=${id}`),f.env);
   assert.equal(frame.status,200);assert.equal(await frame.text(),'jpeg');assert.equal(sent.length,0);
   const observation=await worker.fetch(new Request(`https://remote.test/remote/observe${query}`),f.env);

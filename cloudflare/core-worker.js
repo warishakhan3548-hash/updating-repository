@@ -405,7 +405,9 @@ export default{
       if(request.method==='GET'&&['/remote','/remote/','/remote/frame','/remote/observe'].includes(u.pathname)){
         const params=agentParameters(u);
         if(!params)return u.pathname.startsWith('/remote/f')||u.pathname==='/remote/observe'?fail(401,'unauthorized','Open the complete phone link.'):browserResponse(u.pathname);
-        const state=await sessions(env,params.sessionId).agentObservation(await sha(params.access),u.pathname!=='/remote/frame',u.searchParams.get('observationId'));
+        // HTML and its inline image describe one decision ticket. Rendering an
+        // existing page must not start a second capture that revokes that ticket.
+        const state=await sessions(env,params.sessionId).agentObservation(await sha(params.access),u.pathname==='/remote/observe',u.searchParams.get('observationId'));
         if(u.pathname==='/remote/frame'||u.pathname==='/remote/observe')return observationResponse(u,state);
         return agentPage(u,state);
       }

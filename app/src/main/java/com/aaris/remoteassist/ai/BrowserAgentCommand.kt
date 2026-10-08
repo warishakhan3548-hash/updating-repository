@@ -12,6 +12,10 @@ object BrowserAgentCommand {
     val chatPackages = setOf("com.openai.chatgpt", "com.anthropic.claude", "com.microsoft.copilot", "ai.perplexity.app.android")
     private val common = setOf("protocol", "nonce", "actionId", "observationId", "screenVersion", "action")
 
+    /** A browser action and a same-phone chat reply use the same held target. */
+    fun requiresTargetResume(action: String, foregroundPackage: String?): Boolean =
+        action !in setOf("home", "open_app") && foregroundPackage in chatPackages
+
     fun parse(text: String, nonce: String, assistantMessage: Boolean): JSONObject? = runCatching {
         require(assistantMessage && text.length <= 16384)
         val begin = text.indexOf(BEGIN)

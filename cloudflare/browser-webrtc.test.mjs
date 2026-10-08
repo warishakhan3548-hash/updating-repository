@@ -12,7 +12,7 @@ const context = await browser.newContext({viewport:{width:1000,height:900}});
 const host = await context.newPage(), page = await context.newPage();
 const errors=[];page.on('pageerror',error=>errors.push(error.message));
 const sid='a'.repeat(64), token='b'.repeat(43), events=[], agentActions=[];
-let socket, epoch=0, seq=0, ended=false, claimedInstance, claimCursor=0, iceRequests=0, observationVersion=1;
+let socket, epoch=0, seq=0, ended=false, claimedInstance, claimCursor=0, iceRequests=0, observationVersion=1, jpeg;
 const makeObservation=()=>({
   observationId:`11111111-1111-4111-8111-${String(observationVersion).padStart(12,'0')}`,
   screenVersion:observationVersion,
@@ -20,7 +20,7 @@ const makeObservation=()=>({
   currentPackage:'com.example.canvas',
   display:{width:1080,height:2160,coordinateSpace:'full-upright-display-normalized-0-to-1'},
   uiHints:[],
-  image:{mimeType:'image/jpeg',width:360,height:720}
+  image:{mimeType:'image/jpeg',width:360,height:720,data:jpeg}
 });
 await host.exposeFunction('publishHost',payload=>{
   const event={seq:++seq,senderRole:'host',...payload};events.push(event);
@@ -73,6 +73,7 @@ await host.evaluate(()=>{
     if(kind==='candidate')await window.peer.addIceCandidate({candidate:p.sdp,sdpMid:p.mid,sdpMLineIndex:p.mLine});
   };
 });
+jpeg=await host.evaluate(()=>document.querySelector('canvas').toDataURL('image/jpeg').split(',')[1]);
 await page.route('https://remote.test/**',async route=>{
   const req=route.request(),url=new URL(req.url());
   if(url.pathname.startsWith('/remote')){
@@ -81,6 +82,9 @@ await page.route('https://remote.test/**',async route=>{
   const reply=data=>route.fulfill({json:data});
   if(url.pathname.endsWith('/agent-observe')&&req.method()==='GET'){
     await reply({ok:true,observation:makeObservation(),phoneOnline:true});return;
+  }
+  if(url.pathname.endsWith('/agent-refresh')&&req.method()==='POST'){
+    await reply({ok:true,result:makeObservation()});return;
   }
   if(url.pathname.endsWith('/agent-action')&&req.method()==='POST'){
     const body=req.postDataJSON();agentActions.push(body);observationVersion++;
@@ -117,7 +121,7 @@ const waitLive=async()=>{
 const actionCount=()=>host.evaluate(()=>window.received.length);
 const waitActions=async n=>host.waitForFunction(n=>window.received.length>=n,n,{timeout:10000});
 try {
-  await page.goto(`https://remote.test/remote/#${sid}.${token}`);await waitLive();
+  await page.goto(`https://remote.test/remote/?view=live#${sid}.${token}`);await waitLive();
   assert.equal(iceRequests,2,'Transient relay configuration failure must recover automatically');
   await host.waitForFunction(()=>window.feedback.some(r=>r.type===19)&&window.feedback.some(r=>r.type===20),{},{timeout:15000});
   const mediaFeedback=await host.evaluate(()=>window.feedback);
@@ -156,6 +160,8 @@ try {
   // Universal cloud-AI path: the model only pastes JSON and presses Execute.
   // No Accessibility semantic target is available; exact coordinates must still
   // be forwarded through the observation-backed agent executor.
+  await page.getByRole('button',{name:'AI view',exact:true}).click();
+  await page.waitForFunction(()=>document.getElementById('aiExecute').disabled===false);
   await page.getByLabel('AI command JSON').fill('{"action":"tap","x":0.73,"y":0.41}');
   await page.getByRole('button',{name:'Execute AI command',exact:true}).click();
   await page.waitForFunction(()=>document.getElementById('aiResult').textContent==='Applied');
