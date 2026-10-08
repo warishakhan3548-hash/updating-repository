@@ -130,8 +130,26 @@ class ReceiverVideoFeedback {
          * Combine ONLY consecutive, fresh reports for this lease. Do not add
          * buffering to the media path: this is a small control-plane window.
          */
+        /*
+         * VideoFeedback is best-effort telemetry, not a gap-free log. If a
+         * report was lost (or its callback stalled), two 500 ms decoder
+         * windows must not be added as though they covered the intervening
+         * wall-clock time. That fabricates a healthy FPS and can hide the
+         * exact decoder freeze the host needs to react to.
+         *
+         * As with EGL feedback, bound the arrival gap against the INCOMING
+         * interval, not the accumulated pending interval. Allow transport
+         * and scheduler jitter, but never join disconnected decoder islands.
+         * This changes only control-plane accounting; no RTP buffer, encoder
+         * or new getStats() request is added.
+         */
         val previous = pending?.takeIf {
-            nowMs - receivedAt in 0L..MAX_AGE_MS
+            val reportGapMs = nowMs - receivedAt
+            reportGapMs in 0L..minOf(
+                MAX_AGE_MS,
+                incoming.intervalMs.toLong() +
+                    VIDEO_REPORT_JITTER_TOLERANCE_MS
+            )
         }
         pending = previous?.let { combineVideoWindows(it, incoming) } ?: incoming
         receivedAt = nowMs
@@ -413,6 +431,8 @@ class ReceiverVideoFeedback {
         const val MAX_AGE_MS = 3_000L
         // Network callback jitter tolerance, not media buffer or hold time.
         const val PRESENTATION_REPORT_JITTER_TOLERANCE_MS = 750L
+        // Permit delayed decoder reports without claiming a missing window ran.
+        const val VIDEO_REPORT_JITTER_TOLERANCE_MS = 750L
         const val MAX_CAPABILITIES_AGE_MS = 15_000L
         // Long enough to bridge independent 500 ms stats/render phases, short
         // enough that high-cadence promotion still requires current glass proof.
