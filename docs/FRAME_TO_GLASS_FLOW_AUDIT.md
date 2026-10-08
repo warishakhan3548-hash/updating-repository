@@ -115,3 +115,30 @@ Run the same build on both physical devices for at least 10 minutes on each path
 - interaction: gesture start, authoritative ACK, first **correlated changed pixel** or external camera measurement. Compare smoothness **and** action latency, not FPS alone.
 
 Acceptance: no new black-screen/rotation/control regressions; no growing send/decoder queue; receiver evidence survives early getStats probes; stable visual cadence improves without pushing control latency into an unacceptable buffer. Local unit tests or CI cannot establish an actual 2-phone FPS, p95 delay, or physical smoothness result.
+
+## Follow-up: continuous EGL liveness (1.9.58 / 146)
+
+The former `InlineRemoteControllerView.mediaWatchdog` was only rescheduled
+while the first frame or the first EGL render was missing. After the first
+successful render it stopped. A later Android Surface/EGL stall with decoder
+frames still arriving could therefore remain undetected by this watchdog;
+decoder-only liveness was not proof of current display progress.
+
+The controller now records the most recent **actual EGL swap** independently
+of the most recent **decoded VideoSink callback**. After a healthy start the
+existing watchdog checks only those timestamps every 1.5 s. A renderer repair
+is allowed only when the display is visible/valid, presentation has stopped for
+at least 3 seconds, decoded frames arrived **after** the last swap and one was
+received within the last 2 seconds. Absent input/decoder frames or a destroyed
+Surface must not falsely trigger a GL reset. Renderer repair uses the existing
+bounded two-attempt recovery; no media queues, frame interpolation, pixel
+copies, codec negotiation or ICE paths were changed.
+
+Unit tests cover sustained post-start EGL stalls, healthy swaps, static/absent
+producer output, hidden/destroyed surfaces, initial startup and inconsistent
+monotonic timestamps. A green CI means only software regressions were tested.
+A physical Android controller plus sharing Android phone must still validate
+swap gaps, GPU contention, recovery cadence, rotation and touch-to-visible
+latency for at least 10 minutes. This patch repairs **stalls after an initially
+successful rendering session**; it does not claim to fix upstream 2-fps
+encoding or bandwidth-limited RTP delivery.
