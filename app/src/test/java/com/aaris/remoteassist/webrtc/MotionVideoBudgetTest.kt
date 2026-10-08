@@ -15,6 +15,37 @@ class MotionVideoBudgetTest {
         VideoHealthWindow(1000, fps, decode, 5.0, 0, 0, presentationIntervalMs = 1000,
             presentedFrames = presented, maxRenderGapMs = 34)
 
+    private fun nativeWarmBudget(): MotionVideoBudget = MotionVideoBudget().apply {
+        assertTrue(primeForMotion(profile.copy(maxVideoBitrateBps = 10_000_000), 0L,
+            sender(fps = 1).copy(availableOutgoingBitrateBps = 4_500_000.0)))
+        assertEquals(720, shortEdge)
+    }
+
+    @Test fun retainedGlassHitchCannotBecomeASecondResolutionPressureVote() {
+        val budget = nativeWarmBudget()
+        val hitch = receiver(presented = 10).copy(maxRenderGapMs = 160)
+        assertFalse(budget.observe(sender(), hitch, 30.0, true, 30, 4_000L))
+        assertFalse(budget.observe(sender(), hitch.copy(presentationSampleFresh = false), 30.0, true, 30, 4_500L))
+        assertEquals(720, budget.shortEdge)
+    }
+
+    @Test fun distinctGlassHitchesStillReceiveResolutionRelief() {
+        val budget = nativeWarmBudget()
+        val hitch = receiver(presented = 10).copy(maxRenderGapMs = 160)
+        assertFalse(budget.observe(sender(), hitch, 30.0, true, 30, 4_000L))
+        assertTrue(budget.observe(sender(), hitch, 30.0, true, 30, 4_500L))
+        assertEquals(540, budget.shortEdge)
+    }
+
+    @Test fun heldGlassTelemetryDoesNotSuppressIndependentEncoderPressure() {
+        val budget = nativeWarmBudget()
+        val held = receiver().copy(presentationSampleFresh = false)
+        val slowEncoder = sender(fps = 20, encode = 35.0)
+        assertFalse(budget.observe(slowEncoder, held, 30.0, true, 30, 4_000L))
+        assertTrue(budget.observe(slowEncoder, held, 30.0, true, 30, 4_500L))
+        assertEquals(540, budget.shortEdge)
+    }
+
     @Test fun shortStatsProbeCannotEraseRealEncoderPressureEvidence() {
         val budget = MotionVideoBudget()
         assertTrue(budget.primeForMotion(profile, 0L))

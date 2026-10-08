@@ -41,6 +41,11 @@ class VideoUrgentFreshnessTest {
             freezes = 0
         )
 
+    private fun measuredHighCadence(): VideoCadenceGovernor =
+        VideoCadenceGovernor(60).apply {
+            assertFalse(observe(outbound(queueMs = 0.0), null, 60, 0L))
+        }
+
     @Test
     fun clearlyStaleButNonSevereQueueGetsOneFastSoftStep() {
         val governor = VideoCadenceGovernor(60)
@@ -80,7 +85,7 @@ class VideoUrgentFreshnessTest {
 
     @Test
     fun oneModerateHalfSecondGlassHitchIsTolerated() {
-        val governor = VideoCadenceGovernor(60)
+        val governor = measuredHighCadence()
 
         assertFalse(
             governor.observeFastPresentation(
@@ -97,7 +102,7 @@ class VideoUrgentFreshnessTest {
 
     @Test
     fun twoModerateGlassHitchesConfirmFineRelief() {
-        val governor = VideoCadenceGovernor(60)
+        val governor = measuredHighCadence()
 
         assertFalse(
             governor.observeFastPresentation(
@@ -124,7 +129,7 @@ class VideoUrgentFreshnessTest {
 
     @Test
     fun ordinaryFineCadenceVarianceDoesNotCascade() {
-        val governor = VideoCadenceGovernor(60)
+        val governor = measuredHighCadence()
         assertFalse(
             governor.observeFastPresentation(
                 intervalMs = 500,
@@ -161,7 +166,7 @@ class VideoUrgentFreshnessTest {
 
     @Test
     fun severePersistentGlassStallCanTakeSecondBoundedStep() {
-        val governor = VideoCadenceGovernor(60)
+        val governor = measuredHighCadence()
         assertTrue(
             governor.observeFastPresentation(
                 intervalMs = 500,
@@ -189,7 +194,7 @@ class VideoUrgentFreshnessTest {
 
     @Test
     fun presentationFastPathNeedsActiveRecentHighCadenceEvidence() {
-        val inactive = VideoCadenceGovernor(60)
+        val inactive = measuredHighCadence()
         assertFalse(
             inactive.observeFastPresentation(
                 intervalMs = 500,

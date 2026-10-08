@@ -21,6 +21,11 @@ class VideoCadenceGovernor(
     private var lastOverloadAtMs = Long.MIN_VALUE / 2
     private var lastDecision = "startup"
     private var lastDeadlineSummary = "deadline=unknown"
+    // Completed upstream supply, not the requested source ceiling. Scalar
+    // evidence only; capture/RTP frames remain owned by the native pipeline.
+    private var lastSenderIdentity: Pair<String, String?>? = null
+    private var lastSenderFps: Double? = null
+    private var lastSenderAtMs = Long.MIN_VALUE / 2
     private val highCadenceProbe = HighCadenceProbe()
     private val highCadencePressureGate = HighCadencePressureGate()
     val probingHighCadence: Boolean get() = highCadenceProbe.probing
@@ -316,6 +321,10 @@ class VideoCadenceGovernor(
      * FPS or estimate bandwidth. GCC/TWCC and the full telemetry governor remain
      * authoritative for network adaptation and recovery.
      *
+     * A requested 60 fps ceiling does not prove 60 frames were supplied. Compare
+     * glass cadence with recent completed sender supply; sparse/unknown/expired
+     * supply cannot establish a fast display-overload vote.
+     *
      * At high cadence one trustworthy hitch earns only one fine relief step
      * (for example 60 -> 58). A large fall toward 30 still requires severe
      * presentation/pipeline evidence. The bounded cooldown plus one-step rule
@@ -350,12 +359,26 @@ class VideoCadenceGovernor(
             return false
         }
 
+        val suppliedFps = lastSenderFps
+        if (
+            suppliedFps == null ||
+            nowMs - lastSenderAtMs !in 0L..FAST_PRESENTATION_MAX_SENDER_AGE_MS
+        ) {
+            highCadencePressureGate.clearPresentation()
+            return false
+        }
+        val expectedFps = minOf(effectiveFps.toDouble(), suppliedFps)
+        if (expectedFps < MIN_PRESENTATION_EXPECTED_FPS) {
+            highCadencePressureGate.clearPresentation()
+            return false
+        }
+
         val measuredFps =
             renderedFrames * 1_000.0 / intervalMs.toDouble()
         val deliveryRatio =
-            measuredFps / effectiveFps.toDouble()
+            measuredFps / expectedFps
         val frameBudgetMs =
-            1_000.0 / effectiveFps.toDouble()
+            1_000.0 / expectedFps
 
         val severeGapMs =
             maxOf(
@@ -437,7 +460,21 @@ class VideoCadenceGovernor(
         maximumFps: Int = maxFps,
         allowHighCadenceProbe: Boolean = true
     ): Boolean {
+        val senderIdentity = outbound.streamId to outbound.codec
+        if (senderIdentity != lastSenderIdentity) {
+            lastSenderIdentity = senderIdentity
+            lastSenderFps = null
+            highCadencePressureGate.clearPresentation()
+        }
         val sender = outbound.recent ?: return false
+        lastSenderFps = sender.fps.takeIf {
+            nowMs >= 0L &&
+                sender.intervalMs in FAST_PRESENTATION_MIN_WINDOW_MS..
+                    FAST_PRESENTATION_MAX_WINDOW_MS &&
+                sender.frames in 0..2048 &&
+                it.isFinite() && it >= 0.0
+        }
+        lastSenderAtMs = nowMs
 
         if (
             cap < HIGH_CADENCE_FAST_RELIEF_FPS ||
@@ -971,6 +1008,7 @@ class VideoCadenceGovernor(
          */
         const val FAST_PRESENTATION_MIN_WINDOW_MS = 500
         const val FAST_PRESENTATION_MAX_WINDOW_MS = 2_000
+        const val FAST_PRESENTATION_MAX_SENDER_AGE_MS = 1_500L
         const val FAST_PRESENTATION_MIN_FRAMES = 5
         const val FAST_PRESENTATION_MIN_CADENCE_FPS = 45
         const val FAST_PRESENTATION_CHANGE_INTERVAL_MS = 450L

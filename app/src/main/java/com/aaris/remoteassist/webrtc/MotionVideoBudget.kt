@@ -184,9 +184,12 @@ internal class MotionVideoBudget {
         val decodePressure = received != null && (decodeMs ?: 0.0) > frameMs * 0.85 &&
             received.fps < minOf(sender.fps, goal.toDouble()) * 0.85
         val expectedPresentation = minOf(goal.toDouble(), sender.fps, received?.fps ?: 0.0)
-        val presentationPressure = expectedPresentation >= 10.0 && received?.presentedFps?.let {
-            it < expectedPresentation * 0.8 || (received.maxRenderGapMs ?: 0) >= 150
-        } == true
+        // Held EGL cadence bridges independently phased stats clocks. It may
+        // block recovery, but must not become another resolution-pressure vote.
+        val presentationPressure = received?.presentationSampleFresh != false &&
+            expectedPresentation >= 10.0 && received?.presentedFps?.let {
+                it < expectedPresentation * 0.8 || (received.maxRenderGapMs ?: 0) >= 150
+            } == true
         val measuredSourceFps = sourceFps.valid()
 
         /*
