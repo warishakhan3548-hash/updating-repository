@@ -202,7 +202,26 @@ class ReceiverVideoFeedback {
          * If a consumer disappears long enough to exceed protocol bounds, start
          * a fresh bounded window rather than manufacturing an oversized packet.
          */
-        pendingPresentation = pendingPresentation?.let { previous ->
+        /*
+         * Presentation packets travel on an unordered, non-retransmitted
+         * telemetry lane. If an interval is lost or the viewer was paused,
+         * the next packet must not silently bridge that missing wall-clock
+         * time. The packet's interval covers only its own measured swaps.
+         *
+         * Allow bounded arrival jitter around the *incoming* interval,
+         * not the accumulated interval (which grows while host stats are
+         * asynchronous). An old bad sample must not contaminate a new one;
+         * two healthy islands must not be mistaken for continuous playback.
+         */
+        val previous = pendingPresentation?.takeIf {
+            val reportGapMs = nowMs - presentationReceivedAt
+            reportGapMs in 0L..minOf(
+                MAX_AGE_MS,
+                incoming.intervalMs.toLong() +
+                    PRESENTATION_REPORT_JITTER_TOLERANCE_MS
+            )
+        }
+        pendingPresentation = previous?.let { previous ->
             val combinedInterval = previous.intervalMs + incoming.intervalMs
             val combinedFrames = previous.renderedFrames + incoming.renderedFrames
             if (
@@ -392,6 +411,8 @@ class ReceiverVideoFeedback {
 
     private companion object {
         const val MAX_AGE_MS = 3_000L
+        // Network callback jitter tolerance, not media buffer or hold time.
+        const val PRESENTATION_REPORT_JITTER_TOLERANCE_MS = 750L
         const val MAX_CAPABILITIES_AGE_MS = 15_000L
         // Long enough to bridge independent 500 ms stats/render phases, short
         // enough that high-cadence promotion still requires current glass proof.
