@@ -2452,12 +2452,9 @@ class InlineRemoteControllerView(
         setRenderInteractionPriority(true)
 
         /*
-         * Android may have down-clocked this Surface while the remote image was
-         * static. Request the realtime 60 Hz-class display mode at the same
-         * instant as the control gesture instead of waiting several completed
-         * presentation windows to rediscover it. This does not manufacture
-         * frames or add encoder work; it only keeps SurfaceFlinger ready to
-         * present fresh WebRTC frames as soon as they arrive.
+         * Install one stable 60 Hz-class Surface hint on the first gesture,
+         * unless clean passive presentation already installed it. Do not
+         * repeatedly switch physical refresh-rate votes on each finger-down.
          */
         surfaceFrameRateHints
             .beginInteraction()
@@ -2468,15 +2465,6 @@ class InlineRemoteControllerView(
 
     private fun endRemoteMotion() {
         setRenderInteractionPriority(false)
-
-        /*
-         * Restore the newest cadence learned from real EGL swaps. If no stable
-         * cadence was learned during the burst, 0 clears Android's temporary
-         * preference so the display can save power again.
-         */
-        surfaceFrameRateHints
-            .endInteraction()
-            ?.let(::applySurfaceFrameRateHint)
 
         session()?.setInteractionActive(false)
     }
