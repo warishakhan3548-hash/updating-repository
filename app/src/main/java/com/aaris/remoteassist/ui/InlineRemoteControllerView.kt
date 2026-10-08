@@ -187,6 +187,7 @@ class InlineRemoteControllerView(
     private var rendererRecoveryAttempts = 0
     private val rawFrameSeen = AtomicBoolean(false)
     @Volatile private var lastRawFrameAtMs = 0L
+    @Volatile private var lastPresentedFrameAtMs = 0L
     private val renderedFrameSeen = AtomicBoolean(false)
     private val renderConfirmationPosted = AtomicBoolean(false)
     private val recoveryGeneration = AtomicLong(0L)
@@ -262,53 +263,63 @@ class InlineRemoteControllerView(
         object : Runnable {
             override fun run() {
                 if (!attached) return
+                val now = android.os.SystemClock.elapsedRealtime()
 
-                if (!rawFrameSeen.get() || android.os.SystemClock.elapsedRealtime() - lastRawFrameAtMs > FIRST_FRAME_DEADLINE_MS) {
+                if (!rawFrameSeen.get() || now - lastRawFrameAtMs > FIRST_FRAME_DEADLINE_MS) {
                     clearSurfaceFrameRateHintIfNeeded()
-                    if (
-                        mediaRecoveryAttempts <
-                            MAX_MEDIA_RECOVERY_ATTEMPTS
-                    ) {
+                    if (mediaRecoveryAttempts < MAX_MEDIA_RECOVERY_ATTEMPTS) {
                         mediaRecoveryAttempts += 1
                         showVideoStatus("Connected • video stream recovering…")
                         session()?.requestMediaRecovery()
-                        mainHandler.postDelayed(
-                            this,
-                            MEDIA_RECOVERY_RETRY_MS
-                        )
+                        mainHandler.postDelayed(this, MEDIA_RECOVERY_RETRY_MS)
                     } else {
                         showVideoStatus("Connected • controls work • waiting for live video…")
                     }
                     return
                 }
 
-                if (!renderedFrameSeen.get()) {
-                    if (
-                        rendererRecoveryAttempts <
-                            MAX_RENDERER_RECOVERY_ATTEMPTS
-                    ) {
+                // The initial EGL swap is not lifetime proof. Decoding may
+                // continue while Surface/EGL presentation stalls much later.
+                // Only suspect the renderer when fresh decoded frames keep
+                // arriving, the surface is visible, and no swap was observed
+                // for a sustained interval. A static/quiet screen and normal
+                // packet jitter must not rebuild a healthy decoder.
+                val eglStalled = RendererContinuityPolicy.shouldRecover(
+                    nowMs = now,
+                    lastDecodedAtMs = lastRawFrameAtMs,
+                    lastPresentedAtMs = lastPresentedFrameAtMs,
+                    hadRendered = renderedFrameSeen.get(),
+                    surfaceReady = rendererSurfaceAttached &&
+                        surfaceView.holder.surface.isValid &&
+                        root.windowVisibility == View.VISIBLE
+                )
+
+                if (!renderedFrameSeen.get() || eglStalled) {
+                    if (rendererRecoveryAttempts < MAX_RENDERER_RECOVERY_ATTEMPTS) {
                         rendererRecoveryAttempts += 1
-                        showVideoStatus("Video frames are here • rebuilding display…")
+                        showVideoStatus(
+                            if (eglStalled) "Live frames arriving • restoring stalled display…"
+                            else "Video frames are here • rebuilding display…"
+                        )
 
                         if (rendererRecoveryAttempts == 1) {
-                            /*
-                             * Decoded WebRTC frames reached this phone, but
-                             * the GPU/EGL path is still black. Activate the
-                             * independent compatibility pixels as well without
-                             * disturbing ICE or the control channel.
-                             */
+                            // Compatibility recovery does not disturb the
+                            // primary transport or authoritative controls.
                             session()?.requestMediaRecovery()
                         }
 
                         rebuildRenderer()
-                        mainHandler.postDelayed(
-                            this,
-                            RENDER_RECOVERY_RETRY_MS
-                        )
+                        mainHandler.postDelayed(this, RENDER_RECOVERY_RETRY_MS)
                     } else {
                         showVideoStatus("Video received • display retrying…")
                     }
+                    return
                 }
+
+                // Previously this healthy path never scheduled another check.
+                // Monitoring only state timestamps keeps normal video frames
+                // entirely on libwebrtc's native codec/render pipeline.
+                mainHandler.postDelayed(this, RENDER_HEALTH_CHECK_INTERVAL_MS)
             }
         }
 
@@ -349,6 +360,8 @@ class InlineRemoteControllerView(
                         remoteTrack = track
                         track.setEnabled(true)
                         rawFrameSeen.set(false)
+                        lastRawFrameAtMs = 0L
+                        lastPresentedFrameAtMs = 0L
                         renderedFrameSeen.set(false)
                         primaryConfirmation.reset()
                         presentationCadence.reset()
@@ -392,6 +405,7 @@ class InlineRemoteControllerView(
                     if (attached) {
                         // Serialize epoch changes with the presentation commit.
                         recoveryGeneration.incrementAndGet()
+                        lastPresentedFrameAtMs = 0L
                         renderedFrameSeen.set(false)
                         presentationCadence.reset()
                         lastPresentationHeartbeatAtMs.set(Long.MIN_VALUE / 2)
@@ -1289,6 +1303,9 @@ class InlineRemoteControllerView(
                 val generation = recoveryGeneration.get()
                 val presentedAtMs =
                     android.os.SystemClock.elapsedRealtime()
+                if (eglRenderer === renderer) {
+                    lastPresentedFrameAtMs = presentedAtMs
+                }
 
                 /*
                  * One synchronized O(1) check per actual EGL swap. It emits no
@@ -1391,6 +1408,7 @@ class InlineRemoteControllerView(
     private fun rebuildRenderer() {
         detachCurrentTrack()
         releaseRenderer()
+        lastPresentedFrameAtMs = 0L
         renderedFrameSeen.set(false)
         primaryConfirmation.reset()
 
@@ -2810,6 +2828,7 @@ class InlineRemoteControllerView(
         private const val FIRST_FRAME_DEADLINE_MS = 3_500L
         private const val MEDIA_RECOVERY_RETRY_MS = 4_000L
         private const val RENDER_RECOVERY_RETRY_MS = 2_500L
+        private const val RENDER_HEALTH_CHECK_INTERVAL_MS = 1_500L
         private const val MAX_MEDIA_RECOVERY_ATTEMPTS = 2
         private const val MAX_RENDERER_RECOVERY_ATTEMPTS = 2
 
