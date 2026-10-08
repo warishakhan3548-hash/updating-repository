@@ -103,6 +103,14 @@ class InboundVideoLivenessMonitor(
         // A long stats-report hole does not prove uninterrupted RTP supply.
         // Require contiguous evidence before diagnosing a first-frame stall.
         // Idle getStats runs every 1.5s, so 3s allows ordinary scheduling jitter.
+        if (framesDecoded == 0L && !receivedAdvanced) {
+            // No decoder output *and* no continuing RTP cannot distinguish a
+            // quiet startup from a network outage. Leave transport recovery to
+            // the existing ICE/startup watchdog rather than thrashing codecs.
+            decoderStallSinceMs = null
+            transportStallSinceMs = null
+            return InboundVideoLivenessAction.NONE
+        }
         if (framesDecoded == 0L && sampleGapMs > 3_000L) {
             decoderStallSinceMs = null
         }
