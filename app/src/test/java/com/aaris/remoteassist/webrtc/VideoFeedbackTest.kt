@@ -98,6 +98,47 @@ class VideoFeedbackTest {
         assertEquals(5, combined.dropped)
         assertEquals(1, combined.freezes)
     }
+    @Test fun fastSenderProbeCannotDiscardUnpairedDecoderAndGlassEvidence() {
+        val feedback = ReceiverVideoFeedback()
+        val first = ControlPacket.VideoFeedback(42, 2, 1, 500, 10, 20f, 150f, 5, 1)
+        val second = ControlPacket.VideoFeedback(42, 2, 2, 500, 30, 5f, 10f, 0, 0)
+        val glass = ControlPacket.PresentationFeedback(42, 2, 10, 500, 15, 130)
+
+        assertTrue(feedback.accept(first, 42, 2, 100))
+        assertTrue(feedback.accept(glass, 42, 2, 150))
+
+        // The one-shot 120 ms reconfigure kick is not a complete sender window.
+        // It must neither drain decoder freezes nor consume the glass sample.
+        assertNull(
+            feedback.consume(
+                42, 2, 220, senderWindowReady = false
+            )
+        )
+        assertTrue(feedback.accept(second, 42, 2, 620))
+
+        val paired = checkNotNull(
+            feedback.consume(
+                42, 2, 700, senderWindowReady = true
+            )
+        )
+        assertEquals(1000, paired.intervalMs)
+        assertEquals(40, paired.frames)
+        assertEquals(5, paired.dropped)
+        assertEquals(1, paired.freezes)
+        assertEquals(130, paired.maxRenderGapMs)
+        assertEquals(30.0, paired.presentedFps!!, 0.001)
+        assertTrue(paired.presentationSampleFresh)
+        assertEquals(10L, paired.presentationSampleSequence)
+    }
+
+    @Test fun incompleteSenderSamplesCannotKeepExpiredReceiverEvidenceAlive() {
+        val feedback = ReceiverVideoFeedback()
+        assertTrue(feedback.accept(packet, 42, 2, 100))
+        assertNull(feedback.consume(42, 2, 200, senderWindowReady = false))
+        // Holding unpaired evidence does not override its existing 3 s age cap.
+        assertNull(feedback.consume(42, 2, 3_101, senderWindowReady = true))
+    }
+
     @Test fun decoderFeedbackDoesNotBlendOldOrOversizedSamples() {
         val feedback = ReceiverVideoFeedback()
         val first = ControlPacket.VideoFeedback(42, 2, 1, 4000, 200, 7f, 30f, 2, 1)
