@@ -6,11 +6,24 @@ internal class CaptureRefreshPolicy {
     private var lastRequestAtMs: Long? = null
     private var interactionAppliedAtMs: Long? = null
     private var sampleGeneration = 0L
+    private var lastTextureTimestampNs: Long? = null
     private var interactionSampleGeneration: Long? = null
 
     @Synchronized
-    fun onSample(nowMs: Long) {
+    fun onSample(nowMs: Long, textureTimestampNs: Long? = null) {
         lastSampleAtMs = nowMs
+
+        // A forced SurfaceTexture sample can re-emit the exact same pixels
+        // with the original producer timestamp. It is useful for the idle
+        // liveness timer, but cannot prove that the host screen changed after
+        // an applied remote gesture. Only advance the post-input generation
+        // for a genuinely different producer texture. Null keeps compatibility
+        // with callers that already establish freshness before calling us.
+        if (textureTimestampNs != null) {
+            if (textureTimestampNs == lastTextureTimestampNs) return
+            lastTextureTimestampNs = textureTimestampNs
+        }
+
         sampleGeneration =
             if (sampleGeneration == Long.MAX_VALUE) {
                 1L
