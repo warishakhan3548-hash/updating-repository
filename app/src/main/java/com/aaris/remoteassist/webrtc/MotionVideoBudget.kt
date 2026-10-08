@@ -21,6 +21,7 @@ internal class MotionVideoBudget {
     private var holdingResolution = false
     private var lastMotionAtMs = Long.MIN_VALUE / 2
     private var changedAtMs = Long.MIN_VALUE / 2
+    private var lastMeasuredSenderAtMs = Long.MIN_VALUE / 2
     private var pressureSamples = 0
     private var healthySamples = 0
     private var lastImplementation: String? = null
@@ -114,11 +115,17 @@ internal class MotionVideoBudget {
         lastMotionAtMs = nowMs
         val sender = outbound.recent?.takeIf { it.intervalMs in 500..6000 && it.frames >= 0 }
         if (sender == null) {
+            // Short getStats probes do not have a complete sender interval.
+            // Ignore them instead of erasing validated congestion evidence.
+            // Expire that evidence on the next complete sample after a long gap.
+            return before != (shortEdge to holdingResolution)
+        }
+        if (nowMs - lastMeasuredSenderAtMs !in 0L..MAX_SENDER_SAMPLE_GAP_MS) {
             pressureSamples = 0
             healthySamples = 0
             resetResidenceGrowth()
-            return before != (shortEdge to holdingResolution)
         }
+        lastMeasuredSenderAtMs = nowMs
 
         // Detect the encoder actually in use, not just the negotiated MIME type.
         // Hardware remains preferred; software fallback must stay usable as well.
@@ -703,6 +710,8 @@ internal class MotionVideoBudget {
         val SOFTWARE_ENCODER_MARKERS =
             arrayOf("libvpx", "libaom", "openh264", "software")
         const val SETTLE_MS = 3_000L
+        // Follow the same 6-second validity ceiling as VideoHealthWindowTracker.
+        const val MAX_SENDER_SAMPLE_GAP_MS = 6_000L
         const val BANDWIDTH_FAST_SETTLE_MS = 1_000L
         const val BWE_PREDICTIVE_SETTLE_MS = 1_000L
         const val BWE_PRESSURE_HEADROOM_RATIO = 1.10
