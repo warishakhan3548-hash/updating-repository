@@ -56,6 +56,9 @@ class CaptureCallbackTimingBatch internal constructor(
         }
     }
 
+    fun compact(): String =
+        summarizeAndRelease()?.compact() ?: "captureCallback unavailable"
+
     private fun percentile(
         sorted: LongArray,
         count: Int,
