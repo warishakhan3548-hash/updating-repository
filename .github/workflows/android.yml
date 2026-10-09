@@ -119,6 +119,30 @@ jobs:
           name: AarisRemote-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+      # The android job already assembles the release variant. Reuse that
+      # build instead of running a second Gradle build and keep JKS offline.
+      - name: Stage unsigned release and signing utility
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release-unsigned.apk"
+          test -s "$APK" || { echo "Unsigned release not found"; exit 1; }
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          ZIPALIGN="$(find "$SDK_ROOT/build-tools" -type f -name zipalign | sort -V | tail -1)"
+          SIGNER_JAR="$(find "$SDK_ROOT/build-tools" -type f -name apksigner.jar | sort -V | tail -1)"
+          test -x "$ZIPALIGN"
+          test -s "$SIGNER_JAR"
+          mkdir -p offline-signing-kit
+          "$ZIPALIGN" -f 4 "$APK" offline-signing-kit/app-release-aligned-unsigned.apk
+          "$ZIPALIGN" -c 4 offline-signing-kit/app-release-aligned-unsigned.apk
+          cp "$SIGNER_JAR" offline-signing-kit/apksigner.jar
+          sha256sum offline-signing-kit/* > offline-signing-kit/checksums.sha256
+      - uses: actions/upload-artifact@v7
+        with:
+          name: AarisRemote-unsigned-release-offline-signing
+          path: offline-signing-kit/
+          if-no-files-found: error
+          retention-days: 7
 
   cloudflare-smoke:
     runs-on: ubuntu-latest
