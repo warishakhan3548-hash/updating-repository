@@ -1,0 +1,55 @@
+{
+  "snapshot_created_utc": "2026-10-09T18:04:00.498Z",
+  "repository": "warishakhan3548-hash/updating-repository",
+  "protected_main_commit": "82eec6fd2493dbac3ec3b97e4ab2e088b78f94be",
+  "backup_branch": "backup/prechange-2026-10-09-cloudflare",
+  "purpose": "Pre-change Cloudflare Worker source and non-secret configuration backup. Does not modify running workers.",
+  "workers": [
+    {
+      "name": "aaris-phone-mcp",
+      "files": [
+        "mcp-worker.js"
+      ],
+      "latest_deployment_id": "0c6e7755-87ff-4336-b906-0df2ba2d9652",
+      "latest_deployed_versions": [
+        {
+          "version_id": "caf23c78-426f-4dde-8c93-7d5728a5dbd2",
+          "percentage": 100
+        }
+      ],
+      "secret_names": []
+    },
+    {
+      "name": "aaris-remote-ice",
+      "files": [
+        "browser-agent.js",
+        "browser-console.js",
+        "browser-protocol.js",
+        "core-worker.js",
+        "receiver-playout.js"
+      ],
+      "latest_deployment_id": "6c47f99e-cd14-40c2-8a6e-5b2310879a9e",
+      "latest_deployed_versions": [
+        {
+          "version_id": "60dc2094-b63d-4f42-81e5-2f61967e24ac",
+          "percentage": 100
+        }
+      ],
+      "secret_names": [
+        "TURN_KEY_ID",
+        "TURN_KEY_SECRET"
+      ]
+    }
+  ],
+  "exclusions": [
+    "Secret values, TURN credentials and any other write-only Cloudflare secrets",
+    "Durable Object / KV / D1 persistent storage contents, which are NOT captured",
+    "Account-level zone DNS or API tokens"
+  ],
+  "restoration_notes": [
+    "GitHub project: use the protected_main_commit to restore the original repository tree/branch state, after checking newer changes.",
+    "Cloudflare: source files are stored under each Worker; restore with the original worker name, matching metadata settings and bindings.",
+    "Do not blindly redeploy without restoring required secret values, Durable Object bindings/migrations and confirming compatibility.",
+    "Cloudflare deployment/version identifiers are documented in each worker metadata.json; version rollback may also be possible in Cloudflare."
+  ]
+}
