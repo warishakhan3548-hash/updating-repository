@@ -20,7 +20,8 @@ class ScreenCaptureTrack(
     grant: ProjectionGrant,
     private val onProjectionStopped: () -> Unit,
     private val onSourceMotion: () -> Unit = {},
-    private val onSourceGeometryChanged: (Int, Int) -> Unit = { _, _ -> }
+    private val onSourceGeometryChanged: (Int, Int) -> Unit = { _, _ -> },
+    private val onCaptureTiming: (CaptureCallbackTimingSummary) -> Unit = {}
 ) : Closeable {
     private val appContext = context.applicationContext
     private val factory = WebRtcRuntime.factory(appContext)
@@ -31,6 +32,7 @@ class ScreenCaptureTrack(
     private val sampleClock = CaptureSampleClock()
     private val activityTracker = CaptureActivityTracker()
     private val refreshPolicy = CaptureRefreshPolicy()
+    private val callbackTimingTracker = CaptureCallbackTimingTracker()
 
     private val capturer = ScreenCapturerAndroid(
         grant.data,
@@ -130,6 +132,7 @@ class ScreenCaptureTrack(
                     // forceFrame reuses the SurfaceTexture timestamp on a static
                     // screen. Give that new sample a monotonic timestamp so the
                     // native FPS adapter does not discard recovery requests.
+                    val ingressStartedNs = System.nanoTime()
                     val sampledTimestampNs =
                         sampleClock.timestamp(
                             frame.timestampNs,
@@ -151,6 +154,7 @@ class ScreenCaptureTrack(
                             )
                         )
                     }
+                    val ingressDurationNs = System.nanoTime() - ingressStartedNs
                     if (activityTracker.onFrame(frame.timestampNs)) {
                         // The callback is throttled by CaptureActivityTracker.
                         // Keep it best-effort and never let policy work block
@@ -161,8 +165,19 @@ class ScreenCaptureTrack(
                     // These sinks are invoked explicitly for every capturer
                     // callback, even when WebRTC adaptation elects not to send
                     // the corresponding RTP frame.
+                    val auxiliaryStartedNs = System.nanoTime()
                     snapshotSinks.forEach { sink ->
                         runCatching { sink.onFrame(frame) }
+                    }
+                    callbackTimingTracker.record(
+                        nowMs = android.os.SystemClock.elapsedRealtime(),
+                        primaryIngressNs = ingressDurationNs,
+                        auxiliarySinksNs = System.nanoTime() - auxiliaryStartedNs
+                    )?.let { summary ->
+                        // This callback is wired to the host's independent policy
+                        // handler: percentile sorting and diagnostics never run
+                        // on each ordinary capture sample.
+                        runCatching { onCaptureTiming(summary) }
                     }
                 }
             }
