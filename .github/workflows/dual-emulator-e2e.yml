@@ -1,0 +1,187 @@
+name: Dual Android E2E
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "app/**"
+      - "tools/dual_emulator_e2e.py"
+      - ".github/workflows/dual-emulator-e2e.yml"
+
+jobs:
+  dual-emulator-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 38
+    env:
+      HOST_SERIAL: emulator-5554
+      CONTROLLER_SERIAL: emulator-5556
+      E2E_OUT: app/build/reports/dual-emulator-e2e
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v4
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "9.6.0"
+
+      - name: Enable KVM for two Android devices
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -e /dev/kvm ]; then
+            echo "::error::Hosted runner has no /dev/kvm"
+            exit 1
+          fi
+          sudo chmod 666 /dev/kvm
+          ls -l /dev/kvm
+
+      - name: Install Android full graphics image
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager             "platform-tools"             "emulator"             "platforms;android-36"             "system-images;android-35;google_apis;x86_64"
+
+      - name: Build exact debug APK under test
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Create two Android virtual phones
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "no" | avdmanager create avd             -n aaris_host             -k "system-images;android-35;google_apis;x86_64"             --device "pixel_6"             --force
+          echo "no" | avdmanager create avd             -n aaris_controller             -k "system-images;android-35;google_apis;x86_64"             --device "pixel_6"             --force
+
+          cat >> "$HOME/.android/avd/aaris_host.avd/config.ini" <<'EOF'
+          hw.ramSize=2048
+          hw.cpu.ncore=2
+          hw.gpu.enabled=yes
+          hw.gpu.mode=swiftshader_indirect
+          hw.lcd.width=720
+          hw.lcd.height=1600
+          hw.lcd.density=320
+          disk.dataPartition.size=3G
+          EOF
+          cat >> "$HOME/.android/avd/aaris_controller.avd/config.ini" <<'EOF'
+          hw.ramSize=2048
+          hw.cpu.ncore=2
+          hw.gpu.enabled=yes
+          hw.gpu.mode=swiftshader_indirect
+          hw.lcd.width=720
+          hw.lcd.height=1600
+          hw.lcd.density=320
+          disk.dataPartition.size=3G
+          EOF
+
+      - name: Boot host and controller phones
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$E2E_OUT"
+
+          "$ANDROID_HOME/emulator/emulator" @aaris_host             -port 5554             -no-window             -no-audio             -no-boot-anim             -no-snapshot             -gpu swiftshader_indirect             -accel on             -camera-back none             -camera-front none             >"$E2E_OUT/host-emulator.log" 2>&1 &
+          echo $! > "$E2E_OUT/host-emulator.pid"
+
+          "$ANDROID_HOME/emulator/emulator" @aaris_controller             -port 5556             -no-window             -no-audio             -no-boot-anim             -no-snapshot             -gpu swiftshader_indirect             -accel on             -camera-back none             -camera-front none             >"$E2E_OUT/controller-emulator.log" 2>&1 &
+          echo $! > "$E2E_OUT/controller-emulator.pid"
+
+          adb -s "$HOST_SERIAL" wait-for-device
+          adb -s "$CONTROLLER_SERIAL" wait-for-device
+
+          wait_boot() {
+            local serial="$1"
+            for _ in $(seq 1 180); do
+              if [ "$(adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; then
+                adb -s "$serial" shell input keyevent 82 || true
+                return 0
+              fi
+              sleep 2
+            done
+            echo "::error::$serial did not finish booting"
+            return 1
+          }
+
+          wait_boot "$HOST_SERIAL" &
+          P1=$!
+          wait_boot "$CONTROLLER_SERIAL" &
+          P2=$!
+          wait "$P1"
+          wait "$P2"
+
+          adb devices -l
+          for serial in "$HOST_SERIAL" "$CONTROLLER_SERIAL"; do
+            adb -s "$serial" shell wm size 720x1600
+            adb -s "$serial" shell settings put system peak_refresh_rate 60.0 || true
+            adb -s "$serial" shell settings put system min_refresh_rate 60.0 || true
+          done
+
+      - name: Install app and authorize explicit debug test setup
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          SERVICE="com.aaris.remoteassist/com.aaris.remoteassist.accessibility.AssistAccessibilityService"
+
+          configure_phone() {
+            local serial="$1"
+            adb -s "$serial" install -r "$APK"
+            adb -s "$serial" shell settings put global window_animation_scale 0
+            adb -s "$serial" shell settings put global transition_animation_scale 0
+            adb -s "$serial" shell settings put global animator_duration_scale 0
+            adb -s "$serial" shell svc power stayon true
+            adb -s "$serial" shell pm grant com.aaris.remoteassist android.permission.POST_NOTIFICATIONS || true
+            adb -s "$serial" shell settings put secure enabled_accessibility_services "$SERVICE"
+            adb -s "$serial" shell settings put secure accessibility_enabled 1
+          }
+
+          configure_phone "$HOST_SERIAL"
+          configure_phone "$CONTROLLER_SERIAL"
+          sleep 2
+
+          echo "HOST ACCESSIBILITY:"
+          adb -s "$HOST_SERIAL" shell settings get secure enabled_accessibility_services
+          echo "CONTROLLER ACCESSIBILITY:"
+          adb -s "$CONTROLLER_SERIAL" shell settings get secure enabled_accessibility_services
+
+      - name: Run real MediaProjection WebRTC remote-gesture matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/dual_emulator_e2e.py             --host "$HOST_SERIAL"             --controller "$CONTROLLER_SERIAL"             --out "$E2E_OUT"
+
+      - name: Print real E2E summary
+        if: always()
+        shell: bash
+        run: |
+          echo "==== DUAL ANDROID E2E SUMMARY ===="
+          cat "$E2E_OUT/summary.txt" 2>/dev/null || true
+          echo
+          echo "==== FILES ===="
+          find "$E2E_OUT" -maxdepth 2 -type f -printf '%p %k KB\n' | sort || true
+
+      - name: Collect final Android state
+        if: always()
+        shell: bash
+        run: |
+          adb -s "$HOST_SERIAL" logcat -d -t 2500 > "$E2E_OUT/host-final-logcat.txt" 2>&1 || true
+          adb -s "$CONTROLLER_SERIAL" logcat -d -t 2500 > "$E2E_OUT/controller-final-logcat.txt" 2>&1 || true
+          adb -s "$HOST_SERIAL" shell dumpsys media_projection > "$E2E_OUT/host-media-projection.txt" 2>&1 || true
+          adb -s "$HOST_SERIAL" shell dumpsys activity services com.aaris.remoteassist > "$E2E_OUT/host-services.txt" 2>&1 || true
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: Aaris-Dual-Android-E2E
+          path: app/build/reports/dual-emulator-e2e
+          if-no-files-found: warn

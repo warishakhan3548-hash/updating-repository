@@ -103,7 +103,19 @@ object ControllerConnectionRuntime {
             listener.onConnectivityChanged(true)
         }
         geometry?.let(listener::onLive)
-        remoteTrack?.let(listener::onRemoteVideoTrack)
+
+        /*
+         * Do not blindly replay a cached pre-negotiation VideoTrack. Ask the
+         * active WebRTC session to re-resolve the negotiated receiving
+         * transceiver now that the renderer surface is laid out. The runtime
+         * callback below updates remoteTrack and delivers the fresh binding.
+         */
+        val refreshed =
+            session?.refreshRemoteVideoTrack() == true
+        if (!refreshed) {
+            remoteTrack?.let(listener::onRemoteVideoTrack)
+        }
+
         fallbackFrame?.let(listener::onFallbackVideoFrame)
     }
 
