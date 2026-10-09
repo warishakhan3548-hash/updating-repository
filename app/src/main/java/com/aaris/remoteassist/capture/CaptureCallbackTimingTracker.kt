@@ -10,12 +10,18 @@ data class CaptureCallbackTimingSummary(
     val ingressP95Us: Long,
     val ingressP99Us: Long,
     val auxiliaryP95Us: Long,
-    val auxiliaryP99Us: Long
+    val auxiliaryP99Us: Long,
+    val sourceGapSamples: Int,
+    val sourceGapP95Us: Long?,
+    val sourceGapP99Us: Long?
 ) {
     fun compact(): String =
         "captureCallback n=$samples ingressP95=${ingressP95Us}us " +
             "ingressP99=${ingressP99Us}us auxP95=${auxiliaryP95Us}us " +
-            "auxP99=${auxiliaryP99Us}us"
+            "auxP99=${auxiliaryP99Us}us" +
+            " sourceGapN=$sourceGapSamples" +
+            (sourceGapP95Us?.let { " sourceGapP95=${it}us" } ?: "") +
+            (sourceGapP99Us?.let { " sourceGapP99=${it}us" } ?: "")
 }
 
 /**
@@ -28,6 +34,7 @@ data class CaptureCallbackTimingSummary(
 class CaptureCallbackTimingBatch internal constructor(
     private val ingressUs: LongArray,
     private val auxiliaryUs: LongArray,
+    private val sourceGapUs: LongArray,
     val samples: Int,
     private val onRelease: () -> Unit
 ) {
@@ -38,12 +45,27 @@ class CaptureCallbackTimingBatch internal constructor(
         return try {
             Arrays.sort(ingressUs, 0, samples)
             Arrays.sort(auxiliaryUs, 0, samples)
+            // Missing timestamps use -1; only valid gaps contribute.
+            // Sorting runs on the host policy lane, never on capture.
+            Arrays.sort(sourceGapUs, 0, samples)
+            var firstValidGap = 0
+            while (firstValidGap < samples && sourceGapUs[firstValidGap] < 0L) {
+                firstValidGap++
+            }
+            val validGaps = samples - firstValidGap
             CaptureCallbackTimingSummary(
                 samples = samples,
                 ingressP95Us = percentile(ingressUs, samples, 95),
                 ingressP99Us = percentile(ingressUs, samples, 99),
                 auxiliaryP95Us = percentile(auxiliaryUs, samples, 95),
-                auxiliaryP99Us = percentile(auxiliaryUs, samples, 99)
+                auxiliaryP99Us = percentile(auxiliaryUs, samples, 99),
+                sourceGapSamples = validGaps,
+                sourceGapP95Us = if (validGaps > 0) {
+                    percentile(sourceGapUs, samples, 95, firstValidGap)
+                } else null,
+                sourceGapP99Us = if (validGaps > 0) {
+                    percentile(sourceGapUs, samples, 99, firstValidGap)
+                } else null
             )
         } finally {
             onRelease()
@@ -62,10 +84,12 @@ class CaptureCallbackTimingBatch internal constructor(
     private fun percentile(
         sorted: LongArray,
         count: Int,
-        percent: Int
+        percent: Int,
+        startIndex: Int = 0
     ): Long {
-        val index = ((count * percent + 99) / 100 - 1)
-            .coerceIn(0, count - 1)
+        val validCount = count - startIndex
+        val index = startIndex + ((validCount * percent + 99) / 100 - 1)
+            .coerceIn(0, validCount - 1)
         return sorted[index]
     }
 }
@@ -73,7 +97,7 @@ class CaptureCallbackTimingBatch internal constructor(
 /**
  * Bounded capture-callback timing tracker.
  *
- * The per-frame path only writes two longs and updates counters. When a report
+ * The per-frame path only writes three longs and updates counters. When a report
  * window closes, ownership of the active fixed-size arrays is swapped with a
  * spare pair in O(1). Sorting and diagnostics happen later on the host policy
  * thread. If that consumer is delayed long enough that no spare pair is
@@ -85,7 +109,9 @@ class CaptureCallbackTimingBatch internal constructor(
  */
 internal class CaptureCallbackTimingTracker(
     private val reportWindowMs: Long = 10_000L,
-    private val minSamples: Int = 24,
+    // Low-FPS stalls should not silence the timing diagnostic itself.
+    // Reports expose sample counts so sparse-window tails stay interpretable.
+    private val minSamples: Int = 8,
     private val sampleCapacity: Int = 512
 ) {
     init {
@@ -96,30 +122,37 @@ internal class CaptureCallbackTimingTracker(
 
     private data class SampleBuffers(
         val ingressUs: LongArray,
-        val auxiliaryUs: LongArray
+        val auxiliaryUs: LongArray,
+        val sourceGapUs: LongArray
     )
 
     private var active =
         SampleBuffers(
             ingressUs = LongArray(sampleCapacity),
-            auxiliaryUs = LongArray(sampleCapacity)
+            auxiliaryUs = LongArray(sampleCapacity),
+            sourceGapUs = LongArray(sampleCapacity)
         )
     private val spare =
         AtomicReference(
             SampleBuffers(
                 ingressUs = LongArray(sampleCapacity),
-                auxiliaryUs = LongArray(sampleCapacity)
+                auxiliaryUs = LongArray(sampleCapacity),
+            sourceGapUs = LongArray(sampleCapacity)
             )
         )
 
     private var next = 0
     private var samples = 0
     private var windowStartedMs = Long.MIN_VALUE
+    // Callback gaps include forced idle samples; compare fresh-source FPS to
+    // distinguish true producer starvation from deliberate still-screen liveness.
+    private var lastCallbackStartedNs = Long.MIN_VALUE
 
     fun record(
         nowMs: Long,
         primaryIngressNs: Long,
-        auxiliarySinksNs: Long
+        auxiliarySinksNs: Long,
+        callbackStartedNs: Long = Long.MIN_VALUE
     ): CaptureCallbackTimingBatch? {
         if (nowMs < 0L) return null
         if (windowStartedMs == Long.MIN_VALUE || nowMs < windowStartedMs) {
@@ -128,8 +161,21 @@ internal class CaptureCallbackTimingTracker(
             windowStartedMs = nowMs
         }
 
+        // A primitive clock sentinel avoids boxing Long on the hot path.
+        val previousCallbackNs = lastCallbackStartedNs
+        val sourceGapNs = if (
+            callbackStartedNs > 0L && previousCallbackNs > 0L &&
+            callbackStartedNs > previousCallbackNs
+        ) callbackStartedNs - previousCallbackNs else -1L
+        if (callbackStartedNs > 0L) {
+            lastCallbackStartedNs = callbackStartedNs
+        }
+
         active.ingressUs[next] = toMicros(primaryIngressNs)
         active.auxiliaryUs[next] = toMicros(auxiliarySinksNs)
+        active.sourceGapUs[next] = if (sourceGapNs >= 0L) {
+            toMicros(sourceGapNs)
+        } else -1L
         next = (next + 1) % sampleCapacity
         samples = (samples + 1).coerceAtMost(sampleCapacity)
 
@@ -151,6 +197,7 @@ internal class CaptureCallbackTimingTracker(
         return CaptureCallbackTimingBatch(
             ingressUs = sealed.ingressUs,
             auxiliaryUs = sealed.auxiliaryUs,
+            sourceGapUs = sealed.sourceGapUs,
             samples = sealedSamples,
             onRelease = {
                 // A delayed diagnostics lane must never disturb capture. If an

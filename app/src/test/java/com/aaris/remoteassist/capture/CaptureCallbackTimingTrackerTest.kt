@@ -84,4 +84,61 @@ class CaptureCallbackTimingTrackerTest {
         assertNotNull(recovered)
         assertEquals(3, recovered!!.summarizeAndRelease()!!.samples)
     }
+
+    @Test fun sourceGapTailExposesProducerStarvationWithoutAttributingItToRtp() {
+        val tracker = CaptureCallbackTimingTracker(
+            reportWindowMs = 100L,
+            minSamples = 4,
+            sampleCapacity = 8
+        )
+        assertNull(tracker.record(1_000L, 1_000L, 2_000L, 1_000_000_000L))
+        assertNull(tracker.record(1_030L, 1_000L, 2_000L, 1_030_000_000L))
+        assertNull(tracker.record(1_060L, 1_000L, 2_000L, 1_060_000_000L))
+        val report =
+            tracker.record(1_600L, 1_000L, 2_000L, 1_600_000_000L)!!
+                .summarizeAndRelease()!!
+        assertEquals(4, report.samples)
+        assertEquals(3, report.sourceGapSamples)
+        assertEquals(540_000L, report.sourceGapP95Us)
+        assertEquals(540_000L, report.sourceGapP99Us)
+        assertEquals(1L, report.ingressP99Us)
+        assertEquals(2L, report.auxiliaryP99Us)
+    }
+
+    @Test fun missingAndRewoundCaptureClocksDoNotProduceFakeGapSamples() {
+        val tracker = CaptureCallbackTimingTracker(
+            reportWindowMs = 10L,
+            minSamples = 4,
+            sampleCapacity = 8
+        )
+        assertNull(tracker.record(1_000L, 1_000L, 1_000L, 1_000_000_000L))
+        assertNull(tracker.record(1_005L, 1_000L, 1_000L, 500_000_000L))
+        assertNull(tracker.record(1_010L, 1_000L, 1_000L))
+        val report =
+            tracker.record(1_020L, 1_000L, 1_000L, 520_000_000L)!!
+                .summarizeAndRelease()!!
+        assertEquals(1, report.sourceGapSamples)
+        assertEquals(20_000L, report.sourceGapP95Us)
+        assertEquals(20_000L, report.sourceGapP99Us)
+    }
+
+    @Test fun lowSourceFpsStillClosesDefaultTenSecondDiagnosticWindow() {
+        val tracker = CaptureCallbackTimingTracker()
+        repeat(10) { index ->
+            assertNull(
+                tracker.record(
+                    nowMs = 1_000L + index * 1_000L,
+                    primaryIngressNs = 5_000L,
+                    auxiliarySinksNs = 10_000L,
+                    callbackStartedNs = (index + 1L) * 1_000_000_000L
+                )
+            )
+        }
+        val result =
+            tracker.record(11_000L, 5_000L, 10_000L, 11_000_000_000L)!!
+                .summarizeAndRelease()!!
+        assertEquals(11, result.samples)
+        assertEquals(10, result.sourceGapSamples)
+        assertEquals(1_000_000L, result.sourceGapP99Us)
+    }
 }

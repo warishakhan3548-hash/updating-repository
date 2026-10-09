@@ -92,6 +92,9 @@ class ScreenCaptureTrack(
                 override fun onCapturerStarted(success: Boolean) { videoSource.capturerObserver.onCapturerStarted(success) }
                 override fun onCapturerStopped() { videoSource.capturerObserver.onCapturerStopped() }
                 override fun onFrameCaptured(frame: VideoFrame) {
+                    // The first monotonic timestamp marks capture callback arrival;
+                    // later policy and fallback work must not distort source cadence.
+                    val callbackStartedNs = System.nanoTime()
                     refreshPolicy.onSample(
                         android.os.SystemClock.elapsedRealtime(),
                         frame.timestampNs
@@ -179,7 +182,8 @@ class ScreenCaptureTrack(
                     callbackTimingTracker.record(
                         nowMs = android.os.SystemClock.elapsedRealtime(),
                         primaryIngressNs = ingressDurationNs,
-                        auxiliarySinksNs = System.nanoTime() - auxiliaryStartedNs
+                        auxiliarySinksNs = System.nanoTime() - auxiliaryStartedNs,
+                        callbackStartedNs = callbackStartedNs
                     )?.let { batch ->
                         // The fixed sample arrays are now sealed. Percentile
                         // sorting happens on the host policy lane, never here.
