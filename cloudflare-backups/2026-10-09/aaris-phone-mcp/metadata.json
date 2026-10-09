@@ -1,0 +1,214 @@
+{
+  "worker": "aaris-phone-mcp",
+  "settings": {
+    "placement": {},
+    "compatibility_date": "2026-10-01",
+    "compatibility_flags": [],
+    "usage_model": "standard",
+    "tags": [],
+    "tail_consumers": [],
+    "logpush": false,
+    "annotations": {
+      "workers/commit_sha": "82eec6fd2493dbac3ec3b97e4ab2e088b78f94be",
+      "workers/message": "Screenshot-only MCP gestures, faithful GitHub CI source",
+      "workers/triggered_by": "version_upload"
+    },
+    "bindings": [
+      {
+        "name": "AI_DEVICES",
+        "type": "durable_object_namespace",
+        "namespace_id": "0405edf6015642a3bbe9d2cfadda85ad",
+        "class_name": "AiDevice"
+      },
+      {
+        "name": "ALLOWED_ORIGINS",
+        "type": "plain_text",
+        "text": "https://claude.ai,https://chatgpt.com"
+      },
+      {
+        "name": "REGISTRATION_LIMITER",
+        "type": "ratelimit",
+        "namespace_id": "1001",
+        "simple": {
+          "limit": 10,
+          "period": 60
+        }
+      }
+    ]
+  },
+  "script_settings": {
+    "logpush": false,
+    "tags": null,
+    "tail_consumers": null,
+    "observability": null
+  },
+  "deployments": [
+    {
+      "id": "0c6e7755-87ff-4336-b906-0df2ba2d9652",
+      "created_on": "2026-10-09T17:12:01.425093Z",
+      "source": "api",
+      "strategy": "percentage",
+      "versions": [
+        {
+          "version_id": "caf23c78-426f-4dde-8c93-7d5728a5dbd2",
+          "percentage": 100
+        }
+      ],
+      "annotations": {
+        "workers/message": "Deploy CI-passed screenshot-only MCP and gesture improvements from GitHub 82eec6fd",
+        "workers/triggered_by": "deployment"
+      }
+    },
+    {
+      "id": "ee6f3139-8e51-4ed4-a09f-2635e7eeee8e",
+      "created_on": "2026-10-05T08:31:11.797095Z",
+      "source": "api",
+      "strategy": "percentage",
+      "versions": [
+        {
+          "version_id": "7472a87f-185a-48b9-9c0a-3c55e56e4ff2",
+          "percentage": 100
+        }
+      ],
+      "annotations": {
+        "workers/message": "PR #487: deploy acknowledged exact UI hint reuse; bindings preserved",
+        "workers/triggered_by": "deployment"
+      }
+    },
+    {
+      "id": "348e7301-7855-4b87-ae3e-61ab7fdf8793",
+      "created_on": "2026-10-05T07:15:51.155955Z",
+      "source": "api",
+      "strategy": "percentage",
+      "versions": [
+        {
+          "version_id": "83ecec97-88ee-4bda-bcd5-f97aaf16b56c",
+          "percentage": 100
+        }
+      ],
+      "annotations": {
+        "workers/message": "Deploy repo e49d7483: AI region observations an...",
+        "workers/triggered_by": "upload"
+      }
+    },
+    {
+      "id": "90322068-3622-4104-9432-19c4df8aee46",
+      "created_on": "2026-10-05T05:25:54.435302Z",
+      "source": "api",
+      "strategy": "percentage",
+      "versions": [
+        {
+          "version_id": "df767a8e-7507-4070-807c-5e768d7af5ba",
+          "percentage": 100
+        }
+      ],
+      "annotations": {
+        "workers/message": "Automatic deployment on upload.",
+        "workers/triggered_by": "upload"
+      }
+    },
+    {
+      "id": "4420e4cd-308f-4cac-87dc-262bd751f80b",
+      "created_on": "2026-10-05T03:37:47.853602Z",
+      "source": "api",
+      "strategy": "percentage",
+      "versions": [
+        {
+          "version_id": "5691bd41-3ae1-4ab3-ab01-08aebe0878a2",
+          "percentage": 100
+        }
+      ],
+      "annotations": {
+        "workers/message": "PR #478: deploy semantic-first AI observation + realtime freshness admission",
+        "workers/triggered_by": "deployment"
+      }
+    },
+    {
+      "id": "9d013ca7-59c9-440f-84b9-75f798488cd5",
+      "created_on": "2026-10-05T01:18:41.303273Z",
+      "source": "api",
+      "strategy": "percentage",
+      "versions": [
+        {
+          "version_id": "12146a5b-0585-4b24-a587-18f334e25f4f",
+          "percentage": 100
+        }
+      ],
+      "annotations": {
+        "workers/message": "PR #473: deploy realtime presentation feedback + AI motion continuity",
+        "workers/triggered_by": "deployment"
+      }
+    },
+    {
+      "id": "73006259-0057-44d3-9fea-3fcf4016c97a",
+      "created_on": "2026-10-05T00:52:39.171581Z",
+      "source": "api",
+      "strategy": "percentage",
+      "versions": [
+        {
+          "version_id": "a4aa4fcf-c4fb-4fd7-82dd-65ff6496a433",
+          "percentage": 100
+        }
+      ],
+      "annotations": {
+        "workers/message": "PR #472: deploy realtime motion freshness + adaptive AI visual quality",
+        "workers/triggered_by": "deployment"
+      }
+    },
+    {
+      "id": "71a09c11-886e-42d6-a76c-41115867d5b9",
+      "created_on": "2026-10-05T00:32:15.208681Z",
+      "source": "api",
+      "strategy": "percentage",
+      "versions": [
+        {
+          "version_id": "1fe6afcd-f526-4a3a-8aec-75095bb605e5",
+          "percentage": 100
+        }
+      ],
+      "annotations": {
+        "workers/message": "PR #471: deploy verified unchanged-visual reuse guidance",
+        "workers/triggered_by": "deployment"
+      }
+    },
+    {
+      "id": "9d08f1ab-e7c1-4e8c-a265-7285852c923b",
+      "created_on": "2026-10-04T20:19:25.655486Z",
+      "source": "api",
+      "strategy": "percentage",
+      "versions": [
+        {
+          "version_id": "7f6d2e92-d6a8-4704-9ddc-5391f1946b18",
+          "percentage": 100
+        }
+      ],
+      "annotations": {
+        "workers/message": "Automatic deployment on upload.",
+        "workers/triggered_by": "upload"
+      }
+    },
+    {
+      "id": "04a55369-b9c8-475d-bc51-493def219668",
+      "created_on": "2026-10-04T18:16:12.393312Z",
+      "source": "api",
+      "strategy": "percentage",
+      "versions": [
+        {
+          "version_id": "72778b75-1005-4197-870b-1bae35a3e7a4",
+          "percentage": 100
+        }
+      ],
+      "annotations": {
+        "workers/message": "PR #468: deploy semantic-first AI action results",
+        "workers/triggered_by": "deployment"
+      }
+    }
+  ],
+  "schedules": {
+    "schedules": []
+  },
+  "subdomain": {
+    "enabled": true,
+    "previews_enabled": false
+  }
+}
