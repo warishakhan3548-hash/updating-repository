@@ -88,6 +88,19 @@ class PhotonFreshnessGovernorTest {
         assertTrue(p.allowResolutionRecovery)
     }
 
+    @Test fun zeroSentSupplyCannotProveCurrentDeliveryFromBufferedGlass() {
+        val g = PhotonFreshnessGovernor()
+        val encoded = outbound()
+        val unsent = encoded.copy(recent = encoded.recent!!.copy(sentFrames = 0))
+        repeat(6) { index ->
+            val p = g.observe(unsent, receiver(), 60, false,
+                1_000L + index * 500L)
+            assertNull(p.glassDeliveryRatio)
+            assertFalse(p.allowCadencePromotion)
+            assertFalse(p.allowResolutionRecovery)
+        }
+    }
+
     @Test
     fun heldGlassWindowDoesNotBecomeAnotherCleanVote() {
         val g = PhotonFreshnessGovernor()

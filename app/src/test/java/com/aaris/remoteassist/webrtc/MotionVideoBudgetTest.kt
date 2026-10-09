@@ -21,6 +21,54 @@ class MotionVideoBudgetTest {
         assertEquals(720, shortEdge)
     }
 
+    @Test fun regularFifteenFpsSourceDoesNotPayForASixtyFpsCeiling() {
+        val budget = MotionVideoBudget()
+        budget.primeForMotion(profile, 0L)
+        val sparseMotion = sender(fps = 15).copy(
+            qualityLimitationReason = "bandwidth",
+            availableOutgoingBitrateBps = 700_000.0
+        )
+
+        repeat(12) { index ->
+            assertFalse(budget.observe(
+                sparseMotion, receiver(fps = 15).copy(maxRenderGapMs = 67),
+                sourceFps = 15.0, motionActive = true, targetFps = 60,
+                nowMs = (index + 1) * 1_000L, interactionActive = true
+            ))
+        }
+        assertEquals(360, budget.shortEdge)
+        // Demand accounting does not lower the source/encoder's FPS ceiling.
+        assertEquals(1_800_000, budget.bitrateCeiling(profile, true, 60))
+    }
+
+    @Test fun emergencyRecoveryUsesTheExactRungThatBandwidthApproved() {
+        val budget = MotionVideoBudget()
+        budget.primeForMotion(profile, 0L)
+        val backedUp = sender(fps = 2, encode = 5.0, queue = 350.0).copy(
+            qualityLimitationReason = "bandwidth"
+        )
+        budget.observe(backedUp, null, 60.0, true, 30, 1_000L)
+        budget.observe(backedUp, null, 60.0, true, 30, 2_000L)
+        assertEquals(180, budget.shortEdge)
+
+        // 700 kbps covers 240@30 with the 20% recovery margin, but cannot
+        // cover 360@30. Recovery must not test 240 and then install 360.
+        val recovered = sender().copy(availableOutgoingBitrateBps = 700_000.0)
+        repeat(12) { index ->
+            budget.observe(recovered, receiver(), 30.0, true, 30,
+                13_000L + index * 1_000L)
+        }
+        assertEquals(240, budget.shortEdge)
+        assertEquals(240, budget.apply(profile, true).captureWidthPx)
+        assertEquals(500_000, budget.bitrateCeiling(profile, true, 30))
+
+        repeat(24) { index ->
+            assertFalse(budget.observe(recovered, receiver(), 30.0, true, 30,
+                25_000L + index * 1_000L))
+        }
+        assertEquals(240, budget.shortEdge)
+    }
+
     @Test fun retainedGlassHitchCannotBecomeASecondResolutionPressureVote() {
         val budget = nativeWarmBudget()
         val hitch = receiver(presented = 10).copy(maxRenderGapMs = 160)

@@ -467,7 +467,7 @@ class VideoCadenceGovernor(
             highCadencePressureGate.clearPresentation()
         }
         val sender = outbound.recent ?: return false
-        lastSenderFps = sender.fps.takeIf {
+        lastSenderFps = sender.deliveryFps.takeIf {
             nowMs >= 0L &&
                 sender.intervalMs in FAST_PRESENTATION_MIN_WINDOW_MS..
                     FAST_PRESENTATION_MAX_WINDOW_MS &&
@@ -509,7 +509,7 @@ class VideoCadenceGovernor(
                     receiver != null &&
                         receiver.frames >= MIN_MEASURED_FRAMES &&
                         (receiver.processingMs ?: 0.0) > budgetMs * CODEC_PRESSURE_BUDGET_RATIO &&
-                        receiver.fps < minOf(requestedFps.toDouble(), sender.fps) * FPS_DELIVERY_RATIO
+                        receiver.fps < minOf(requestedFps.toDouble(), sender.deliveryFps) * FPS_DELIVERY_RATIO
                     )
 
         val loss = outbound.packetLossRatio ?: 0.0
@@ -564,7 +564,7 @@ class VideoCadenceGovernor(
         val presentedFps = receiver?.presentedFps
         val measuredReceiverFps = receiver?.takeIf { it.frames >= MIN_MEASURED_FRAMES }?.fps
         val expectedPresentationFps = if (presentedFps != null) {
-            minOf(requestedFps.toDouble(), sender.fps, measuredReceiverFps ?: Double.POSITIVE_INFINITY)
+            minOf(requestedFps.toDouble(), sender.deliveryFps, measuredReceiverFps ?: Double.POSITIVE_INFINITY)
         } else 0.0
         val presentationRatio =
             if (presentedFps != null && expectedPresentationFps >= MIN_PRESENTATION_EXPECTED_FPS) {
@@ -789,7 +789,7 @@ class VideoCadenceGovernor(
             } ?: return false
             val next = if (severePressure) {
                 val delivered = buildList {
-                    if (sender.frames >= MIN_MEASURED_FRAMES) add(sender.fps)
+                    if (sender.frames >= MIN_MEASURED_FRAMES) add(sender.deliveryFps)
                     if (receiver != null && receiver.frames >= MIN_MEASURED_FRAMES) add(receiver.fps)
                     if (presentationMeasured && presentedFps != null) add(presentedFps)
                 }.minOrNull()

@@ -89,7 +89,7 @@ internal class PhotonFreshnessGovernor {
         lastObserveAtMs = nowMs
 
         val sender = outbound.recent
-        val senderFps = sender?.fps.valid()
+        val senderFps = sender?.deliveryFps.valid()
         val decoderFps = receiver?.fps.valid()
         val presentedFps = receiver?.presentedFps.valid()
         val expectedGlassFps =
@@ -98,7 +98,6 @@ internal class PhotonFreshnessGovernor {
                 senderFps,
                 decoderFps
             )
-                .filter { it > 0.0 }
                 .minOrNull()
         val glassRatio =
             if (

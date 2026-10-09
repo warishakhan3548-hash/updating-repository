@@ -31,7 +31,8 @@ data class VideoHealthSnapshot(
     val jitterEmittedCount: Long? = null,
     val sendDelayTotalSeconds: Double? = null,
     val recent: VideoHealthWindow? = null,
-    val availableOutgoingBitrateBps: Double? = null
+    val availableOutgoingBitrateBps: Double? = null,
+    val hasSentFrameCounter: Boolean = false
 ) {
     fun compact(): String {
         val primary =
@@ -276,7 +277,8 @@ data class VideoHealthSnapshot(
                     availableOutgoingBitrateBps = availableOutgoingBitrateBps,
                     streamId = selected.id, timestampUs = report.timestampUs,
                     processingTotalSeconds = decimal(members["totalEncodeTime"]),
-                    sendDelayTotalSeconds = decimal(members["totalPacketSendDelay"])
+                    sendDelayTotalSeconds = decimal(members["totalPacketSendDelay"]),
+                    hasSentFrameCounter = members["framesSent"] != null
                 )
             } else {
                 VideoHealthSnapshot(

@@ -136,7 +136,7 @@ internal class HighCadenceProbe {
             freshProof &&
                 sender != null &&
                 sender.intervalMs in 500..6000 &&
-                sender.fps >= currentFps * MIN_SENDER_DELIVERY_RATIO &&
+                sender.deliveryFps >= currentFps * MIN_SENDER_DELIVERY_RATIO &&
                 receiver!!.fps >= currentFps * MIN_DECODER_DELIVERY_RATIO &&
                 presented!! >= currentFps * MIN_PRESENTATION_DELIVERY_RATIO &&
                 receiver.maxRenderGapMs?.let {
