@@ -105,22 +105,16 @@ class ScreenCaptureTrack(
                      */
                     val observedWidth = frame.rotatedWidth
                     val observedHeight = frame.rotatedHeight
-                    if (
+                    val sourceGeometryChanged =
                         observedWidth > 0 &&
-                        observedHeight > 0 &&
-                        (
-                            observedWidth != lastObservedSourceWidth ||
-                                observedHeight != lastObservedSourceHeight
+                            observedHeight > 0 &&
+                            (
+                                observedWidth != lastObservedSourceWidth ||
+                                    observedHeight != lastObservedSourceHeight
                             )
-                    ) {
+                    if (sourceGeometryChanged) {
                         lastObservedSourceWidth = observedWidth
                         lastObservedSourceHeight = observedHeight
-                        runCatching {
-                            onSourceGeometryChanged(
-                                observedWidth,
-                                observedHeight
-                            )
-                        }
                     }
                     // Admit the latency-critical RTP sample first. Auxiliary
                     // sinks are best-effort consumers (fallback recovery / AI
@@ -150,6 +144,18 @@ class ScreenCaptureTrack(
                                 sampledTimestampNs
                             )
                         )
+                    }
+                    // Non-media geometry/UI notification must run only after
+                    // the current texture was submitted to native WebRTC.
+                    // A rotation callback may schedule display reconfiguration;
+                    // it must not delay admission of this frame to the encoder.
+                    if (sourceGeometryChanged) {
+                        runCatching {
+                            onSourceGeometryChanged(
+                                observedWidth,
+                                observedHeight
+                            )
+                        }
                     }
                     if (activityTracker.onFrame(frame.timestampNs)) {
                         // The callback is throttled by CaptureActivityTracker.
