@@ -76,6 +76,44 @@ class CaptureRefreshPolicyTest {
         assertFalse(policy.shouldRefreshForInteraction(10_027))
     }
 
+    @Test fun periodicIdlePullBetweenTouchAndDisplayTickCannotSwallowTouchRefresh() {
+        val policy = CaptureRefreshPolicy()
+        policy.onSample(1_000, textureTimestampNs = 100L)
+        policy.onInteractionApplied(1_998)
+
+        // An independent 1 Hz idle timer wins the scheduling race. Its forced
+        // sample can still reflect pixels from BEFORE the applied gesture.
+        assertTrue(policy.shouldRefresh(2_000))
+        policy.onSample(2_001, textureTimestampNs = 100L)
+
+        assertFalse(policy.shouldRefreshForInteraction(2_003))
+        assertTrue(policy.shouldRefreshForInteraction(2_015))
+        assertFalse(policy.shouldRefreshForInteraction(2_016))
+
+        // The interaction pull still rate-limits the normal idle timer.
+        assertFalse(policy.shouldRefresh(2_500))
+        assertTrue(policy.shouldRefresh(3_015))
+    }
+
+    @Test fun sameMillisecondIdleHeartbeatCannotCountAsInteractionProbe() {
+        val policy = CaptureRefreshPolicy()
+        policy.onSample(1_000, textureTimestampNs = 100L)
+
+        assertTrue(policy.shouldRefresh(2_000))
+        policy.onInteractionApplied(2_000)
+        policy.onSample(2_001, textureTimestampNs = 100L)
+
+        assertTrue(policy.shouldRefreshForInteraction(2_017))
+        assertFalse(policy.shouldRefreshForInteraction(2_018))
+
+        // A second gesture in the same millisecond must not multiply pulls.
+        policy.onInteractionApplied(2_017)
+        assertFalse(policy.shouldRefreshForInteraction(2_025))
+        // A genuinely later gesture retains the existing one-probe budget.
+        policy.onInteractionApplied(2_026)
+        assertTrue(policy.shouldRefreshForInteraction(2_043))
+    }
+
     @Test fun movingScreenGetsNoDuplicateWorkAndLatestSampleDefersIdleProbe() {
         val policy = CaptureRefreshPolicy()
         for (time in 0L..10_000L step 33L) {

@@ -143,7 +143,7 @@ class WebRtcPeer(
     }
 
     private val videoHealthWindows = VideoHealthWindowTracker()
-    private val videoStatsInFlight = AtomicBoolean(false)
+    private val videoStatsFlight = VideoStatsFlightGate()
     private val videoStatsEpoch = AtomicLong(0L)
     private var videoStatsNextAtMs = Long.MAX_VALUE
 
@@ -166,35 +166,62 @@ class WebRtcPeer(
             videoStatsNextAtMs = Long.MAX_VALUE
             if (closed.get() || !videoStatsEnabled) return
 
-            if (videoStatsInFlight.compareAndSet(false, true)) {
+            val token = videoStatsFlight.begin(monotonicNowMs())
+            if (token != null) {
                 val epoch = videoStatsEpoch.get()
-                peerConnection.getStats { report ->
-                    try {
-                        if (
-                            closed.get() ||
-                            !videoStatsEnabled ||
-                            epoch != videoStatsEpoch.get()
-                        ) {
-                            return@getStats
-                        }
-
-                        VideoHealthSnapshot
-                            .from(report, role)
-                            ?.let { snapshot ->
-                                if (role == PeerRole.HOST) {
-                                    latestOutboundCodec =
-                                        snapshot.codec
-                                            ?.substringAfterLast('/')
-                                    latestOutboundCodecImplementation =
-                                        snapshot.codecImplementation
-                                }
-                                listener.onVideoHealth(
-                                    videoHealthWindows.sample(snapshot)
-                                )
+                try {
+                    peerConnection.getStats { report ->
+                        try {
+                            if (
+                                !videoStatsFlight.isCurrent(token) ||
+                                closed.get() ||
+                                !videoStatsEnabled ||
+                                epoch != videoStatsEpoch.get()
+                            ) {
+                                return@getStats
                             }
-                    } finally {
-                        videoStatsInFlight.set(false)
+
+                            VideoHealthSnapshot
+                                .from(report, role)
+                                ?.let { snapshot ->
+                                    // A reconnect may invalidate this report
+                                    // while native stats parsing is in progress.
+                                    if (
+                                        !videoStatsFlight.isCurrent(token) ||
+                                        epoch != videoStatsEpoch.get()
+                                    ) {
+                                        return@let
+                                    }
+                                    if (role == PeerRole.HOST) {
+                                        latestOutboundCodec =
+                                            snapshot.codec
+                                                ?.substringAfterLast('/')
+                                        latestOutboundCodecImplementation =
+                                            snapshot.codecImplementation
+                                    }
+                                    listener.onVideoHealth(
+                                        videoHealthWindows.sample(snapshot)
+                                    )
+                                }
+                        } catch (error: Exception) {
+                            listener.onDiagnostic(
+                                "Video stats callback failed (" +
+                                    error.javaClass.simpleName + ")"
+                            )
+                        } finally {
+                            // A stale callback must never unlock the new epoch's
+                            // active request or permit overlapping stats polls.
+                            videoStatsFlight.finish(token)
+                        }
                     }
+                } catch (error: Exception) {
+                    // A synchronous JNI/peer failure must not strand the stats
+                    // loop with a permanent in-flight flag.
+                    videoStatsFlight.finish(token)
+                    listener.onDiagnostic(
+                        "Video stats request failed (" +
+                            error.javaClass.simpleName + ")"
+                    )
                 }
             }
 
@@ -1235,6 +1262,8 @@ class WebRtcPeer(
         handler.removeCallbacks(controllerRelayRefresh)
         reconcileRemoteVideoTrack()
         videoStatsEpoch.incrementAndGet()
+        videoStatsFlight.reset()
+        videoHealthWindows.reset()
         videoStatsEnabled = true
         scheduleVideoStatsProbe(
             RealtimeMediaPolicy.VIDEO_STATS_INITIAL_DELAY_MS
@@ -1244,6 +1273,8 @@ class WebRtcPeer(
 
     private fun handleTransportDisconnected() {
         videoStatsEpoch.incrementAndGet()
+        videoStatsFlight.reset()
+        videoHealthWindows.reset()
         videoStatsEnabled = false
         cancelVideoStatsProbe()
         preLiveDisconnected =
@@ -1266,6 +1297,8 @@ class WebRtcPeer(
 
     private fun handleTransportFailed() {
         videoStatsEpoch.incrementAndGet()
+        videoStatsFlight.reset()
+        videoHealthWindows.reset()
         videoStatsEnabled = false
         cancelVideoStatsProbe()
         preLiveDisconnected = false
@@ -1359,6 +1392,9 @@ class WebRtcPeer(
 
     fun close() {
         if (!closed.compareAndSet(false, true)) return
+        videoStatsEpoch.incrementAndGet()
+        videoStatsFlight.reset()
+        videoHealthWindows.reset()
 
         unregisterNetworkHandoffObserver()
 

@@ -21,7 +21,7 @@ class ScreenCaptureTrack(
     private val onProjectionStopped: () -> Unit,
     private val onSourceMotion: () -> Unit = {},
     private val onSourceGeometryChanged: (Int, Int) -> Unit = { _, _ -> },
-    private val onCaptureTiming: (CaptureCallbackTimingSummary) -> Unit = {}
+    private val onCaptureTiming: (CaptureCallbackTimingBatch) -> Unit = {}
 ) : Closeable {
     private val appContext = context.applicationContext
     private val factory = WebRtcRuntime.factory(appContext)
@@ -107,22 +107,16 @@ class ScreenCaptureTrack(
                      */
                     val observedWidth = frame.rotatedWidth
                     val observedHeight = frame.rotatedHeight
-                    if (
+                    val sourceGeometryChanged =
                         observedWidth > 0 &&
-                        observedHeight > 0 &&
-                        (
-                            observedWidth != lastObservedSourceWidth ||
-                                observedHeight != lastObservedSourceHeight
+                            observedHeight > 0 &&
+                            (
+                                observedWidth != lastObservedSourceWidth ||
+                                    observedHeight != lastObservedSourceHeight
                             )
-                    ) {
+                    if (sourceGeometryChanged) {
                         lastObservedSourceWidth = observedWidth
                         lastObservedSourceHeight = observedHeight
-                        runCatching {
-                            onSourceGeometryChanged(
-                                observedWidth,
-                                observedHeight
-                            )
-                        }
                     }
                     // Admit the latency-critical RTP sample first. Auxiliary
                     // sinks are best-effort consumers (fallback recovery / AI
@@ -155,6 +149,19 @@ class ScreenCaptureTrack(
                         )
                     }
                     val ingressDurationNs = System.nanoTime() - ingressStartedNs
+
+                    // Keep non-media geometry/UI work behind native frame
+                    // admission. Rotation healing must never delay this texture
+                    // from entering the encoder path.
+                    if (sourceGeometryChanged) {
+                        runCatching {
+                            onSourceGeometryChanged(
+                                observedWidth,
+                                observedHeight
+                            )
+                        }
+                    }
+
                     if (activityTracker.onFrame(frame.timestampNs)) {
                         // The callback is throttled by CaptureActivityTracker.
                         // Keep it best-effort and never let policy work block
@@ -173,11 +180,17 @@ class ScreenCaptureTrack(
                         nowMs = android.os.SystemClock.elapsedRealtime(),
                         primaryIngressNs = ingressDurationNs,
                         auxiliarySinksNs = System.nanoTime() - auxiliaryStartedNs
-                    )?.let { summary ->
-                        // This callback is wired to the host's independent policy
-                        // handler: percentile sorting and diagnostics never run
-                        // on each ordinary capture sample.
-                        runCatching { onCaptureTiming(summary) }
+                    )?.let { batch ->
+                        // The fixed sample arrays are now sealed. Percentile
+                        // sorting happens on the host policy lane, never here.
+                        val handedOff =
+                            runCatching {
+                                onCaptureTiming(batch)
+                                true
+                            }.getOrDefault(false)
+                        if (!handedOff) {
+                            batch.release()
+                        }
                     }
                 }
             }
