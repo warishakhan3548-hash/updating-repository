@@ -123,7 +123,8 @@ class VideoCadenceGovernor(
         receiver: VideoHealthWindow?,
         producerFps: Double?,
         interactionActive: Boolean,
-        nowMs: Long
+        nowMs: Long,
+        allowHighCadencePromotion: Boolean = true
     ): Boolean {
         if (!interactionActive) {
             interactiveHeadroom = 0
@@ -300,7 +301,12 @@ class VideoCadenceGovernor(
 
         if (
             interactiveHeadroom < INTERACTION_PROBE_SAMPLES ||
-            nowMs - changedAt < INTERACTION_PROBE_COOLDOWN_MS
+            nowMs - changedAt < INTERACTION_PROBE_COOLDOWN_MS ||
+            // Sender/decoder headroom alone is not proof of fresh pixels on
+            // glass. The host's PhotonFreshnessGovernor must authorize the
+            // 24 -> 30 promotion from a new, clean EGL presentation window.
+            // Do not require this for sub-24 emergency motion recovery.
+            !allowHighCadencePromotion
         ) {
             return false
         }
