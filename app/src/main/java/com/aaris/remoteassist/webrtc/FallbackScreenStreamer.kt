@@ -44,10 +44,9 @@ class FallbackScreenStreamer(
 
     private val enabled = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
-    private val encoding = AtomicBoolean(false)
+    private val frameAdmission = FallbackFrameAdmission()
     private val deltaCapable = AtomicBoolean(false)
     private val interactionActive = AtomicBoolean(false)
-    private val lastFrameAtMs = AtomicLong(0L)
     private val adaptiveIntervalMs = AtomicLong(ADAPTIVE_INITIAL_INTERVAL_MS)
     private val frameSequence = AtomicLong(0L)
     private val firstDeltaReported = AtomicBoolean(false)
@@ -79,22 +78,25 @@ class FallbackScreenStreamer(
         }
 
         val now = monotonicNowMs()
-        val interval = currentFrameIntervalMs()
-        val previous = lastFrameAtMs.get()
-        if (previous != 0L && now - previous < interval) {
-            return@VideoSink
-        }
-        if (!lastFrameAtMs.compareAndSet(previous, now)) {
-            return@VideoSink
-        }
-        // A new frame cannot overtake already-buffered data. Wait before doing
-        // any encoding so low bandwidth cannot accumulate seconds of old images.
-        if (!canStartFrame()) {
-            if (deltaCapable.get()) adjustCadence(false)
-            return@VideoSink
-        }
-        if (!encoding.compareAndSet(false, true)) {
-            return@VideoSink
+        // Reserve a cadence slot only when both the transport and the
+        // single-flight fallback worker can actually accept a new frame.
+        // Backpressure must not postpone the first fresh recovery image.
+        when (
+            frameAdmission.tryAcquire(
+                nowMs = now,
+                intervalMs = currentFrameIntervalMs(),
+                capacityReady = canStartFrame
+            )
+        ) {
+            FallbackFrameAdmission.Decision.THROTTLED,
+            FallbackFrameAdmission.Decision.BUSY -> return@VideoSink
+
+            FallbackFrameAdmission.Decision.BACKPRESSURED -> {
+                if (deltaCapable.get()) adjustCadence(false)
+                return@VideoSink
+            }
+
+            FallbackFrameAdmission.Decision.ACCEPTED -> Unit
         }
 
         /*
@@ -110,12 +112,12 @@ class FallbackScreenStreamer(
                 if (interactionActive.get()) 1600 else MAX_DIMENSION
             )
         } catch (error: Exception) {
-            encoding.set(false)
+            frameAdmission.finish()
             onDiagnostic("Compatibility frame copy failed (${error.javaClass.simpleName})")
             return@VideoSink
         }
         if (cpu == null) {
-            encoding.set(false)
+            frameAdmission.finish()
             return@VideoSink
         }
 
@@ -133,13 +135,19 @@ class FallbackScreenStreamer(
                 } catch (error: Exception) {
                     onDiagnostic("Compatibility image failed (${error.javaClass.simpleName})")
                 } finally {
-                    cpu.close()
-                    encoding.set(false)
+                    try {
+                        cpu.close()
+                    } finally {
+                        frameAdmission.finish()
+                    }
                 }
             }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
-            cpu.close()
-            encoding.set(false)
+            try {
+                cpu.close()
+            } finally {
+                frameAdmission.finish()
+            }
         }
     }
 
@@ -168,7 +176,7 @@ class FallbackScreenStreamer(
         forceKeyframe.set(true)
         referenceFrame = null
         lastKeyframeAtMs = 0L
-        lastFrameAtMs.set(0L)
+        frameAdmission.resetCooldown()
     }
 
     @Synchronized fun enable() {
@@ -184,7 +192,7 @@ class FallbackScreenStreamer(
         attachSinkIfNeeded()
         enabled.set(true)
 
-        lastFrameAtMs.set(0L)
+        frameAdmission.resetCooldown()
         referenceFrame = null
         lastKeyframeAtMs = 0L
         adaptiveIntervalMs.set(ADAPTIVE_INITIAL_INTERVAL_MS)
