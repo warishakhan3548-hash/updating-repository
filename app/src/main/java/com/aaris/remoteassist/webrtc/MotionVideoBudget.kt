@@ -182,8 +182,8 @@ internal class MotionVideoBudget {
         val encodePressure = sender.frames >= 2 && underDelivery && (encodeMs ?: 0.0) > frameMs * 0.85
         val queuePressure = (queueMs ?: 0.0) >= 80.0 || (jitterMs ?: 0.0) >= 100.0
         val decodePressure = received != null && (decodeMs ?: 0.0) > frameMs * 0.85 &&
-            received.fps < minOf(sender.deliveryFps, goal.toDouble()) * 0.85
-        val expectedPresentation = minOf(goal.toDouble(), sender.deliveryFps, received?.fps ?: 0.0)
+            received.fps < minOf(sender.fps, goal.toDouble()) * 0.85
+        val expectedPresentation = minOf(goal.toDouble(), sender.fps, received?.fps ?: 0.0)
         // Held EGL cadence bridges independently phased stats clocks. It may
         // block recovery, but must not become another resolution-pressure vote.
         val presentationPressure = received?.presentationSampleFresh != false &&
@@ -264,10 +264,10 @@ internal class MotionVideoBudget {
             )
         val senderLagsMotion =
             if (interactionActive) {
-                sender.deliveryFps < goal * INTERACTION_DELIVERY_RATIO
+                sender.fps < goal * INTERACTION_DELIVERY_RATIO
             } else {
                 measuredSourceFps?.let {
-                    sender.deliveryFps < minOf(goal.toDouble(), it) * PASSIVE_DELIVERY_RATIO
+                    sender.fps < minOf(goal.toDouble(), it) * PASSIVE_DELIVERY_RATIO
                 } == true
             }
         val bandwidthLimited =
@@ -341,7 +341,7 @@ internal class MotionVideoBudget {
         val producerOutrunsSender =
             measuredSourceFps?.let { supply ->
                 supply >= MIN_MOVING_SOURCE_FPS &&
-                    sender.deliveryFps < minOf(goal.toDouble(), supply) *
+                    sender.fps < minOf(goal.toDouble(), supply) *
                         PASSIVE_DELIVERY_RATIO
             } == true
         val transportProvesCongestion =
@@ -355,13 +355,13 @@ internal class MotionVideoBudget {
             bandwidthUnderDelivery &&
                 (
                     (queueMs ?: 0.0) >= NETWORK_QUEUE_PRESSURE_MS ||
-                        sender.deliveryFps < goal * 0.60
+                        sender.fps < goal * 0.60
                 )
         val severeBandwidthFreshnessPressure =
             bandwidthUnderDelivery &&
                 (
                     (queueMs ?: 0.0) >= SEVERE_NETWORK_QUEUE_MS ||
-                        sender.deliveryFps < goal * 0.45
+                        sender.fps < goal * 0.45
                 )
         if (bandwidthFreshnessPressure || predictiveBandwidthPressure) {
             lastBandwidthPressureAtMs = nowMs
@@ -482,7 +482,7 @@ internal class MotionVideoBudget {
                         BWE_RECOVERY_HEADROOM_RATIO
                 } ?: true
             val healthy =
-                sender.deliveryFps >= goal * 0.9 &&
+                sender.fps >= goal * 0.9 &&
                     encodeMs != null &&
                     encodeMs < frameMs * 0.5 &&
                     queueMs != null &&

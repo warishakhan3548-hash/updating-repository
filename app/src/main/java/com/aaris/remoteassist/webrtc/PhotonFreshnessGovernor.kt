@@ -89,9 +89,12 @@ internal class PhotonFreshnessGovernor {
         lastObserveAtMs = nowMs
 
         val sender = outbound.recent
-        val senderFps = sender?.deliveryFps.valid()
+        val senderFps = sender?.fps.valid()
         val decoderFps = receiver?.fps.valid()
         val presentedFps = receiver?.presentedFps.valid()
+        // A measured zero is no media supply, not an unknown counter. Dropping
+        // it would compare a quiet stream against the requested FPS ceiling
+        // and manufacture a display stall from an empty presentation window.
         val expectedGlassFps =
             listOfNotNull(
                 targetFps.toDouble().takeIf { it > 0.0 },

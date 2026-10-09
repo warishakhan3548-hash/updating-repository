@@ -53,30 +53,6 @@ class PresentationSupplyTest {
         assertEquals(60, governor.cap)
     }
 
-    @Test fun encodedFramesWaitingForRtpAreNotSuppliedToTheDisplay() {
-        val governor = VideoCadenceGovernor(60)
-        val encoded = sender(60)
-        val sentThirty = encoded.copy(
-            recent = encoded.recent!!.copy(sentFrames = 30)
-        )
-        for (now in 1_000L..3_000L step 500L) {
-            assertFalse(governor.observe(sentThirty, null, 60, now,
-                producerFps = 60.0))
-            assertFalse(present(governor, nowMs = now + 100L))
-        }
-        assertEquals(60, governor.cap)
-    }
-
-    @Test fun measuredZeroSentFramesCannotBecomeSixtyFpsOfGlassPressure() {
-        val governor = VideoCadenceGovernor(60)
-        val encoded = sender(60)
-        assertFalse(governor.observe(encoded.copy(
-            recent = encoded.recent!!.copy(sentFrames = 0)
-        ), null, 60, 1_000L, producerFps = 60.0))
-        assertFalse(present(governor, frames = 5, gapMs = 180))
-        assertEquals(60, governor.cap)
-    }
-
     @Test fun sparseScreenUpdatesMustNotAccumulateFalseGlassPressure() {
         val governor = VideoCadenceGovernor(60)
         for (now in 1_000L..5_000L step 500L) {

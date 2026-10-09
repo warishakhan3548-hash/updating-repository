@@ -43,19 +43,9 @@ data class VideoHealthWindow(
     val postAckPresentMs: Int? = null,
     val photonSampleSequence: Long? = null,
     val photonSampleAgeMs: Int? = null,
-    val photonSampleFresh: Boolean = true,
-    /** Completed frames handed to RTP, separately from encoder completions. */
-    val sentFrames: Int? = null
+    val photonSampleFresh: Boolean = true
 ) {
     val fps: Double get() = frames * 1000.0 / intervalMs
-
-    val sentFps: Double?
-        get() = sentFrames?.takeIf { it >= 0 && intervalMs > 0 }
-            ?.let { it * 1000.0 / intervalMs }
-
-    // Older/partial reports keep the existing estimate. A measured zero is
-    // real zero supply; it must never fall back to the encoded frame count.
-    val deliveryFps: Double get() = sentFps ?: fps
 
     /**
      * Receiver freshness budget. WebRTC may intentionally grow its target
@@ -96,8 +86,7 @@ data class VideoHealthWindow(
             " present=alive age=${it}ms"
         }.orEmpty()
         val target = jitterTargetMs?.roundToInt()?.let { " target=${it}ms" }.orEmpty()
-        val sent = sentFps?.roundToInt()?.let { " sent=${it}fps" }.orEmpty()
-        return "${fps.roundToInt()}fps$sent ${bitrateBps / 1000}kbps codec=${processingMs?.roundToInt()}ms jitter=${jitterMs?.roundToInt()}ms$target drop=$dropped freeze=$freezes queue=${sendQueueMs?.roundToInt()}ms$presentation"
+        return "${fps.roundToInt()}fps ${bitrateBps / 1000}kbps codec=${processingMs?.roundToInt()}ms jitter=${jitterMs?.roundToInt()}ms$target drop=$dropped freeze=$freezes queue=${sendQueueMs?.roundToInt()}ms$presentation"
     }
 }
 
@@ -184,14 +173,7 @@ class VideoHealthWindowTracker {
                         current.jitterTargetTotalSeconds,
                         old.jitterTargetTotalSeconds,
                         emitted
-                    ),
-                sentFrames =
-                    if (current.direction == "outbound" &&
-                        current.hasSentFrameCounter && old.hasSentFrameCounter) {
-                        count(current.framesSecondary, old.framesSecondary)
-                    } else {
-                        null
-                    }
+                    )
             )
         )
     }

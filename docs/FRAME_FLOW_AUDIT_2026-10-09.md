@@ -39,12 +39,12 @@ flowchart TD
 | Capture handoff | `ScreenCaptureTrack.onFrameCaptured` → `videoSource.capturerObserver.onFrameCaptured` → `VideoTrack` | Natural frames enter the main video path before optional snapshot sinks. `CaptureActivityTracker` measures original producer timestamps; forced repeats do not count as new screen motion. |
 | Capture policy | `ScreenCaptureTrack.adaptOutput` → `VideoSource.adaptOutputFormat` | Caps source pixels/FPS. Routine policy changes preserve the virtual display; actual display-shape changes alone call `changeCaptureFormat`. |
 | Encoding | `WebRtcRuntime` factories → `WebRtcPeer.addLocalVideoTrack` SEND_ONLY transceiver | Negotiated hardware baseline H.264/VP8 is preferred, with software fallback. Encoder cost is measured per **encoded** frame. Large dimension changes may reconfigure a vendor codec. |
-| Transmission | `WebRtcPeer.applyInteractiveVideoPolicy` → RTP sender → native GCC/TWCC, packet pacing, SRTP | Configured bitrate/FPS are ceilings. Encoded frames are not proof that their packets have left the sender. Sender residence and actual sent-frame deltas must remain separate. |
+| Transmission | `WebRtcPeer.applyInteractiveVideoPolicy` → RTP sender → native GCC/TWCC, packet pacing, SRTP | Configured bitrate/FPS are ceilings. Encoded frames are not proof that their packets have left the sender. The pinned SDK aliases its sent-frame counter to encoding; sender residence and receiver decode/display evidence must remain separate from encoder count. |
 | Connectivity | `CloudflareSignalingClient` + `IceServerProvider` → selected direct UDP / TURN route | SDP/ICE establishes the path. Normal video is RTP, rather than repeated Worker screenshot uploads. Packet propagation, loss and recovery constrain deadlines. |
 | Assembly and decode | Native receiver reorder/NACK/jitter timing → decoder → `WebRtcPeer.onTrack` / `onAddTrack` → `ControllerWebRtcSession` | Missing dependent packets can prevent a whole frame from decoding. Decoder cost and emitted-buffer residence expose different bottlenecks. |
 | Android display | `InlineRemoteControllerView.renderSink` → `EglRenderer.onFrame` → EGL swap → Surface/compositor | Latest pending frames replace obsolete pending work. Actual render callbacks feed `PresentationCadenceTracker`; decoded count alone does not establish visible smoothness. |
 | Browser display | `browser-console.js` → HTML video / `requestVideoFrameCallback`; `receiver-playout.js` | Uses native video playback and a supported adaptive jitter target. A hidden/stalled compositor or unsupported callback must not manufacture display FPS. |
-| Adaptation | `VideoHealthSnapshot.from` → `VideoHealthWindowTracker.sample` → `HostWebRtcSession.onVideoHealth` → `ReceiverVideoFeedback`, `MotionVideoBudget`, `VideoCadenceGovernor`, `HighCadenceProbe`, `PhotonFreshnessGovernor` | Scalar evidence determines ceilings. Incorrect demand or supply accounting can cause unnecessary reductions, false display blame, or an unsafe recovery upshift. |
+| Adaptation | `VideoHealthSnapshot.from` → `VideoHealthWindowTracker.sample` → `HostWebRtcSession.onVideoHealth` → `ReceiverVideoFeedback`, `MotionVideoBudget`, `VideoCadenceGovernor`, `HighCadenceProbe`, `PhotonFreshnessGovernor` | Scalar evidence determines ceilings. Incorrect demand accounting, zero-supply classification or recovery admission can cause unnecessary reductions or an unsafe recovery upshift. |
 | Compatibility pixels | The same capture → `FallbackScreenStreamer` / `AiSnapshotProvider` → owned CPU copy → bounded worker | Separate recovery/AI work, rather than the normal video stream. Retaining a producer texture or allowing old JPEG work to accumulate would harm primary capture. |
 
 ## UI and state map
@@ -102,22 +102,26 @@ The predictive demand now uses measured source supply, capped by the requested g
 
 This remains an approximate early predictor, not a replacement for WebRTC's congestion controller or a promise of exact bits per frame.
 
-### 3. Encoded frames were counted as already-sent supply
+### 3. Known zero media supply manufactured presentation pressure
 
-`VideoHealthWindowTracker` used `framesEncoded` for outbound FPS. That is the correct denominator for encode cost, but it was also reused as supply to the controller/display. If 60 frames were encoded and only 30 were sent during the interval, a smooth 30-FPS controller could be blamed for a false 60-FPS presentation deficit.
+`PhotonFreshnessGovernor.observe` built the expected glass cadence from requested, encoded and decoded FPS, then removed every zero value. With a 60-FPS ceiling, encoded=0, decoded=0 and presented=0, that discarded both measured supply counters and compared the empty display window against 60 FPS. The resulting zero delivery ratio falsely classified a quiet stream as presentation pressure.
 
-The existing telemetry window now additionally carries the independent `framesSent` delta when the SDK exposes it. `deliveryFps` uses that measured supply for presentation comparison, decoder comparison, transport under-delivery and high-cadence delivery proof. Encode cost retains its encoded-frame denominator. The diagnostic overlay displays **encode**, **send**, **decode** and **present** separately.
+Known zero supply now remains in the minimum. With no upstream supply, the delivery ratio is unavailable and the window is `UNKNOWN`; it cannot invent display pressure or clean delivery proof. Genuine queue, jitter, presentation-age and ACK pressure remain independent. A separate regression checks that a 350-ms sender queue still classifies as `PRESSURE` even with zero media supply.
 
-A measured zero stays zero. Missing/reset counters remain unavailable and preserve the legacy estimate rather than inventing a negative or zero measurement. `PhotonFreshnessGovernor` also stops discarding known zero supply when constructing the expected-display bound; buffered old glass cannot prove current transmission.
+### SDK counter limitation and the diagnostic correction
+
+The exact pinned SDK source was retrieved and inspected, including `media/engine/webrtc_video_engine.cc` and `pc/rtc_stats_collector.cc`. In this version, `info.frames_sent = stream_stats.frames_encoded`. Both names ultimately describe the encoding counter. `framesSent` is therefore not an independent measurement of complete frames departing the pacer or reaching the peer.
+
+The QD overlay previously labelled its encoded FPS as `send`. The original label now reads **encode**, beside **decode** and **present**. Sender packet residence, transmitted bytes/packets and receiver evidence remain the available transport measurements. No independent wire-departure frame meter is fabricated from the SDK's aliased counter.
 
 ## Ripple checks
 
 | Changed node | Downstream consumers | Preserved contract |
 | --- | --- | --- |
-| Optional sent-frame count in local health window | Cadence, photon, motion and high-cadence policies; QD diagnostics | Existing encoded FPS and encode-cost denominator remain intact. No control wire format change. |
-| Actual-supply comparisons | Fast display brake, decoder pressure, high-FPS trial and transport under-delivery | Decoder/render mismatches are compared to available upstream supply. Genuine queue/codec pressure retains independent checks. |
-| Predictive demand | Existing pixel pressure hysteresis | Only prediction discounts a measured sparse source. Configured FPS, recovery budget and native GCC remain authoritative. |
+| Predictive demand in `MotionVideoBudget` | Existing pixel pressure hysteresis | Only prediction discounts measured sparse production. Configured FPS, recovery budget and native GCC remain authoritative. |
 | Recovery assignment | `MotionVideoBudget.apply` → adapted source dimensions and sender bitrate ceiling | The admitted rung is the installed rung; logical screen geometry and touch mapping remain separate from encoded size. |
+| Zero-supply classification in `PhotonFreshnessGovernor` | Cadence/detail promotion gates in the host policy lane | No supply cannot manufacture glass pressure or clean proof. Real queue/jitter/liveness pressure still applies independently. |
+| QD label in `HostWebRtcSession` | Host connection trace | Encoded FPS is labelled as encoding. No stats schema or control wire format changes. |
 
 ## Frame spacing and the buffer reservoir
 
@@ -131,7 +135,7 @@ Hardware/software factories, shared EGL textures, `MAINTAIN_FRAMERATE` during mo
 
 ## Validation and remaining device gate
 
-Regression coverage includes a regular 15-FPS producer under a 60-FPS ceiling; exact 180→240 recovery with bandwidth insufficient for 360; encoded 60 versus sent 30; measured zero transmission; missing/reset counters; independent encode cost; sender backlog drain; and buffered-glass promotion rejection. Existing tests retain real congestion, source starvation, codec overload, presentation pressure and high-FPS recovery coverage.
+Four new regression tests cover a regular 15-FPS producer under a 60-FPS ceiling; exact 180→240 recovery with bandwidth insufficient for 360; zero media supply with both an empty and a buffered presentation window; and independent queue pressure during zero supply. The two motion defects were reproduced on the original baseline; the zero-supply regression is also checked against that baseline. Existing tests retain real congestion, source starvation, codec overload, presentation pressure and high-FPS recovery coverage.
 
 Final executed check results are recorded in the pull request. Passing software tests/builds establishes code integrity, not Google-Meet-level smoothness on the user's phones.
 
@@ -148,7 +152,7 @@ python3 tools/fix_measured_frame_flow.py --root /path/to/AarisRemote
 
 ## Primary implementation references
 
-- [Pinned SDK implementation](https://github.com/webrtc-sdk/webrtc/tree/73cb8180f7258ee292878d6edd05177f41883962)
+- [Pinned SDK implementation and frame-counter alias](https://github.com/webrtc-sdk/webrtc/blob/73cb8180f7258ee292878d6edd05177f41883962/media/engine/webrtc_video_engine.cc#L2623-L2624)
 - [WebRTC playout-delay guidance](https://webrtc.googlesource.com/src/+/refs/heads/main/docs/native-code/rtp-hdrext/playout-delay/README.md)
 - [WebRTC statistics specification](https://www.w3.org/TR/webrtc-stats/)
 - [Android MediaProjection](https://developer.android.com/media/grow/media-projection)

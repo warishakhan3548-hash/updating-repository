@@ -88,17 +88,30 @@ class PhotonFreshnessGovernorTest {
         assertTrue(p.allowResolutionRecovery)
     }
 
-    @Test fun zeroSentSupplyCannotProveCurrentDeliveryFromBufferedGlass() {
-        val g = PhotonFreshnessGovernor()
-        val encoded = outbound()
-        val unsent = encoded.copy(recent = encoded.recent!!.copy(sentFrames = 0))
-        repeat(6) { index ->
-            val p = g.observe(unsent, receiver(), 60, false,
-                1_000L + index * 500L)
-            assertNull(p.glassDeliveryRatio)
-            assertFalse(p.allowCadencePromotion)
-            assertFalse(p.allowResolutionRecovery)
+    @Test fun zeroMediaSupplyDoesNotInventPresentationPressureOrDeliveryProof() {
+        for (glass in listOf(receiver(fps = 0), receiver())) {
+            val g = PhotonFreshnessGovernor()
+            repeat(6) { index ->
+                val p = g.observe(outbound(fps = 0), glass, 60, false,
+                    1_000L + index * 500L)
+                assertEquals(PhotonFreshnessState.UNKNOWN, p.state)
+                assertNull(p.glassDeliveryRatio)
+                assertEquals(0, p.cleanGlassWindows)
+                assertFalse(p.allowCadencePromotion)
+                assertFalse(p.allowResolutionRecovery)
+            }
         }
+    }
+
+    @Test fun zeroMediaSupplyStillRetainsIndependentQueuePressure() {
+        val p = PhotonFreshnessGovernor().observe(
+            outbound(fps = 0, queueMs = 350.0), receiver(fps = 0),
+            60, false, 1_000L
+        )
+        assertEquals(PhotonFreshnessState.PRESSURE, p.state)
+        assertNull(p.glassDeliveryRatio)
+        assertFalse(p.allowCadencePromotion)
+        assertFalse(p.allowResolutionRecovery)
     }
 
     @Test

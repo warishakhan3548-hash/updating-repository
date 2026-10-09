@@ -1251,8 +1251,6 @@ class HostWebRtcSession(
                     append(effective.fps)
                     append("fps encode=")
                     append(fps(qdSender?.fps))
-                    append(" send=")
-                    append(fps(qdSender?.sentFps))
                     append(" decode=")
                     append(fps(receiver?.fps))
                     append(" present=")
