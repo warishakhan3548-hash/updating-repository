@@ -146,13 +146,13 @@ internal class CaptureCallbackTimingTracker(
     private var windowStartedMs = Long.MIN_VALUE
     // Callback gaps include forced idle samples; compare fresh-source FPS to
     // distinguish true producer starvation from deliberate still-screen liveness.
-    private var lastCallbackStartedNs: Long? = null
+    private var lastCallbackStartedNs = Long.MIN_VALUE
 
     fun record(
         nowMs: Long,
         primaryIngressNs: Long,
         auxiliarySinksNs: Long,
-        callbackStartedNs: Long? = null
+        callbackStartedNs: Long = Long.MIN_VALUE
     ): CaptureCallbackTimingBatch? {
         if (nowMs < 0L) return null
         if (windowStartedMs == Long.MIN_VALUE || nowMs < windowStartedMs) {
@@ -161,18 +161,19 @@ internal class CaptureCallbackTimingTracker(
             windowStartedMs = nowMs
         }
 
+        // A primitive clock sentinel avoids boxing Long on the hot path.
         val previousCallbackNs = lastCallbackStartedNs
         val sourceGapNs = if (
-            callbackStartedNs != null && callbackStartedNs > 0L &&
-            previousCallbackNs != null && callbackStartedNs > previousCallbackNs
-        ) callbackStartedNs - previousCallbackNs else null
-        if (callbackStartedNs != null && callbackStartedNs > 0L) {
+            callbackStartedNs > 0L && previousCallbackNs > 0L &&
+            callbackStartedNs > previousCallbackNs
+        ) callbackStartedNs - previousCallbackNs else -1L
+        if (callbackStartedNs > 0L) {
             lastCallbackStartedNs = callbackStartedNs
         }
 
         active.ingressUs[next] = toMicros(primaryIngressNs)
         active.auxiliaryUs[next] = toMicros(auxiliarySinksNs)
-        active.sourceGapUs[next] = if (sourceGapNs != null) {
+        active.sourceGapUs[next] = if (sourceGapNs >= 0L) {
             toMicros(sourceGapNs)
         } else -1L
         next = (next + 1) % sampleCapacity
