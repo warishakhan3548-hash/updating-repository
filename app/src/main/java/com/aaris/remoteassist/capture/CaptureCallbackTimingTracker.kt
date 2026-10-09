@@ -97,7 +97,7 @@ class CaptureCallbackTimingBatch internal constructor(
 /**
  * Bounded capture-callback timing tracker.
  *
- * The per-frame path only writes two longs and updates counters. When a report
+ * The per-frame path only writes three longs and updates counters. When a report
  * window closes, ownership of the active fixed-size arrays is swapped with a
  * spare pair in O(1). Sorting and diagnostics happen later on the host policy
  * thread. If that consumer is delayed long enough that no spare pair is
@@ -144,7 +144,8 @@ internal class CaptureCallbackTimingTracker(
     private var next = 0
     private var samples = 0
     private var windowStartedMs = Long.MIN_VALUE
-    // Source/scheduler starvation is not visible in RTP getStats alone.
+    // Callback gaps include forced idle samples; compare fresh-source FPS to
+    // distinguish true producer starvation from deliberate still-screen liveness.
     private var lastCallbackStartedNs: Long? = null
 
     fun record(
