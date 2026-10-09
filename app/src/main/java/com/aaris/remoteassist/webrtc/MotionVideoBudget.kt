@@ -481,19 +481,32 @@ internal class MotionVideoBudget {
                         nominalMotionBitrateBps(nextRecoveryRung, goal) *
                         BWE_RECOVERY_HEADROOM_RATIO
                 } ?: true
-            val healthy =
+            val senderHealthy =
                 sender.fps >= goal * 0.9 &&
                     encodeMs != null &&
                     encodeMs < frameMs * 0.5 &&
                     queueMs != null &&
                     queueMs < 20.0 &&
-                    receiverHealthy &&
                     recoveryBandwidthHealthy &&
                     (outbound.packetLossRatio ?: 0.0) < 0.025
+            val healthy = senderHealthy && receiverHealthy
+            val awaitingHealthyDecoder =
+                senderHealthy && receiver?.awaitingDecoderSample == true &&
+                    receiver.presentedFps?.let { it >= goal * 0.9 } == true &&
+                    receiver.maxRenderGapMs?.let { it in 0 until 100 } == true &&
+                    receiver.presentationSampleAgeMs?.let { it in 0..1_000 } == true &&
+                    receiver.presentationAgeMs?.let { it in 0..250 } == true
             // A cadence trial must measure one variable at a time. Pressure
             // relief stays enabled, but do not also enlarge trial frames.
-            healthySamples = if (healthy && allowResolutionRecovery) healthySamples + 1 else 0
-            if (healthySamples >= 12 && nowMs - changedAtMs >= 12_000L && shortEdge < 720) {
+            // A bounded decoder-clock gap may retain votes, never add one or
+            // reconfigure the encoder from a presentation-only measurement.
+            healthySamples = when {
+                healthy && allowResolutionRecovery -> healthySamples + 1
+                awaitingHealthyDecoder -> healthySamples
+                else -> 0
+            }
+            if (healthy && allowResolutionRecovery && healthySamples >= 12 &&
+                nowMs - changedAtMs >= 12_000L && shortEdge < 720) {
                 shortEdge = nextRecoveryRung
                 changedAtMs = nowMs
                 healthySamples = 0

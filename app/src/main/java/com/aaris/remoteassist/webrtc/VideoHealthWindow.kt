@@ -43,9 +43,27 @@ data class VideoHealthWindow(
     val postAckPresentMs: Int? = null,
     val photonSampleSequence: Long? = null,
     val photonSampleAgeMs: Int? = null,
-    val photonSampleFresh: Boolean = true
+    val photonSampleFresh: Boolean = true,
+    /** A presentation-only consume is missing decoder telemetry, not measured zero decode. */
+    val hasDecoderSample: Boolean = true,
+    /** Host-clock age of the last received decoder report; no decoder window is replayed. */
+    val decoderSampleAgeMs: Int? = null,
+    /**
+     * Novel EGL proof paired with a decoder report. Pressure freshness stays
+     * separate so pairing a retained sample cannot count its hitch twice.
+     * Null preserves the existing rule for windows built outside that pairing.
+     */
+    val presentationRecoverySampleFresh: Boolean? = null
 ) {
     val fps: Double get() = frames * 1000.0 / intervalMs
+
+    // Bridge the existing 1500 ms idle decoder clock plus one 500 ms host tick.
+    // Missing reports never vote or promote; longer silence expires old proof.
+    val awaitingDecoderSample: Boolean
+        get() = !hasDecoderSample && decoderSampleAgeMs?.let { it in 0..2_000 } == true
+
+    val hasFreshRecoveryPresentation: Boolean
+        get() = presentationRecoverySampleFresh ?: presentationSampleFresh
 
     /**
      * Receiver freshness budget. WebRTC may intentionally grow its target

@@ -3,6 +3,7 @@
 Audited source: `warishakhan3548-hash/updating-repository`, main `8222234f7cc263bc341a9fe0ba599a819dc21b60` (1.9.61).
 SDK: `io.github.webrtc-sdk:android:150.7871.01`.
 Scope: phone-to-phone primary video, its adaptation feedback, and shared browser compatibility. This report distinguishes verified code defects from recording observations and unmeasured device hypotheses.
+Continuation checkpoint: PR #584 at `f67dc11aea9599f857cb7c0b8c0e6974bb34881e`. Its original corrections are preserved; the continuation adds measured-capacity recovery and coherent feedback accounting.
 
 ## The complete dependency map
 
@@ -108,6 +109,33 @@ This remains an approximate early predictor, not a replacement for WebRTC's cong
 
 Known zero supply now remains in the minimum. With no upstream supply, the delivery ratio is unavailable and the window is `UNKNOWN`; it cannot invent display pressure or clean delivery proof. Genuine queue, jitter, presentation-age and ACK pressure remain independent. A separate regression checks that a 350-ms sender queue still classifies as `PRESSURE` even with zero media supply.
 
+### 4. Proven codec capacity could remain capped below 30 FPS
+
+Low-cadence recovery compared both codec costs with 55% of the **current** frame interval. At 24 FPS that allows only 22.9 ms. A clean 25-ms encoder or decoder therefore remained at 24 FPS indefinitely, even with fresh decoder reports and actual healthy EGL presentation.
+
+With fresh end-to-end presentation proof, recovery now checks the exact **next permitted FPS rung** and retains 20% codec headroom. For 30 FPS the allowance is 26.7 ms: 25 ms qualifies, while 27 ms does not. Missing presentation or a sample already used for recovery retains the original conservative gate. Recovery still requires consecutive completed evidence and its change cooldown, advances one rung, respects display/device ceilings, and leaves promotion above 30 to the existing bounded trial controller.
+
+Seven capacity regressions cover encoder and decoder admission, the exact next display-limited rung, insufficient codec headroom, absent/held presentation, cooldown and a dropped frame resetting recovery votes. Five of these assertions failed on the original policy and pass with the correction. These are admission tests, not measurements that the codec itself became faster.
+
+### 5. Independent feedback clocks erased healthy recovery evidence
+
+During motion the host takes outbound stats about every 500 ms. Android controller decoder stats run every 500 ms during touch and every 1500 ms while idle; EGL cadence packets have their own roughly 500-ms clock. Receiving video while not touching is still a valid moving-screen use case.
+
+`ReceiverVideoFeedback.consume` previously constructed a zero-frame receiver window whenever a new decoder report was absent, even if new measured EGL swaps were present. The zero-frame placeholder erased clean photon/cadence/detail recovery history on the intervening host ticks. A clean path could remain at 24/30 FPS or its warm-start resolution because completed decoder reports never appeared on consecutive host ticks.
+
+| Input to a host policy tick | Decoder state | Adaptation behavior |
+| --- | --- | --- |
+| New decoder report with frames | Measured sample | It may contribute one recovery vote with current encoder, transport and glass evidence. |
+| New decoder report with zero frames | Measured zero | It cannot prove delivery or codec capacity; it clears recovery proof. |
+| No new decoder report; last report at most 2000 ms old; healthy current sender/EGL evidence | Awaiting independent decoder clock | Preserve completed votes temporarily, without adding a vote or installing higher FPS/resolution. |
+| Decoder report absent longer, or current sender/glass pressure | Expired or pressured | Clear proof; existing real-pressure relief remains active. |
+
+The original receiver-window model now explicitly marks whether it contains a decoder sample and the host-clock age of the last report. No decoder counters, frames or textures are replayed. The 2000-ms bridge accommodates the 1500-ms idle report period plus one host tick; it is a **control-plane evidence lifetime**, not a two-second video buffer. Photon, cadence, detail recovery and high-cadence trial history use that distinction. The QD overlay also shows unavailable decode FPS as unavailable, rather than manufacturing zero.
+
+A recent EGL window may also have arrived on an earlier host tick than the decoder report. Its pressure event was already observed, but its recovery proof was never paired. The receiver now tracks the presentation sequence used for recovery separately: unused proof at most 1000 ms old may pair with a new decoder report **once**. The original pressure-freshness flag stays separate, so pairing cannot double-count a hitch. Identity changes reset that sequence, and measured zero decode clears clean proof even when the EGL window is held.
+
+Thirteen integration regressions exercise the actual receiver-feedback boundary with independent clocks: 24→30 recovery, a completed 30→36 trial, 360→540 detail recovery, no votes on missing reports, measured zero, expiry through continued EGL swaps, no invented capacity without any decoder report, real sender queue pressure, real glass pressure, rebuilding cadence proof after prolonged decoder silence, recovery and trial completion when EGL/decode reports arrive on different host ticks, and prevention of duplicate votes/pressure. The original phase behavior failed the recovery/proof cases. Existing lease/generation/replay and packet-format tests remain authoritative.
+
 ### SDK counter limitation and the diagnostic correction
 
 The exact pinned SDK source was retrieved and inspected, including `media/engine/webrtc_video_engine.cc` and `pc/rtc_stats_collector.cc`. In this version, `info.frames_sent = stream_stats.frames_encoded`. Both names ultimately describe the encoding counter. `framesSent` is therefore not an independent measurement of complete frames departing the pacer or reaching the peer.
@@ -121,7 +149,9 @@ The QD overlay previously labelled its encoded FPS as `send`. The original label
 | Predictive demand in `MotionVideoBudget` | Existing pixel pressure hysteresis | Only prediction discounts measured sparse production. Configured FPS, recovery budget and native GCC remain authoritative. |
 | Recovery assignment | `MotionVideoBudget.apply` → adapted source dimensions and sender bitrate ceiling | The admitted rung is the installed rung; logical screen geometry and touch mapping remain separate from encoded size. |
 | Zero-supply classification in `PhotonFreshnessGovernor` | Cadence/detail promotion gates in the host policy lane | No supply cannot manufacture glass pressure or clean proof. Real queue/jitter/liveness pressure still applies independently. |
-| QD label in `HostWebRtcSession` | Host connection trace | Encoded FPS is labelled as encoding. No stats schema or control wire format changes. |
+| Next-rung codec admission in `VideoCadenceGovernor` | Source FPS ceiling → existing native encoder/pacer | Fresh glass proof permits measured capacity recovery with headroom; unknown evidence retains conservative behavior. |
+| Availability/age in `ReceiverVideoFeedback` and `VideoHealthWindow` | Photon, cadence, fine trial and detail recovery | Missing reports are distinct from measured zero. Reports remain one-use; bounded waits never add recovery votes or promote. |
+| QD measurements in `HostWebRtcSession` | Host connection trace | Encoded FPS is labelled as encoding; missing decoder samples are unavailable. The control wire format is unchanged. |
 
 ## Frame spacing and the buffer reservoir
 
@@ -137,13 +167,15 @@ Hardware/software factories, shared EGL textures, `MAINTAIN_FRAMERATE` during mo
 
 Four new regression tests cover a regular 15-FPS producer under a 60-FPS ceiling; exact 180→240 recovery with bandwidth insufficient for 360; zero media supply with both an empty and a buffered presentation window; and independent queue pressure during zero supply. The two motion defects were reproduced on the original baseline; the zero-supply regression is also checked against that baseline. Existing tests retain real congestion, source starvation, codec overload, presentation pressure and high-FPS recovery coverage.
 
+The continuation adds 20 regressions (seven capacity and thirteen feedback-clock cases). Final executed Android/Node test counts, debug/release lint and assembly results, along with the final-head CI run, are recorded in PR #584 after verification.
+
 Final executed check results are recorded in the pull request. Passing software tests/builds establishes code integrity, not Google-Meet-level smoothness on the user's phones.
 
-A valid device comparison uses the same two physical phones for at least ten minutes before/after: Wi-Fi/direct, mobile/TURN, scrolling, rotation and animation, with and without AI snapshots. Record producer/encoded/sent/decoded/presented FPS; encoder/decoder cost; sender residence; actual/target jitter residence; packet loss/RTT/route; display gap p95/p99/max; and thermal state. Confirm fewer freezes without hiding increased action-to-visible latency. A causal visible action marker or external camera is needed for real input-to-photon measurement.
+A valid device comparison uses the same two physical phones for at least ten minutes before/after: Wi-Fi/direct, mobile/TURN, scrolling, rotation and animation, with and without AI snapshots. Record producer/encoded/decoded/presented FPS; transmitted bytes/packets (the SDK sent-frame statistic is aliased); encoder/decoder cost; sender residence; actual/target jitter residence; packet loss/RTT/route; display gap p95/p99/max; and thermal state. Confirm fewer freezes without hiding increased action-to-visible latency. A causal visible action marker or external camera is needed for real input-to-photon measurement.
 
 ## Auto-fixer
 
-`tools/fix_measured_frame_flow.py` contains complete guarded diffs for the production changes and regression tests. It validates all source hashes before mutation, rejects a different baseline, supports `--check`, verifies resulting hashes and handles already-fixed files idempotently. It edits the original code rather than installing an override layer.
+`tools/fix_measured_frame_flow.py` contains complete guarded diffs for the production changes and regression tests. It accepts exact source hashes from the original `8222234f` baseline or the preceding PR checkpoint `f67dc11a`, validates all files before mutation, rejects unknown edits, supports `--check`, verifies resulting hashes and handles already-fixed files idempotently. It edits the original code rather than installing an override layer.
 
 ```bash
 python3 tools/fix_measured_frame_flow.py --root /path/to/AarisRemote --check

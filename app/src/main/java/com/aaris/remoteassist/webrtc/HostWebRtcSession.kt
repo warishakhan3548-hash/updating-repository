@@ -1006,6 +1006,7 @@ class HostWebRtcSession(
                     )
                 }
 
+            val measuredDecoderFps = receiver?.takeIf { it.hasDecoderSample }?.fps
             val sourceFps = capture.sampleSourceFps(now)
             val motionChanged =
                 passiveMotionPriority.observe(
@@ -1144,7 +1145,7 @@ class HostWebRtcSession(
             } ?: "null"
             listener.onDiagnostic(
                 "Video delivery • source=${sourceFps?.toInt()}fps target=${effectiveCaptureProfile(profile).fps}fps " +
-                    "decode=${receiver?.fps?.toInt()}fps present=$presentationState gap=${receiver?.maxRenderGapMs}ms " +
+                    "decode=${measuredDecoderFps?.toInt()}fps present=$presentationState gap=${receiver?.maxRenderGapMs}ms " +
                     "displayMax=${receiver?.displayRefreshRateHz?.toInt()}Hz trial=${cadenceGovernor.probingHighCadence}"
             )
 
@@ -1197,7 +1198,7 @@ class HostWebRtcSession(
                 listOfNotNull(
                     effective.fps.toDouble(),
                     qdSender?.fps,
-                    receiver?.fps
+                    measuredDecoderFps
                 )
                     .filter { it.isFinite() && it >= 0.0 }
                     .minOrNull()
@@ -1252,7 +1253,7 @@ class HostWebRtcSession(
                     append("fps encode=")
                     append(fps(qdSender?.fps))
                     append(" decode=")
-                    append(fps(receiver?.fps))
+                    append(fps(measuredDecoderFps))
                     append(" present=")
                     append(presentationState)
                     append(" display=")

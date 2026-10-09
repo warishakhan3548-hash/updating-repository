@@ -15,8 +15,8 @@ import kotlin.math.max
  * - sustained mild misses trim only a few fps,
  * - severe pipeline pressure can fall back aggressively.
  *
- * Each real EGL presentation sample can vote only once. Retained samples are
- * liveness/diagnostic evidence, never duplicate adaptation votes.
+ * Each real EGL presentation sample can vote only once. Recent unused proof
+ * may pair with a later decoder report; counted proof never votes again.
  */
 internal class HighCadenceProbe {
     private var previousCap = 0
@@ -109,7 +109,7 @@ internal class HighCadenceProbe {
             freshProof &&
                 // Retained proof never votes twice, even on mixed-version
                 // receivers that do not attach a presentation sequence.
-                receiver?.presentationSampleFresh != false &&
+                receiver?.hasFreshRecoveryPresentation != false &&
                 (
                     presentationSequence == null ||
                         presentationSequence != lastPresentationSequenceSeen
@@ -234,7 +234,20 @@ internal class HighCadenceProbe {
                     ) == true
 
         if (!eligible) {
-            if (newPresentationProof || !freshProof || overloaded) {
+            // An independently scheduled decoder report can be absent while
+            // current EGL and sender cadence remain healthy. Wait without a
+            // vote, promotion or replay of the previous decoder counters.
+            val awaitingDecoder =
+                receiver?.awaitingDecoderSample == true &&
+                    receiver.presentationAgeMs?.let { it in 0..MAX_GLASS_PROOF_AGE_MS } == true &&
+                    receiver.presentationSampleAgeMs?.let { it in 0..MAX_GLASS_PROOF_AGE_MS } == true &&
+                    presented?.let { it >= currentFps * MIN_PRESENTATION_DELIVERY_RATIO } == true &&
+                    receiver.maxRenderGapMs?.let {
+                        it in 0..maxOf(MIN_ACCEPTABLE_RENDER_GAP_MS,
+                            (MAX_RENDER_GAP_FRAME_MULTIPLIER * 1_000.0 / currentFps).toInt())
+                    } == true &&
+                    sender?.fps?.let { it >= currentFps * MIN_SENDER_DELIVERY_RATIO } == true
+            if (newPresentationProof || (!freshProof && !awaitingDecoder) || overloaded) {
                 healthyWindows = 0
             }
             return null

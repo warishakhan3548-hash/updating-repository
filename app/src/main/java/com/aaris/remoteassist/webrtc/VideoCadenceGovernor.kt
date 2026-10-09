@@ -835,13 +835,33 @@ class VideoCadenceGovernor(
         // Decoder-only or absent feedback must not bypass it via legacy recovery.
         if (cap >= 30) return false
 
+        val nextRecoveryCap =
+            ASCENDING_CAPS.firstOrNull { it > cap && it <= minOf(maxFps, maximumFps, 30) }
+        val nextRecoveryCodecBudgetMs =
+            nextRecoveryCap?.let { 1000.0 / it * PROVEN_RECOVERY_CODEC_BUDGET_RATIO }
+        val recoveryPresentationMeasured =
+            receiver?.hasFreshRecoveryPresentation != false &&
+                receiver?.presentationSampleAgeMs?.let { it in 0..1_000 } != false &&
+                presentedFrames >= MIN_PRESENTED_FRAMES &&
+                expectedPresentationFps >= MIN_PRESENTATION_EXPECTED_FPS
         val presentationHealthy =
             !presentationHeartbeatStalled &&
                 (
-                    !presentationMeasured ||
+                    !(presentationMeasured || recoveryPresentationMeasured) ||
                         (presentationRatio >= HEALTHY_PRESENTATION_RATIO &&
                             renderGapMs < maxOf(HEALTHY_RENDER_GAP_MS, budgetMs * HEALTHY_RENDER_GAP_BUDGET_MULTIPLIER))
                     )
+        val presentationProvenHealthy = recoveryPresentationMeasured && presentationHealthy
+        // With fresh decode + EGL proof, price the cadence we will install.
+        // A 25 ms codec fits 30 fps with 20% headroom; the old 55% share of
+        // a 24 fps interval rejected it forever. Missing/used glass evidence
+        // keeps the conservative legacy budget and recovery timing.
+        val recoveryCodecBudgetMs =
+            if (presentationProvenHealthy && nextRecoveryCodecBudgetMs != null) {
+                nextRecoveryCodecBudgetMs
+            } else {
+                budgetMs * CODEC_HEADROOM_BUDGET_RATIO
+            }
         val receiverHealthy =
             if (receiver == null) {
                 outbound.qualityLimitationReason == "none" &&
@@ -849,7 +869,7 @@ class VideoCadenceGovernor(
             } else {
                 receiver.frames >= MIN_MEASURED_FRAMES &&
                     receiver.processingMs != null &&
-                    receiver.processingMs < budgetMs * CODEC_HEADROOM_BUDGET_RATIO &&
+                    receiver.processingMs < recoveryCodecBudgetMs &&
                     (receiver.jitterMs ?: 0.0) < HEALTHY_JITTER_MS &&
                     (receiver.dropped ?: 0) == 0 &&
                     (receiver.freezes ?: 0) == 0 &&
@@ -858,11 +878,31 @@ class VideoCadenceGovernor(
 
         val headroom =
             sender.frames >= MIN_MEASURED_FRAMES &&
-                sender.processingMs != null && sender.processingMs < budgetMs * CODEC_HEADROOM_BUDGET_RATIO &&
+                sender.processingMs != null && sender.processingMs < recoveryCodecBudgetMs &&
                 receiverHealthy && loss < HEALTHY_PACKET_LOSS_RATIO &&
                 (sender.sendQueueMs ?: 0.0) < HEALTHY_QUEUE_MS &&
                 outbound.qualityLimitationReason != "bandwidth"
 
+        if (receiver?.awaitingDecoderSample == true) {
+            // Keep completed recovery votes across a bounded clock-phase gap.
+            // Current encode/network/glass pressure can still erase them, and
+            // only a new decoder report may add a vote or install a higher cap.
+            val awaitingHealthyDecoder =
+                presentedFrames >= MIN_PRESENTED_FRAMES &&
+                    expectedPresentationFps >= MIN_PRESENTATION_EXPECTED_FPS &&
+                    receiver.presentationSampleAgeMs?.let { it in 0..1_000 } == true &&
+                    !presentationHeartbeatStalled &&
+                    presentationRatio >= HEALTHY_PRESENTATION_RATIO &&
+                    renderGapMs < maxOf(HEALTHY_RENDER_GAP_MS, budgetMs * HEALTHY_RENDER_GAP_BUDGET_MULTIPLIER) &&
+                    sender.frames >= MIN_MEASURED_FRAMES &&
+                    sender.processingMs != null &&
+                    sender.processingMs < (nextRecoveryCodecBudgetMs ?: recoveryCodecBudgetMs) &&
+                    loss < HEALTHY_PACKET_LOSS_RATIO &&
+                    (sender.sendQueueMs ?: 0.0) < HEALTHY_QUEUE_MS &&
+                    outbound.qualityLimitationReason == "none"
+            if (!awaitingHealthyDecoder) healthy = 0
+            return false
+        }
         healthy = if (headroom) healthy + 1 else 0
 
         /*
@@ -872,7 +912,6 @@ class VideoCadenceGovernor(
          * probe the next cadence step after five seconds. This prevents a short
          * transient from leaving interaction visibly sluggish for twelve seconds.
          */
-        val presentationProvenHealthy = presentationMeasured && presentationHealthy
         val healthySamplesRequired = when {
             receiver == null -> LEGACY_HEALTHY_SAMPLES_TO_RAISE
             presentationProvenHealthy -> PRESENTATION_PROVEN_HEALTHY_SAMPLES_TO_RAISE
@@ -883,7 +922,7 @@ class VideoCadenceGovernor(
             else MIN_RECOVERY_INTERVAL_MS
         if (healthy < healthySamplesRequired || nowMs - changedAt < recoveryIntervalMs) return false
 
-        val next = ASCENDING_CAPS.firstOrNull { it > cap && it <= minOf(maxFps, maximumFps, 30) } ?: return false
+        val next = nextRecoveryCap ?: return false
         cap = next
         changedAt = nowMs
         healthy = 0
@@ -966,6 +1005,7 @@ class VideoCadenceGovernor(
 
         const val CODEC_PRESSURE_BUDGET_RATIO = 0.85
         const val CODEC_HEADROOM_BUDGET_RATIO = 0.55
+        const val PROVEN_RECOVERY_CODEC_BUDGET_RATIO = 0.80
         const val FPS_DELIVERY_RATIO = 0.85
 
         /*

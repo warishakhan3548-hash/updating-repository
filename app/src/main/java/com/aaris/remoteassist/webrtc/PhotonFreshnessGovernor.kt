@@ -90,7 +90,7 @@ internal class PhotonFreshnessGovernor {
 
         val sender = outbound.recent
         val senderFps = sender?.fps.valid()
-        val decoderFps = receiver?.fps.valid()
+        val decoderFps = receiver?.takeIf { it.hasDecoderSample }?.fps.valid()
         val presentedFps = receiver?.presentedFps.valid()
         // A measured zero is no media supply, not an unknown counter. Dropping
         // it would compare a quiet stream against the requested FPS ceiling
@@ -148,6 +148,10 @@ internal class PhotonFreshnessGovernor {
             presentationFresh &&
                 receiver?.presentationSampleFresh != false &&
                 presentedFps != null
+        val newRecoveryGlassWindow =
+            presentationFresh &&
+                receiver?.hasFreshRecoveryPresentation == true &&
+                presentedFps != null
 
         val packetLoss =
             outbound.packetLossRatio.valid()
@@ -184,7 +188,7 @@ internal class PhotonFreshnessGovernor {
                     it in 0..MAX_MISSING_LOSS_RTT_MS
                 } == true &&
                 receiver?.let { measured ->
-                    measured.presentationSampleFresh &&
+                    measured.hasFreshRecoveryPresentation &&
                         measured.dropped == 0 &&
                         measured.freezes == 0 &&
                         measured.maxRenderGapMs?.let {
@@ -222,11 +226,20 @@ internal class PhotonFreshnessGovernor {
 
         when {
             hardPressure -> cleanGlassWindows = 0
-            actualNewGlassWindow && completeCleanEvidence ->
+            receiver?.hasDecoderSample == true && receiver.frames == 0 ->
+                cleanGlassWindows = 0
+            newRecoveryGlassWindow && completeCleanEvidence ->
                 cleanGlassWindows =
                     (cleanGlassWindows + 1)
                         .coerceAtMost(MAX_CLEAN_WINDOWS)
-            actualNewGlassWindow -> cleanGlassWindows = 0
+            newRecoveryGlassWindow -> cleanGlassWindows = 0
+            // Independent 500 ms EGL and 1500 ms decoder clocks can expose a
+            // new swap window between decoder reports. It is neither a clean
+            // decode vote nor a measured zero. Preserve proof only for the
+            // bounded report gap, while real pressure still clears it.
+            actualNewGlassWindow &&
+                (receiver?.awaitingDecoderSample != true || watchPressure) ->
+                cleanGlassWindows = 0
             // A held sample bridges independently-phased clocks. Do not count
             // it twice, but do not erase valid clean evidence either.
             !presentationFresh -> cleanGlassWindows = 0

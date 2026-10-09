@@ -32,6 +32,7 @@ class ReceiverVideoFeedback {
     private var retainedPresentation: PresentationCadenceWindow? = null
     private var retainedPresentationAtMs = 0L
     private var retainedPresentationSequence = 0L
+    private var lastRecoveryPresentationSequence = 0L
     private var lastCapabilitiesSequence = 0L
     private var capabilitiesAtMs = 0L
     private var displayRefreshRateHz: Double? = null
@@ -59,6 +60,7 @@ class ReceiverVideoFeedback {
         retainedPresentation = null
         retainedPresentationAtMs = 0L
         retainedPresentationSequence = 0L
+        lastRecoveryPresentationSequence = 0L
         lastCapabilitiesSequence = 0L
         capabilitiesAtMs = 0L
         displayRefreshRateHz = null
@@ -336,6 +338,17 @@ class ReceiverVideoFeedback {
         val presentationSampleSequence =
             presentation?.let { retainedPresentationSequence.takeIf { it > 0L } }
 
+        // An EGL window can arrive on an earlier host tick than its decoder
+        // report. Pair its bounded, unused proof once; do not replay its
+        // presentationSampleFresh pressure event or the decoder counters.
+        val recoveryPresentationIsFresh =
+            video != null &&
+                presentationSampleAgeMs?.let { it in 0..MAX_RECOVERY_PRESENTATION_AGE_MS } == true &&
+                presentationSampleSequence?.let { it > lastRecoveryPresentationSequence } == true
+        if (recoveryPresentationIsFresh) {
+            lastRecoveryPresentationSequence = checkNotNull(presentationSampleSequence)
+        }
+
         val presentationAgeMs = lastPresentedAtMs
             ?.let { nowMs - it }
             ?.takeIf { it in 0L..MAX_PRESENTATION_LIVENESS_AGE_MS }
@@ -387,7 +400,8 @@ class ReceiverVideoFeedback {
             jitterMs = null,
             dropped = null,
             freezes = null,
-            presentationAgeMs = presentationAgeMs
+            presentationAgeMs = presentationAgeMs,
+            hasDecoderSample = false
         )
         val refreshRate =
             displayRefreshRateHz?.takeIf {
@@ -408,7 +422,8 @@ class ReceiverVideoFeedback {
                     displayRefreshRateHz = refreshRate,
                     presentationSampleSequence = presentationSampleSequence,
                     presentationSampleAgeMs = presentationSampleAgeMs,
-                    presentationSampleFresh = presentationIsFresh
+                    presentationSampleFresh = presentationIsFresh,
+                    presentationRecoverySampleFresh = recoveryPresentationIsFresh
                 )
             }
 
@@ -424,7 +439,11 @@ class ReceiverVideoFeedback {
                     photonSampleFresh = photonIsFresh
                 )
         }
-        return result
+        return result.copy(
+            decoderSampleAgeMs = if (lastSequence > 0L) {
+                (nowMs - receivedAt).takeIf { it in 0L..MAX_AGE_MS }?.toInt()
+            } else null
+        )
     }
 
     private companion object {
@@ -437,6 +456,7 @@ class ReceiverVideoFeedback {
         // Long enough to bridge independent 500 ms stats/render phases, short
         // enough that high-cadence promotion still requires current glass proof.
         const val MAX_RETAINED_PRESENTATION_AGE_MS = 1_500L
+        const val MAX_RECOVERY_PRESENTATION_AGE_MS = 1_000
         const val MAX_RETAINED_PHOTON_AGE_MS = 3_000L
         const val MAX_PRESENTATION_INTERVAL_MS = 6_000
         const val MAX_PRESENTED_FRAMES = 2_048
