@@ -1104,7 +1104,8 @@ class HostWebRtcSession(
                     receiver = receiver,
                     producerFps = sourceFps,
                     interactionActive = interactionActive && deviceFpsLimit >= 30,
-                    nowMs = now
+                    nowMs = now,
+                    allowHighCadencePromotion = photonPolicy.allowCadencePromotion
                 )
             val cadenceChanged =
                 cadencePressureChanged || interactionProbeChanged
