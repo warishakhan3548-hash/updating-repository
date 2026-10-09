@@ -46,6 +46,20 @@ class RendererContinuityPolicyTest {
         assertFalse(stalled(decodedAtMs = 0L))
     }
 
+    @Test fun eglFeedbackIsIgnoredAfterMainLooperBacklog() {
+        assertTrue(RendererContinuityPolicy.isFreshPresentationCallback(10_000L, 10_000L))
+        assertTrue(RendererContinuityPolicy.isFreshPresentationCallback(10_000L, 9_000L))
+        assertFalse(RendererContinuityPolicy.isFreshPresentationCallback(10_000L, 8_999L))
+        assertFalse(RendererContinuityPolicy.isFreshPresentationCallback(10_000L, 10_001L))
+    }
+
+    @Test fun startupAndInvalidPresentationClocksCannotConfirmVideo() {
+        assertFalse(RendererContinuityPolicy.isFreshPresentationCallback(10_000L, 0L))
+        assertFalse(RendererContinuityPolicy.isFreshPresentationCallback(0L, 0L))
+        assertFalse(RendererContinuityPolicy.isFreshPresentationCallback(-1L, 100L))
+        assertFalse(RendererContinuityPolicy.isFreshPresentationCallback(10_000L, -1L))
+    }
+
     @Test fun timestampDiscontinuityCannotTriggerRecovery() {
         assertFalse(stalled(nowMs = 3_000L))
         assertFalse(stalled(nowMs = 8_000L, decodedAtMs = 8_500L))
