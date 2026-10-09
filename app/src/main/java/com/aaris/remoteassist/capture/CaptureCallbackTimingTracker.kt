@@ -1,7 +1,7 @@
 package com.aaris.remoteassist.capture
 
 /** Per-stage callback service times on the producer's monotonic clock. */
-internal data class CaptureCallbackTimingSummary(
+data class CaptureCallbackTimingSummary(
     val samples: Int,
     val ingressP95Us: Long,
     val ingressP99Us: Long,
