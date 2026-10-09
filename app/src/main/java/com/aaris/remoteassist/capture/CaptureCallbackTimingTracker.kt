@@ -1,5 +1,9 @@
 package com.aaris.remoteassist.capture
 
+import java.util.Arrays
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+
 /** Per-stage callback service times on the producer's monotonic clock. */
 data class CaptureCallbackTimingSummary(
     val samples: Int,
@@ -15,12 +19,66 @@ data class CaptureCallbackTimingSummary(
 }
 
 /**
- * Bounded, allocation-free on the per-frame path. This measures how long the
- * Java capture callback spends handing a frame into the primary WebRTC source
- * and then delivering it to auxiliary snapshot/fallback sinks. It does NOT
- * claim to measure native encoding, RTP transit or true capture-to-glass age.
+ * Sealed timing window handed off from the capture thread.
  *
- * Called exclusively by the SurfaceTextureHelper capture thread.
+ * Sorting is deliberately deferred until [summarizeAndRelease] runs on the
+ * policy lane. The two backing arrays are then returned to the tracker for a
+ * later window; no frame samples are retained.
+ */
+class CaptureCallbackTimingBatch internal constructor(
+    private val ingressUs: LongArray,
+    private val auxiliaryUs: LongArray,
+    val samples: Int,
+    private val onRelease: () -> Unit
+) {
+    private val completed = AtomicBoolean(false)
+
+    fun summarizeAndRelease(): CaptureCallbackTimingSummary? {
+        if (!completed.compareAndSet(false, true)) return null
+        return try {
+            Arrays.sort(ingressUs, 0, samples)
+            Arrays.sort(auxiliaryUs, 0, samples)
+            CaptureCallbackTimingSummary(
+                samples = samples,
+                ingressP95Us = percentile(ingressUs, samples, 95),
+                ingressP99Us = percentile(ingressUs, samples, 99),
+                auxiliaryP95Us = percentile(auxiliaryUs, samples, 95),
+                auxiliaryP99Us = percentile(auxiliaryUs, samples, 99)
+            )
+        } finally {
+            onRelease()
+        }
+    }
+
+    fun release() {
+        if (completed.compareAndSet(false, true)) {
+            onRelease()
+        }
+    }
+
+    private fun percentile(
+        sorted: LongArray,
+        count: Int,
+        percent: Int
+    ): Long {
+        val index = ((count * percent + 99) / 100 - 1)
+            .coerceIn(0, count - 1)
+        return sorted[index]
+    }
+}
+
+/**
+ * Bounded capture-callback timing tracker.
+ *
+ * The per-frame path only writes two longs and updates counters. When a report
+ * window closes, ownership of the active fixed-size arrays is swapped with a
+ * spare pair in O(1). Sorting and diagnostics happen later on the host policy
+ * thread. If that consumer is delayed long enough that no spare pair is
+ * available, telemetry is skipped rather than blocking or allocating on the
+ * SurfaceTexture capture thread.
+ *
+ * This measures Java callback service time only; it does not claim to measure
+ * native encoding, RTP transit or true capture-to-glass age.
  */
 internal class CaptureCallbackTimingTracker(
     private val reportWindowMs: Long = 10_000L,
@@ -33,8 +91,24 @@ internal class CaptureCallbackTimingTracker(
         require(minSamples in 1..sampleCapacity)
     }
 
-    private val ingressUs = LongArray(sampleCapacity)
-    private val auxiliaryUs = LongArray(sampleCapacity)
+    private data class SampleBuffers(
+        val ingressUs: LongArray,
+        val auxiliaryUs: LongArray
+    )
+
+    private var active =
+        SampleBuffers(
+            ingressUs = LongArray(sampleCapacity),
+            auxiliaryUs = LongArray(sampleCapacity)
+        )
+    private val spare =
+        AtomicReference(
+            SampleBuffers(
+                ingressUs = LongArray(sampleCapacity),
+                auxiliaryUs = LongArray(sampleCapacity)
+            )
+        )
+
     private var next = 0
     private var samples = 0
     private var windowStartedMs = Long.MIN_VALUE
@@ -43,7 +117,7 @@ internal class CaptureCallbackTimingTracker(
         nowMs: Long,
         primaryIngressNs: Long,
         auxiliarySinksNs: Long
-    ): CaptureCallbackTimingSummary? {
+    ): CaptureCallbackTimingBatch? {
         if (nowMs < 0L) return null
         if (windowStartedMs == Long.MIN_VALUE || nowMs < windowStartedMs) {
             next = 0
@@ -51,35 +125,41 @@ internal class CaptureCallbackTimingTracker(
             windowStartedMs = nowMs
         }
 
-        ingressUs[next] = toMicros(primaryIngressNs)
-        auxiliaryUs[next] = toMicros(auxiliarySinksNs)
+        active.ingressUs[next] = toMicros(primaryIngressNs)
+        active.auxiliaryUs[next] = toMicros(auxiliarySinksNs)
         next = (next + 1) % sampleCapacity
         samples = (samples + 1).coerceAtMost(sampleCapacity)
-        if (samples < minSamples || nowMs - windowStartedMs < reportWindowMs) {
+
+        if (
+            samples < minSamples ||
+            nowMs - windowStartedMs < reportWindowMs
+        ) {
             return null
         }
 
-        val sortedIngress = ingressUs.copyOf(samples).apply { sort() }
-        val sortedAuxiliary = auxiliaryUs.copyOf(samples).apply { sort() }
-        val result = CaptureCallbackTimingSummary(
-            samples = samples,
-            ingressP95Us = percentile(sortedIngress, 95),
-            ingressP99Us = percentile(sortedIngress, 99),
-            auxiliaryP95Us = percentile(sortedAuxiliary, 95),
-            auxiliaryP99Us = percentile(sortedAuxiliary, 99)
-        )
+        val replacement = spare.getAndSet(null) ?: return null
+        val sealed = active
+        val sealedSamples = samples
+        active = replacement
         next = 0
         samples = 0
         windowStartedMs = nowMs
-        return result
+
+        return CaptureCallbackTimingBatch(
+            ingressUs = sealed.ingressUs,
+            auxiliaryUs = sealed.auxiliaryUs,
+            samples = sealedSamples,
+            onRelease = {
+                // A delayed diagnostics lane must never disturb capture. If an
+                // unexpected duplicate spare exists, simply discard this reuse
+                // opportunity; the fixed active buffer remains valid.
+                spare.compareAndSet(null, sealed)
+            }
+        )
     }
 
     private fun toMicros(ns: Long): Long =
-        ns.coerceAtLeast(0L).div(1_000L).coerceAtMost(10_000_000L)
-
-    private fun percentile(sorted: LongArray, percent: Int): Long {
-        val index = ((sorted.size * percent + 99) / 100 - 1)
-            .coerceIn(0, sorted.lastIndex)
-        return sorted[index]
-    }
+        ns.coerceAtLeast(0L)
+            .div(1_000L)
+            .coerceAtMost(10_000_000L)
 }
