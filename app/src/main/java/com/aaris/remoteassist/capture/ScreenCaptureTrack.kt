@@ -20,7 +20,8 @@ class ScreenCaptureTrack(
     grant: ProjectionGrant,
     private val onProjectionStopped: () -> Unit,
     private val onSourceMotion: () -> Unit = {},
-    private val onSourceGeometryChanged: (Int, Int) -> Unit = { _, _ -> }
+    private val onSourceGeometryChanged: (Int, Int) -> Unit = { _, _ -> },
+    private val onCaptureTiming: (CaptureCallbackTimingBatch) -> Unit = {}
 ) : Closeable {
     private val appContext = context.applicationContext
     private val factory = WebRtcRuntime.factory(appContext)
@@ -31,6 +32,7 @@ class ScreenCaptureTrack(
     private val sampleClock = CaptureSampleClock()
     private val activityTracker = CaptureActivityTracker()
     private val refreshPolicy = CaptureRefreshPolicy()
+    private val callbackTimingTracker = CaptureCallbackTimingTracker()
 
     private val capturer = ScreenCapturerAndroid(
         grant.data,
@@ -90,6 +92,9 @@ class ScreenCaptureTrack(
                 override fun onCapturerStarted(success: Boolean) { videoSource.capturerObserver.onCapturerStarted(success) }
                 override fun onCapturerStopped() { videoSource.capturerObserver.onCapturerStopped() }
                 override fun onFrameCaptured(frame: VideoFrame) {
+                    // The first monotonic timestamp marks capture callback arrival;
+                    // later policy and fallback work must not distort source cadence.
+                    val callbackStartedNs = System.nanoTime()
                     refreshPolicy.onSample(
                         android.os.SystemClock.elapsedRealtime(),
                         frame.timestampNs
@@ -105,22 +110,16 @@ class ScreenCaptureTrack(
                      */
                     val observedWidth = frame.rotatedWidth
                     val observedHeight = frame.rotatedHeight
-                    if (
+                    val sourceGeometryChanged =
                         observedWidth > 0 &&
-                        observedHeight > 0 &&
-                        (
-                            observedWidth != lastObservedSourceWidth ||
-                                observedHeight != lastObservedSourceHeight
+                            observedHeight > 0 &&
+                            (
+                                observedWidth != lastObservedSourceWidth ||
+                                    observedHeight != lastObservedSourceHeight
                             )
-                    ) {
+                    if (sourceGeometryChanged) {
                         lastObservedSourceWidth = observedWidth
                         lastObservedSourceHeight = observedHeight
-                        runCatching {
-                            onSourceGeometryChanged(
-                                observedWidth,
-                                observedHeight
-                            )
-                        }
                     }
                     // Admit the latency-critical RTP sample first. Auxiliary
                     // sinks are best-effort consumers (fallback recovery / AI
@@ -130,6 +129,7 @@ class ScreenCaptureTrack(
                     // forceFrame reuses the SurfaceTexture timestamp on a static
                     // screen. Give that new sample a monotonic timestamp so the
                     // native FPS adapter does not discard recovery requests.
+                    val ingressStartedNs = System.nanoTime()
                     val sampledTimestampNs =
                         sampleClock.timestamp(
                             frame.timestampNs,
@@ -151,6 +151,20 @@ class ScreenCaptureTrack(
                             )
                         )
                     }
+                    val ingressDurationNs = System.nanoTime() - ingressStartedNs
+
+                    // Keep non-media geometry/UI work behind native frame
+                    // admission. Rotation healing must never delay this texture
+                    // from entering the encoder path.
+                    if (sourceGeometryChanged) {
+                        runCatching {
+                            onSourceGeometryChanged(
+                                observedWidth,
+                                observedHeight
+                            )
+                        }
+                    }
+
                     if (activityTracker.onFrame(frame.timestampNs)) {
                         // The callback is throttled by CaptureActivityTracker.
                         // Keep it best-effort and never let policy work block
@@ -161,8 +175,26 @@ class ScreenCaptureTrack(
                     // These sinks are invoked explicitly for every capturer
                     // callback, even when WebRTC adaptation elects not to send
                     // the corresponding RTP frame.
+                    val auxiliaryStartedNs = System.nanoTime()
                     snapshotSinks.forEach { sink ->
                         runCatching { sink.onFrame(frame) }
+                    }
+                    callbackTimingTracker.record(
+                        nowMs = android.os.SystemClock.elapsedRealtime(),
+                        primaryIngressNs = ingressDurationNs,
+                        auxiliarySinksNs = System.nanoTime() - auxiliaryStartedNs,
+                        callbackStartedNs = callbackStartedNs
+                    )?.let { batch ->
+                        // The fixed sample arrays are now sealed. Percentile
+                        // sorting happens on the host policy lane, never here.
+                        val handedOff =
+                            runCatching {
+                                onCaptureTiming(batch)
+                                true
+                            }.getOrDefault(false)
+                        if (!handedOff) {
+                            batch.release()
+                        }
                     }
                 }
             }

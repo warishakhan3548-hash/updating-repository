@@ -44,15 +44,15 @@ class FallbackScreenStreamer(
 
     private val enabled = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
-    private val encoding = AtomicBoolean(false)
+    private val frameAdmission = FallbackFrameAdmission()
     private val deltaCapable = AtomicBoolean(false)
     private val interactionActive = AtomicBoolean(false)
-    private val lastFrameAtMs = AtomicLong(0L)
     private val adaptiveIntervalMs = AtomicLong(ADAPTIVE_INITIAL_INTERVAL_MS)
     private val frameSequence = AtomicLong(0L)
     private val firstDeltaReported = AtomicBoolean(false)
     private val forceKeyframe = AtomicBoolean(true)
     private val clarity = FallbackClarityPolicy()
+    private val readbackBudget = FallbackReadbackBudget()
     private val worker =
         Executors.newSingleThreadScheduledExecutor { runnable ->
             Thread(
@@ -79,22 +79,25 @@ class FallbackScreenStreamer(
         }
 
         val now = monotonicNowMs()
-        val interval = currentFrameIntervalMs()
-        val previous = lastFrameAtMs.get()
-        if (previous != 0L && now - previous < interval) {
-            return@VideoSink
-        }
-        if (!lastFrameAtMs.compareAndSet(previous, now)) {
-            return@VideoSink
-        }
-        // A new frame cannot overtake already-buffered data. Wait before doing
-        // any encoding so low bandwidth cannot accumulate seconds of old images.
-        if (!canStartFrame()) {
-            if (deltaCapable.get()) adjustCadence(false)
-            return@VideoSink
-        }
-        if (!encoding.compareAndSet(false, true)) {
-            return@VideoSink
+        // Reserve a cadence slot only when both the transport and the
+        // single-flight fallback worker can actually accept a new frame.
+        // Backpressure must not postpone the first fresh recovery image.
+        when (
+            frameAdmission.tryAcquire(
+                nowMs = now,
+                intervalMs = currentFrameIntervalMs(),
+                capacityReady = canStartFrame
+            )
+        ) {
+            FallbackFrameAdmission.Decision.THROTTLED,
+            FallbackFrameAdmission.Decision.BUSY -> return@VideoSink
+
+            FallbackFrameAdmission.Decision.BACKPRESSURED -> {
+                if (deltaCapable.get()) adjustCadence(false)
+                return@VideoSink
+            }
+
+            FallbackFrameAdmission.Decision.ACCEPTED -> Unit
         }
 
         /*
@@ -104,24 +107,39 @@ class FallbackScreenStreamer(
          * work run asynchronously on the independent I420 buffer. This keeps a
          * slow recovery encoder from withholding the next primary capture frame.
          */
+        val copyStartedNs = System.nanoTime()
+        val copySideLimit = readbackBudget.maxSidePx(
+            if (interactionActive.get()) 1600 else MAX_DIMENSION
+        )
         val cpu = try {
-            CpuFrameCopy.capture(
-                frame,
-                if (interactionActive.get()) 1600 else MAX_DIMENSION
-            )
+            CpuFrameCopy.capture(frame, copySideLimit)
         } catch (error: Exception) {
-            encoding.set(false)
+            frameAdmission.finish()
             onDiagnostic("Compatibility frame copy failed (${error.javaClass.simpleName})")
             return@VideoSink
         }
         if (cpu == null) {
-            encoding.set(false)
+            frameAdmission.finish()
             return@VideoSink
         }
+        // Observe only successful readbacks. This cost is synchronous on the
+        // SurfaceTexture callback even though JPEG/delta runs on our worker.
+        val copyCostMs = (System.nanoTime() - copyStartedNs)
+            .coerceAtLeast(0L) / 1_000_000L
+        val changedReadbackTier = readbackBudget.observe(
+            copyCostMs,
+            monotonicNowMs()
+        )
 
         try {
             worker.execute {
                 try {
+                    if (changedReadbackTier != null) {
+                        onDiagnostic(
+                            "Fallback readback cost=${copyCostMs}ms " +
+                                "tier=${changedReadbackTier} side=${copySideLimit}px"
+                        )
+                    }
                     val sent =
                         encodeAndSend(
                             cpu.buffer,
@@ -133,13 +151,19 @@ class FallbackScreenStreamer(
                 } catch (error: Exception) {
                     onDiagnostic("Compatibility image failed (${error.javaClass.simpleName})")
                 } finally {
-                    cpu.close()
-                    encoding.set(false)
+                    try {
+                        cpu.close()
+                    } finally {
+                        frameAdmission.finish()
+                    }
                 }
             }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
-            cpu.close()
-            encoding.set(false)
+            try {
+                cpu.close()
+            } finally {
+                frameAdmission.finish()
+            }
         }
     }
 
@@ -168,7 +192,7 @@ class FallbackScreenStreamer(
         forceKeyframe.set(true)
         referenceFrame = null
         lastKeyframeAtMs = 0L
-        lastFrameAtMs.set(0L)
+        frameAdmission.resetCooldown()
     }
 
     @Synchronized fun enable() {
@@ -181,10 +205,11 @@ class FallbackScreenStreamer(
          * a fresh recovery sample after enable(), so the sink must already be
          * visible to ScreenCaptureTrack when that frame arrives.
          */
+        readbackBudget.reset()
         attachSinkIfNeeded()
         enabled.set(true)
 
-        lastFrameAtMs.set(0L)
+        frameAdmission.resetCooldown()
         referenceFrame = null
         lastKeyframeAtMs = 0L
         adaptiveIntervalMs.set(ADAPTIVE_INITIAL_INTERVAL_MS)
@@ -212,6 +237,7 @@ class FallbackScreenStreamer(
             referenceFrame = null
             lastKeyframeAtMs = 0L
             detachSinkIfNeeded()
+            readbackBudget.reset()
             onDiagnostic("Compatibility screen stream disabled")
         }
     }
