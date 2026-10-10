@@ -58,7 +58,13 @@ class PresentationProvenRecoveryTest {
 
         assertFalse(governor.observe(sending60, overloadedReceiver, 60, 1_000))
         assertTrue(governor.observe(sending60, overloadedReceiver, 60, 2_000))
-        assertEquals(58, governor.cap)
+        val pacedRelief =
+            DisplayCadencePolicy.nextLower(
+                currentFps = 60,
+                refreshRateHz = 60.0,
+                ceilingFps = 60
+            )!!
+        assertEquals(pacedRelief, governor.cap)
 
         val healthySender = outbound(frames = 60, processingMs = 5.0)
         val healthyDisplay = receiver(
@@ -68,7 +74,7 @@ class PresentationProvenRecoveryTest {
             maxRenderGapMs = 20
         )
 
-        // After a fine 60 -> 58 relief step, recovery waits through the
+        // After one display-paced relief step, recovery waits through the
         // bounded cooldown, then requires fresh sender/decode/EGL proof before
         // earning the 60-fps trial and validating it with new glass windows.
         repeat(9) { index ->
@@ -91,21 +97,29 @@ class PresentationProvenRecoveryTest {
         val overloadedReceiver = receiver(frames = 30, processingMs = 25.0)
         governor.observe(sending60, overloadedReceiver, 60, 1_000)
         governor.observe(sending60, overloadedReceiver, 60, 2_000)
-        assertEquals(58, governor.cap)
+        val pacedRelief =
+            DisplayCadencePolicy.nextLower(
+                currentFps = 60,
+                refreshRateHz = 60.0,
+                ceilingFps = 60
+            )!!
+        assertEquals(pacedRelief, governor.cap)
 
-        val healthySender = outbound(frames = 58, processingMs = 5.0)
-        val decoderOnly = receiver(frames = 58, processingMs = 5.0)
+        val healthySender =
+            outbound(frames = pacedRelief, processingMs = 5.0)
+        val decoderOnly =
+            receiver(frames = pacedRelief, processingMs = 5.0)
         repeat(8) { index ->
             assertFalse(
                 governor.observe(
                     healthySender,
                     decoderOnly,
-                    58,
+                    governor.cap,
                     3_000L + index * 1_000L,
                     producerFps = 60.0
                 )
             )
         }
-        assertEquals(58, governor.cap)
+        assertEquals(pacedRelief, governor.cap)
     }
 }
