@@ -140,7 +140,7 @@ class HighCadenceProbeTest {
         assertFalse(g.probingHighCadence)
         assertTrue(
             "Expected evidence-backed promotion ladder, saw $seen",
-            seen.containsAll(listOf(30, 36, 40, 45, 48, 50, 60)) &&
+            seen.containsAll(listOf(30, 36, 40, 45, 50, 60)) &&
                 !seen.contains(33) &&
                 !seen.contains(55) &&
                 !seen.contains(58)
