@@ -979,23 +979,48 @@ class HostWebRtcSession(
 
     private fun handleMediaRecoveryRequestOnPolicy() {
         if (closed.get()) return
+
+        val now = android.os.SystemClock.elapsedRealtime()
+        val decodedRecently = lease?.let {
+            receiverFeedback.hasRecentDecodedFrames(
+                it.leaseSecret,
+                it.displayGeneration,
+                now
+            )
+        } == true
+
+        /*
+         * Fresh decoded RTP means transport + codec are alive and the fault is
+         * downstream in Surface/EGL presentation. Starting compatibility video
+         * here would synchronously copy a capture texture to I420 on the primary
+         * capture callback thread, adding exactly the producer jitter the
+         * renderer is trying to recover from. Keep renderer-only recovery on the
+         * primary zero-copy path and explicitly retire any older fallback lane.
+         */
+        if (decodedRecently) {
+            fallbackStreamer.disable()
+            primaryRecoveryRequests = 0
+            lastPrimaryRepairRequestMs = now
+            // A fresh sample helps a rebuilt Surface without pausing/replacing
+            // the healthy encoder or creating a parallel recovery pipeline.
+            runCatching { capture.requestSnapshot() }
+            listener.onDiagnostic(
+                "Primary decoder is progressing • renderer-only recovery kept on RTP"
+            )
+            return
+        }
+
+        /*
+         * No recent decode proof means primary media itself may be black or
+         * stalled. Only this branch pays the bounded compatibility-copy cost.
+         */
         fallbackStreamer.enable()
         fallbackStreamer.requestKeyframe()
         // Pausing the track here also pauses the primary encoder we want to
         // recover. Request current pixels without disabling capture/video.
         runCatching { capture.requestSnapshot() }
-        val now = android.os.SystemClock.elapsedRealtime()
-        val decodedRecently = lease?.let {
-            receiverFeedback.hasRecentDecodedFrames(it.leaseSecret, it.displayGeneration, now)
-        } == true
-        if (decodedRecently) {
-            // A slow/missing Surface is a renderer problem. Renegotiating a
-            // working hardware codec can replace it with expensive libvpx
-            // while the original presentation problem is still unresolved.
-            primaryRecoveryRequests = 0
-            lastPrimaryRepairRequestMs = now
-            listener.onDiagnostic("Primary decoder is progressing • retaining codec during display recovery")
-        } else if (now - lastPrimaryRepairRequestMs >= 2500L) {
+
+        if (now - lastPrimaryRepairRequestMs >= 2500L) {
             lastPrimaryRepairRequestMs = now
             primaryRecoveryRequests++
             if (primaryRecoveryRequests >= 2) peer.recoverPrimaryVideoCodec()
