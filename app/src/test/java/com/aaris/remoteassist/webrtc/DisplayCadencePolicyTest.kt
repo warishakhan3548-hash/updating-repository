@@ -194,6 +194,74 @@ class DisplayCadencePolicyTest {
     }
 
     @Test
+    fun sixtyHzSourceRejectsUnevenHighCadenceFrameSelection() {
+        val ladder =
+            DisplayCadencePolicy.descending(
+                refreshRateHz = 60.0,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 60.0
+            )
+
+        assertEquals(
+            listOf(60, 30, 24, 20, 15),
+            ladder
+        )
+        assertFalse(50 in ladder)
+        assertFalse(45 in ladder)
+        assertFalse(40 in ladder)
+        assertFalse(36 in ladder)
+    }
+
+    @Test
+    fun sourceHarmonicsCanAddUsefulNonLegacyCadence() {
+        val ladder =
+            DisplayCadencePolicy.descending(
+                refreshRateHz = 60.0,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 144.0
+            )
+
+        assertEquals(
+            listOf(48, 36, 30, 24, 20, 15),
+            ladder
+        )
+        assertEquals(
+            48,
+            DisplayCadencePolicy.nextHigher(
+                currentFps = 36,
+                refreshRateHz = 60.0,
+                ceilingFps = 60,
+                floorFps = 30,
+                sourceRefreshRateHz = 144.0
+            )
+        )
+    }
+
+    @Test
+    fun mismatchedSixtyToNinetyStaysAtSmoothSafetyCadenceUntilDisplayClockChanges() {
+        assertNull(
+            DisplayCadencePolicy.nextHigher(
+                currentFps = 30,
+                refreshRateHz = 90.0,
+                ceilingFps = 60,
+                floorFps = 30,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+
+        assertEquals(
+            60,
+            DisplayCadencePolicy.nextHigher(
+                currentFps = 30,
+                refreshRateHz = 60.0,
+                ceilingFps = 60,
+                floorFps = 30,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+    }
+
+    @Test
     fun unknownDisplayPreservesLegacyAdaptationExactly() {
         assertEquals(
             listOf(60, 58, 55, 50, 45, 40, 36, 33, 30, 24, 20, 15),
