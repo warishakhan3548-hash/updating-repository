@@ -355,5 +355,51 @@ class AiObservationEngineTest {
         val observed = engine.observe()
         assertEquals("SCREEN_CHANGING", observed.getString("error")); assertFalse(observed.has("image"))
     }
+
+    @Test fun detailObservationUsesDedicatedFreshFrameLaneOnlyWhenRequested() = runBlocking {
+        var normalCaptures = 0
+        var detailCaptures = 0
+        fun capturedFrame() =
+            AiRawFrame(
+                pixels.clone(),
+                120,
+                240,
+                0,
+                clock
+            )
+
+        val routed =
+            AiObservationEngine(
+                ownPackage = "aaris",
+                display = { profile },
+                uiSnapshot = { ui },
+                freshFrame = {
+                    normalCaptures += 1
+                    capturedFrame()
+                },
+                now = { clock },
+                pause = { clock += it },
+                encodeFrame = { frame, _, _, _, _, _ ->
+                    FrameImageEncoder.Encoded(
+                        byteArrayOf(1),
+                        frame.width,
+                        frame.height
+                    )
+                },
+                freshDetailFrame = {
+                    detailCaptures += 1
+                    capturedFrame()
+                }
+            )
+
+        assertFalse(routed.observe().has("error"))
+        assertEquals(1, normalCaptures)
+        assertEquals(0, detailCaptures)
+
+        routed.invalidate()
+        assertFalse(routed.observe(detail = true).has("error"))
+        assertEquals(1, normalCaptures)
+        assertEquals(1, detailCaptures)
+    }
 }
 
