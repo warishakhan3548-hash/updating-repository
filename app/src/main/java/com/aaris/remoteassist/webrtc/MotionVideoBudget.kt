@@ -37,10 +37,11 @@ internal class MotionVideoBudget {
      * prediction into a VideoSource dimension change: vendor MediaCodec
      * implementations may reconfigure at exactly the first touch/scroll frame.
      *
-     * The speculative rung may cap bitrate immediately, but source geometry is
-     * held at the pre-motion rung until measured motion pressure satisfies the
-     * existing hysteresis. If motion ends first, the speculative resize is
-     * discarded. Measured pressure still receives app-level pixel relief.
+     * The speculative rung may tighten prediction/cadence admission immediately,
+     * but neither source geometry nor its matching sender ceiling moves until
+     * measured motion pressure satisfies the existing hysteresis. If motion ends
+     * first, the speculative resize is discarded. Measured pressure still
+     * receives app-level pixel relief.
      */
     private var warmStartResizePending = false
     private var preMotionShortEdge = 720
@@ -86,8 +87,8 @@ internal class MotionVideoBudget {
      * headroom, the control budget may preserve 540 or 720 instead.
      *
      * Crucially, a predicted lower rung is not applied to VideoSource geometry
-     * on touch-down. It may cap bitrate immediately, but a real moving-window
-     * pressure sample must confirm the source resize first.
+     * or the matching sender bitrate ceiling on touch-down. A real moving-window
+     * pressure sample must confirm the spatial operating-point change first.
      *
      * Repeated motion pulses only refresh the hold; they never knock a
      * continuously healthy stream back down after the first decision.
