@@ -32,6 +32,32 @@ class VideoCadenceGovernor(
     val probingHighCadence: Boolean get() = highCadenceProbe.probing
 
     /**
+     * Source geometry is an expensive encoder operating-point transition.
+     *
+     * The resize itself already acted on the current pressure sample, so clear
+     * temporal votes derived from the old geometry instead of letting the same
+     * telemetry window also downshift cadence. The learned FPS cap survives;
+     * only stale pre-transition evidence is discarded.
+     */
+    fun onSpatialBudgetTransition(nowMs: Long) {
+        if (nowMs < 0L) return
+
+        pressure = 0
+        healthy = 0
+        interactiveHeadroom = 0
+        interactiveFloorHeadroom = 0
+        lastSenderIdentity = null
+        lastSenderFps = null
+        lastSenderAtMs = Long.MIN_VALUE / 2
+        highCadencePressureGate.reset()
+        highCadenceProbe.onSpatialBudgetTransition(
+            currentFps = cap,
+            nowMs = nowMs
+        )
+        lastDecision = "spatial-budget-hold@$cap"
+    }
+
+    /**
      * A downshift may survive a long, completely still screen: neither
      * recovery counter can accumulate encoded frames while nothing changes.
      *
