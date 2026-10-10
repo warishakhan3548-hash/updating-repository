@@ -1,7 +1,7 @@
 package com.aaris.remoteassist.webrtc
 
 import android.content.Context
-import org.webrtc.DefaultVideoDecoderFactory
+import org.webrtc.AarisLowLatencyVideoDecoderFactory
 import org.webrtc.DefaultVideoEncoderFactory
 import org.webrtc.HardwareVideoEncoderFactory
 import org.webrtc.HardwareVideoDecoderFactory
@@ -64,14 +64,16 @@ object WebRtcRuntime {
              * Prefer Android's hardware codec path for screen sharing, but do
              * not make hardware success a correctness requirement.
              *
-             * DefaultVideoEncoderFactory/DefaultVideoDecoderFactory compose
-             * hardware and software implementations and fall back when a
-             * vendor MediaCodec cannot service the requested codec/profile.
-             * This keeps the deterministic cross-device safety net that Aaris
-             * previously got from software-only VP8 while removing a major CPU
-             * bottleneck on healthy devices. The same EGL context is shared by
-             * capture, codecs and rendering so texture-backed frames can stay
-             * on the GPU path instead of paying avoidable CPU copies.
+             * DefaultVideoEncoderFactory plus AarisLowLatencyVideoDecoderFactory
+             * preserve hardware-first decoding with software fallback. On
+             * Android 11+ the decoder factory enables MediaCodec's official
+             * low-latency mode only when the selected hardware codec explicitly
+             * advertises FEATURE_LowLatency; unsupported codecs and older
+             * devices keep WebRTC's normal behavior.
+             *
+             * The same EGL context is shared by capture, codecs and rendering
+             * so texture-backed frames stay on the GPU path without adding a
+             * decoded-frame queue or CPU copy.
              *
              * H264 high-profile remains disabled. Capability-based negotiation
              * can use hardware baseline H264; VP8 remains available. Intel VP8 acceleration
@@ -84,7 +86,7 @@ object WebRtcRuntime {
                     false
                 )
             val decoderFactory =
-                DefaultVideoDecoderFactory(
+                AarisLowLatencyVideoDecoderFactory(
                     eglBase.eglBaseContext
                 )
             hardwareEncoders = runCatching { HardwareVideoEncoderFactory(eglBase.eglBaseContext, true, false)
