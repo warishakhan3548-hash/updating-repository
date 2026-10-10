@@ -227,7 +227,7 @@ class ScreenCaptureTrack(
 
     fun addSnapshotSink(sink: VideoSink) { snapshotSinks += sink }
 
-    fun sampleSourceCadence(nowMs: Long): CaptureCadenceWindow? =
+    internal fun sampleSourceCadence(nowMs: Long): CaptureCadenceWindow? =
         activityTracker.sample(nowMs)
 
     fun sampleSourceFps(nowMs: Long): Double? =
