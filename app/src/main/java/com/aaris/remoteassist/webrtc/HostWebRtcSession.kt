@@ -470,6 +470,11 @@ class HostWebRtcSession(
         localCaptureFrameSeen.set(false)
 
         val initialEffective = effectiveCaptureProfile(profile)
+        val initialSenderFpsCeiling =
+            senderFrameRateCeiling(
+                target = profile,
+                effective = initialEffective
+            )
         if (maxCaptureTier != recommendedCaptureTier) {
             listener.onDiagnostic(
                 "Realtime video bootstrap → " +
@@ -498,7 +503,7 @@ class HostWebRtcSession(
         peer.addLocalVideoTrack(
             track = capture.videoTrack,
             maxBitrateBps = profile.maxVideoBitrateBps,
-            maxFramerate = initialEffective.fps,
+            maxFramerate = initialSenderFpsCeiling,
             preserveResolution =
                 initialVideoPolicy.preserveResolution,
             motionPriority = initialVideoPolicy.motionPriority
@@ -1092,6 +1097,8 @@ class HostWebRtcSession(
                 capture.sampleSourceCadence(now)
             val sourceFps = sourceCadence?.fps
             val sourceMaxGapMs = sourceCadence?.maxGapMs
+            val sourceRefreshRateHz =
+                sourceDisplayRefreshRateHz()
             val motionChanged =
                 passiveMotionPriority.observe(
                     window = snapshot.recent,
@@ -1215,7 +1222,8 @@ class HostWebRtcSession(
                         maximumFps = profileMaximumFps,
                         allowHighCadenceProbe =
                             motionActive &&
-                                photonPolicy.allowCadencePromotion
+                                photonPolicy.allowCadencePromotion,
+                        sourceRefreshRateHz = sourceRefreshRateHz
                     )
                 }
             val interactionProbeChanged =
@@ -1744,6 +1752,37 @@ class HostWebRtcSession(
         )
     }
 
+    /**
+     * MediaProjection follows the host's physical presentation clock. The
+     * ScreenCapturerAndroid fps argument does not retime that producer, so this
+     * clock is required when selecting high-cadence frame-adaptation rungs.
+     */
+    @Suppress("DEPRECATION")
+    private fun sourceDisplayRefreshRateHz(): Double? {
+        val display =
+            runCatching {
+                displayManager
+                    .getDisplay(Display.DEFAULT_DISPLAY)
+            }.getOrNull() ?: return null
+
+        val effective =
+            runCatching { display.refreshRate.toDouble() }
+                .getOrNull()
+        if (
+            effective != null &&
+            effective.isFinite() &&
+            effective in 30.0..240.0
+        ) {
+            return effective
+        }
+
+        return runCatching {
+            display.mode.refreshRate.toDouble()
+        }.getOrNull()?.takeIf {
+            it.isFinite() && it in 30.0..240.0
+        }
+    }
+
     private fun encoderFpsLimit(
         widthPx: Int,
         heightPx: Int
@@ -1755,6 +1794,20 @@ class HostWebRtcSession(
                 implementationName = activeScreenCodecImplementation
             )
             ?: MAX_SESSION_VIDEO_FPS
+
+    private fun senderFrameRateCeiling(
+        target: CaptureProfile,
+        effective: CaptureProfile
+    ): Int =
+        RealtimeMediaPolicy.senderFrameRateCeiling(
+            motionFps = target.motionFps,
+            deviceFpsLimit = deviceFpsLimit,
+            encoderFpsLimit =
+                encoderFpsLimit(
+                    effective.captureWidthPx,
+                    effective.captureHeightPx
+                )
+        )
 
     private fun effectiveCaptureProfile(
         target: CaptureProfile
@@ -1805,6 +1858,11 @@ class HostWebRtcSession(
                 interactionActive = freshnessActive
             )
         val effective = effectiveCaptureProfile(target)
+        val senderFpsCeiling =
+            senderFrameRateCeiling(
+                target = target,
+                effective = effective
+            )
 
         /*
          * One freshness clock owns both media policy and capture scheduling.
@@ -1852,19 +1910,18 @@ class HostWebRtcSession(
         /*
          * Treat source + sender reconfiguration as one ordered transaction.
          *
-         * Upshift: sender envelope first, then VideoSource. This prevents a
-         * 30 -> 45/60 fps touch transition from briefly feeding frames into the
-         * old RTP limit and building disposable work.
+         * VideoSource is the ONLY dynamic temporal actuator. RtpSender keeps a
+         * stable profile/device/codec ceiling, so a 30 -> 45/60 source cadence
+         * transition does not simultaneously retime the sender/MediaCodec.
          *
-         * Relief/downshift: VideoSource first, then sender. That stops expensive
-         * frames at the producer before tightening the network/encoder ceiling.
-         *
-         * No new worker, queue, encoder or frame copy is introduced.
+         * Upshift: prime bitrate/spatial sender limits first, then VideoSource.
+         * Relief/downshift: stop expensive source work first, then tighten the
+         * sender envelope. No new queue, encoder or frame copy is introduced.
          */
         if (senderFirst) {
             peer.updateInteractiveVideoPolicy(
                 maxBitrateBps = maxBitrateBps,
-                maxFramerate = effective.fps,
+                maxFramerate = senderFpsCeiling,
                 preserveResolution = policy.preserveResolution,
                 motionPriority = policy.motionPriority
             )
@@ -1873,7 +1930,7 @@ class HostWebRtcSession(
             capture.update(effective)
             peer.updateInteractiveVideoPolicy(
                 maxBitrateBps = maxBitrateBps,
-                maxFramerate = effective.fps,
+                maxFramerate = senderFpsCeiling,
                 preserveResolution = policy.preserveResolution,
                 motionPriority = policy.motionPriority
             )
@@ -1934,7 +1991,12 @@ class HostWebRtcSession(
                     peer = createPeer()
                     val effective = effectiveCaptureProfile(profile)
                     val policy = InteractiveVideoPolicy.forState(profile.tier, false)
-                    peer.addLocalVideoTrack(capture.videoTrack, profile.maxVideoBitrateBps, effective.fps,
+                    val senderFpsCeiling =
+                        senderFrameRateCeiling(
+                            target = profile,
+                            effective = effective
+                        )
+                    peer.addLocalVideoTrack(capture.videoTrack, profile.maxVideoBitrateBps, senderFpsCeiling,
                         policy.preserveResolution, policy.motionPriority)
                     peer.start()
                 }
