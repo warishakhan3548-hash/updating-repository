@@ -7,8 +7,8 @@ package com.aaris.remoteassist.webrtc
  * Arbitrary near-refresh rates are deceptively expensive for remote control.
  * For example, 58 fps on a 60 Hz panel repeats its frame/vsync phase only after
  * 30 refreshes, which can look like periodic micro-stutter even when RTP,
- * decode, and EGL are healthy. A 48/60 cadence repeats every five refreshes,
- * 45/60 every four, and 40/60 every three.
+ * decode, and EGL are healthy. A 50/60 cadence repeats every six refreshes,
+ * 48/60 every five, 45/60 every four, and 40/60 every three.
  *
  * We therefore keep high-cadence (>30 fps) rungs whose reduced refresh ratio
  * repeats within a short display cycle. 60 fps remains the product ceiling even
@@ -134,7 +134,7 @@ internal object DisplayCadencePolicy {
 
     private const val PRODUCT_MAX_FPS = 60
     private const val HIGH_CADENCE_MIN_FPS = 31
-    private const val MAX_HIGH_CADENCE_REPEAT_VSYNCS = 5
+    private const val MAX_HIGH_CADENCE_REPEAT_VSYNCS = 6
     private const val MIN_REFRESH_HZ = 30.0
     private const val MAX_REFRESH_HZ = 240.0
 }
