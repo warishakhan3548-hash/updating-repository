@@ -262,6 +262,37 @@ class DisplayCadencePolicyTest {
     }
 
     @Test
+    fun nonHarmonicProfileCeilingIsQuantizedBeforeFirstHealthWindow() {
+        assertEquals(
+            30,
+            DisplayCadencePolicy.nearestAtOrBelow(
+                limitFps = 45,
+                refreshRateHz = null,
+                ceilingFps = 45,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertEquals(
+            45,
+            DisplayCadencePolicy.nearestAtOrBelow(
+                limitFps = 45,
+                refreshRateHz = null,
+                ceilingFps = 45,
+                sourceRefreshRateHz = 90.0
+            )
+        )
+        assertEquals(
+            36,
+            DisplayCadencePolicy.nearestAtOrBelow(
+                limitFps = 45,
+                refreshRateHz = null,
+                ceilingFps = 45,
+                sourceRefreshRateHz = 144.0
+            )
+        )
+    }
+
+    @Test
     fun sourceClockStillProtectsCadenceBeforeControllerRefreshArrives() {
         assertEquals(
             listOf(60, 30, 24, 20, 15),
