@@ -439,21 +439,30 @@ internal class MotionVideoBudget {
                 outbound.qualityLimitationReason == "cpu"
 
         /*
-         * Validate the entry prediction with measured moving-window pressure.
-         *
-         * Pressure commits the already-selected conservative rung now. Reset
-         * changedAtMs to the real source-resize instant so another step cannot
-         * immediately stack on top of the codec reconfiguration.
-         *
-         * A clean or incomplete-pressure window does NOT commit the speculative
-         * source resize. Keep the pre-motion VideoSource geometry stable while
-         * the control budget remains conservative; native libwebrtc adaptation
-         * and the existing recovery hysteresis can then prove more headroom.
+         * Use exactly the same rung selection for a validated warm-start commit
+         * and for ordinary later pressure relief. This prevents duplicate policy
+         * trees from drifting apart.
          */
-        if (warmStartResizePending && pressured) {
-            warmStartResizePending = false
-            changedAtMs = nowMs
-        }
+        fun nextPressureRung(): Int =
+            when {
+                shortEdge > 540 -> 540
+                shortEdge > 360 -> 360
+                shortEdge > 240 &&
+                    (
+                        encodePressure ||
+                            decodePressure ||
+                            bandwidthFreshnessPressure ||
+                            predictiveBandwidthPressure ||
+                            predictiveResidencePressure ||
+                            pipelineDeadlinePressure
+                        ) -> 240
+                shortEdge > 180 &&
+                    (
+                        severeBandwidthFreshnessPressure ||
+                            severePredictiveBandwidthPressure
+                        ) -> 180
+                else -> shortEdge
+            }
 
         if (pressured) {
             healthySamples = 0
@@ -461,6 +470,31 @@ internal class MotionVideoBudget {
             val severe = (queueMs ?: 0.0) >= 150.0 ||
                 (sender.frames >= 2 && sender.fps <= 10.0 && encodePressure) ||
                 severeBandwidthFreshnessPressure
+
+            /*
+             * Do not let one ordinary jitter/render sample turn a speculative
+             * control budget into a real source resize. Reuse the established
+             * confirmation rule: two pressure windows, or an already-strong
+             * signal such as severe queue debt / predictive residence growth.
+             *
+             * Once confirmed, commit the best rung directly. If the evidence
+             * already justifies 240px, avoid a 360px reconfiguration followed by
+             * another resize one control interval later.
+             */
+            if (
+                warmStartResizePending &&
+                (severe || predictiveResidencePressure || pressureSamples >= 2)
+            ) {
+                warmStartResizePending = false
+                val confirmed = nextPressureRung()
+                if (confirmed != shortEdge) {
+                    shortEdge = confirmed
+                }
+                changedAtMs = nowMs
+                pressureSamples = 0
+                resetResidenceGrowth()
+                return true
+            }
             /*
              * A 45/60 Hz stream has a 22.2/16.7 ms frame budget. If two
              * consecutive telemetry windows prove encode/decode/presentation
@@ -501,31 +535,10 @@ internal class MotionVideoBudget {
                 (severe || predictiveResidencePressure || pressureSamples >= 2) &&
                 nowMs - changedAtMs >= settleMs
             ) {
-                val next = when {
-                    shortEdge > 540 -> 540
-                    shortEdge > 360 -> 360
-                    // When a moving source is bandwidth-limited, a 360-wide
-                    // frame is still too expensive if the pacer is holding old
-                    // packets. Spend pixels before sacrificing temporal motion.
-                    shortEdge > 240 &&
-                        (
-                            encodePressure ||
-                                decodePressure ||
-                                bandwidthFreshnessPressure ||
-                                predictiveBandwidthPressure ||
-                                predictiveResidencePressure ||
-                                pipelineDeadlinePressure
-                            ) -> 240
-                    // 180 is deliberately reserved for strong bandwidth proof.
-                    // A sustained BWE estimate far below the current rung is
-                    // actionable even before a stale sender queue is visible.
-                    shortEdge > 180 &&
-                        (
-                            severeBandwidthFreshnessPressure ||
-                                severePredictiveBandwidthPressure
-                            ) -> 180
-                    else -> shortEdge
-                }
+                // When a moving source is bandwidth-limited, spend
+                // pixels before sacrificing temporal motion. The 180 rung
+                // remains reserved for strong bandwidth proof.
+                val next = nextPressureRung()
                 if (next != shortEdge) {
                     shortEdge = next
                     changedAtMs = nowMs
