@@ -64,9 +64,10 @@ class ProducerCaptureReliefTest {
                 targetFps = 30
             )
         )
-        // The speculative warm start does not resize the source yet.
+        // The speculative 360 control rung does not resize the native
+        // 1080-short-edge source until measured producer pressure proves it.
         assertEquals(
-            720,
+            1080,
             minOf(
                 budget.apply(profile, motionActive = true).captureWidthPx,
                 budget.apply(profile, motionActive = true).captureHeightPx
@@ -124,8 +125,10 @@ class ProducerCaptureReliefTest {
             )
         )
 
+        // Legacy Android cannot resize the producer surface for producer-only
+        // pressure, so the native geometry must remain untouched.
         assertEquals(
-            720,
+            1080,
             minOf(
                 budget.apply(profile, motionActive = true).captureWidthPx,
                 budget.apply(profile, motionActive = true).captureHeightPx
@@ -158,8 +161,10 @@ class ProducerCaptureReliefTest {
             )
         )
 
+        // A held/static interaction is not natural MediaProjection motion and
+        // therefore must not turn the speculative budget into a source resize.
         assertEquals(
-            720,
+            1080,
             minOf(
                 budget.apply(profile, motionActive = true).captureWidthPx,
                 budget.apply(profile, motionActive = true).captureHeightPx
