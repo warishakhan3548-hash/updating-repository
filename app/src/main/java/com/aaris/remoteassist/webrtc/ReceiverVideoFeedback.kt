@@ -80,6 +80,17 @@ class ReceiverVideoFeedback {
         return true
     }
 
+    fun currentDisplayRefreshRateHz(
+        secret: Long,
+        generation: Int,
+        nowMs: Long
+    ): Double? {
+        if (identity != secret to generation) return null
+        return displayRefreshRateHz?.takeIf {
+            nowMs - capabilitiesAtMs in 0L..MAX_CAPABILITIES_AGE_MS
+        }
+    }
+
     fun accept(
         packet: ControlPacket.PhotonFeedback,
         secret: Long,
