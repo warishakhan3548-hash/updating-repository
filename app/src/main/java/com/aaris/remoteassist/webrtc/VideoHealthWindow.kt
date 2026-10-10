@@ -17,6 +17,7 @@ data class VideoHealthWindow(
     /** RTCP recovery requests received by the sender during this interval. */
     val nacks: Int? = null,
     val plis: Int? = null,
+    val firs: Int? = null,
     val keyFrames: Int? = null,
     val presentationIntervalMs: Int? = null,
     val presentedFrames: Int? = null,
@@ -99,6 +100,7 @@ data class VideoHealthWindow(
                     ?.let { append(" rtx=${(it * 100.0).roundToInt()}%") }
                 nacks?.let { append(" nack=$it") }
                 plis?.let { append(" pli=$it") }
+                firs?.let { append(" fir=$it") }
                 keyFrames?.let { append(" key=$it") }
             }
         return "${fps.roundToInt()}fps ${bitrateBps / 1000}kbps codec=${processingMs?.roundToInt()}ms jitter=${jitterMs?.roundToInt()}ms$target drop=$dropped freeze=$freezes queue=${sendQueueMs?.roundToInt()}ms$recovery$presentation"
@@ -218,6 +220,11 @@ class VideoHealthWindowTracker {
                     recoveryCount(
                         current.pliCount,
                         old.pliCount
+                    ),
+                firs =
+                    recoveryCount(
+                        current.firCount,
+                        old.firCount
                     ),
                 keyFrames =
                     recoveryCount(
