@@ -221,6 +221,58 @@ class HighCadenceProbeTest {
         )
     }
 
+    @Test
+    fun ninetyHzControllerSettlesAtFortyFiveInsteadOfPulldownSixty() {
+        val g = VideoCadenceGovernor(60, 30)
+        var time = 1_000L
+
+        repeat(40) {
+            sample(
+                g = g,
+                time = time,
+                fps = g.cap,
+                recv =
+                    receiver(
+                        fps = g.cap,
+                        refresh = 90.0,
+                        presented = g.cap,
+                        gap = 34
+                    ),
+                source = 60.0
+            )
+            time += 1_000L
+        }
+
+        assertEquals(45, g.cap)
+        assertFalse(g.probingHighCadence)
+    }
+
+    @Test
+    fun oneFortyFourHzControllerCanUseExactFortyEightFpsHarmonic() {
+        val g = VideoCadenceGovernor(60, 30)
+        var time = 1_000L
+
+        repeat(40) {
+            sample(
+                g = g,
+                time = time,
+                fps = g.cap,
+                recv =
+                    receiver(
+                        fps = g.cap,
+                        refresh = 144.0,
+                        presented = g.cap,
+                        gap = 34
+                    ),
+                source = 60.0
+            )
+            time += 1_000L
+        }
+
+        assertEquals(48, g.cap)
+        assertFalse(g.probingHighCadence)
+    }
+
     @Test fun oneOrTwoRandomFrameMissesAtSixtyAreTolerated() {
         val g = VideoCadenceGovernor(60, 60)
         val recv =
