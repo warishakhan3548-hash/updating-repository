@@ -1421,13 +1421,6 @@ class HostWebRtcSession(
             val wasFreshnessActive = freshnessPriorityActive()
             interactionActive = active
 
-            /*
-             * Remote input is the strongest latency signal in the product.
-             * Boost only the lightweight SurfaceTexture delivery lane for the
-             * interaction window; no extra capture/encode work is created.
-             */
-            capture.setInteractionPriority(active)
-
             if (active) {
                 val now = android.os.SystemClock.elapsedRealtime()
                 // Capture quiet-path proof before cadence recovery consumes it.
@@ -1497,6 +1490,16 @@ class HostWebRtcSession(
                 }
             )
         }
+
+        /*
+         * Keep capture scheduling bound to the same authoritative freshness
+         * state as the media policy. This is intentionally outside the
+         * interaction-change branch: disconnect/reset paths may clear passive
+         * source motion while interactionActive was already false.
+         */
+        capture.setRealtimePriority(
+            freshnessPriorityActive()
+        )
 
         if (active) {
             refreshInteractionPriorityTimeout()
@@ -1639,6 +1642,16 @@ class HostWebRtcSession(
                 interactionActive = freshnessActive
             )
         val effective = effectiveCaptureProfile(target)
+
+        /*
+         * One freshness clock owns both media policy and capture scheduling.
+         * Keeping the lightweight SurfaceTexture callback lane at display
+         * priority during passive motion prevents finger-up from demoting the
+         * producer while an inertial scroll/game/video transition is still
+         * generating fresh pixels. Atomic/idempotent application in
+         * ScreenCaptureTrack keeps this O(1) and allocation-free.
+         */
+        capture.setRealtimePriority(freshnessActive)
 
         /*
          * Health telemetry follows the same freshness clock as capture. During
