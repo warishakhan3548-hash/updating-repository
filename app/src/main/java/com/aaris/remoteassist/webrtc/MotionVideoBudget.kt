@@ -503,7 +503,10 @@ internal class MotionVideoBudget {
                             predictiveBandwidthPressure ||
                             predictiveResidencePressure ||
                             pipelineDeadlinePressure ||
-                            producerStarvationPressure
+                            (
+                                producerStarvationPressure &&
+                                    !warmStartResizePending
+                                )
                         ) -> 240
                 shortEdge > 180 &&
                     (
