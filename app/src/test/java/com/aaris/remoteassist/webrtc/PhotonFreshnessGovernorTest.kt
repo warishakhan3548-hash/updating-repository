@@ -9,7 +9,6 @@ class PhotonFreshnessGovernorTest {
         queueMs: Double = 8.0,
         encodeMs: Double = 5.0,
         loss: Double = 0.0,
-        encoderOvershootRatio: Double? = 1.0,
         hugeFrames: Int? = 0,
         retransmitRatio: Double? = 0.0,
         nacks: Int? = 0,
@@ -38,7 +37,6 @@ class PhotonFreshnessGovernorTest {
                     dropped = null,
                     freezes = null,
                     sendQueueMs = queueMs,
-                    encoderOvershootRatio = encoderOvershootRatio,
                     hugeFrames = hugeFrames,
                     retransmitRatio = retransmitRatio,
                     nacks = nacks,
@@ -185,54 +183,30 @@ class PhotonFreshnessGovernorTest {
     }
 
     @Test
-    fun encoderOvershootBlocksGrowthWithoutInventingHardPressure() {
+    fun hugeFrameBurstWithholdsGrowthWithoutInventingPressure() {
         val g = PhotonFreshnessGovernor()
         g.observe(outbound(), receiver(), 60, false, 1_000)
 
         val p =
             g.observe(
-                outbound(
-                    encoderOvershootRatio = 1.50,
-                    hugeFrames = 1
-                ),
+                outbound(hugeFrames = 1),
                 receiver(),
                 60,
                 false,
                 1_500
             )
 
-        assertEquals(PhotonFreshnessState.WATCH, p.state)
+        assertEquals(PhotonFreshnessState.UNKNOWN, p.state)
         assertEquals(0, p.cleanGlassWindows)
         assertFalse(p.allowCadencePromotion)
         assertFalse(p.allowResolutionRecovery)
     }
 
     @Test
-    fun mildEncoderOvershootWithholdsCleanVoteWithoutForcingWatch() {
-        val g = PhotonFreshnessGovernor()
-
-        val p =
-            g.observe(
-                outbound(
-                    encoderOvershootRatio = 1.20,
-                    hugeFrames = 0
-                ),
-                receiver(),
-                60,
-                false,
-                1_000
-            )
-
-        assertEquals(PhotonFreshnessState.UNKNOWN, p.state)
-        assertEquals(0, p.cleanGlassWindows)
-        assertFalse(p.allowCadencePromotion)
-    }
-
-    @Test
-    fun missingEncoderTargetStatsPreserveLegacyCleanEvidence() {
+    fun missingHugeFrameCounterPreservesLegacyCleanEvidence() {
         val g = PhotonFreshnessGovernor()
         g.observe(
-            outbound(encoderOvershootRatio = null, hugeFrames = null),
+            outbound(hugeFrames = null),
             receiver(),
             60,
             false,
@@ -240,7 +214,7 @@ class PhotonFreshnessGovernorTest {
         )
         val p =
             g.observe(
-                outbound(encoderOvershootRatio = null, hugeFrames = null),
+                outbound(hugeFrames = null),
                 receiver(),
                 60,
                 false,
