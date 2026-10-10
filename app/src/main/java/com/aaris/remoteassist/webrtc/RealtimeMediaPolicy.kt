@@ -103,6 +103,29 @@ internal object RealtimeMediaPolicy {
     }
 
     /**
+     * Stable RTP encoder framerate envelope.
+     *
+     * Dynamic cadence is owned by VideoSource.adaptOutputFormat() before encode.
+     * Mirroring every cadence rung into RtpSender.maxFramerate creates a second
+     * temporal actuator and can force avoidable sender/codec reconfiguration on
+     * 30 -> 45/60 motion transitions. Keep the sender ceiling at the highest
+     * cadence this profile + device + active codec operating point can sustain.
+     *
+     * The source still emits fewer frames whenever the cadence governor backs
+     * off, so this ceiling never forces extra encoded frames.
+     */
+    fun senderFrameRateCeiling(
+        motionFps: Int,
+        deviceFpsLimit: Int,
+        encoderFpsLimit: Int
+    ): Int =
+        minOf(
+            motionFps.coerceAtLeast(1),
+            deviceFpsLimit.coerceAtLeast(1),
+            encoderFpsLimit.coerceAtLeast(1)
+        )
+
+    /**
      * Split fast native relief from the slower app-owned source envelope.
      *
      * MotionVideoBudget/HighCadenceProbe cap input pixels, FPS and bitrate
