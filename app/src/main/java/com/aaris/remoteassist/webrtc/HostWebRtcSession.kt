@@ -67,6 +67,19 @@ class HostWebRtcSession(
     private val powerManager = appContext.getSystemService(PowerManager::class.java)
     private var deviceFpsLimit = MAX_SESSION_VIDEO_FPS
 
+    /*
+     * Hardware availability only proves that libwebrtc can attempt a MediaCodec
+     * path. Once outbound stats reveal the exact encoder component, bind the
+     * source ceiling to manufacturer performance guarantees for the geometry we
+     * are actually asking it to encode. Missing metadata is deliberately
+     * fail-open and preserves the existing 60 fps product ceiling.
+     */
+    private val encoderPerformanceEnvelope =
+        AndroidEncoderPerformanceEnvelope.create()
+    private var activeEncoderImplementation: String? = null
+    private var activeEncoderCodec: String? = null
+    private var codecGuaranteedFps: Int? = null
+
     private val recommendedCaptureTier =
         CaptureProfile.recommendedTier(appContext)
 
@@ -1021,6 +1034,18 @@ class HostWebRtcSession(
                 )
             val motionActive = freshnessPriorityActive(now)
             val oldDeviceLimit = deviceFpsLimit
+            val oldCodecGuarantee = codecGuaranteedFps
+
+            val implementation = snapshot.codecImplementation
+            val negotiatedCodec = snapshot.codec
+            if (
+                !implementation.isNullOrBlank() &&
+                !negotiatedCodec.isNullOrBlank()
+            ) {
+                activeEncoderImplementation = implementation
+                activeEncoderCodec = negotiatedCodec
+            }
+
             deviceFpsLimit = when {
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
                     (powerManager?.currentThermalStatus ?: 0) >= PowerManager.THERMAL_STATUS_SEVERE -> 24
@@ -1030,6 +1055,10 @@ class HostWebRtcSession(
             receiver?.displayRefreshRateHz?.takeIf { it.isFinite() && it > 0.0 }?.let {
                 deviceFpsLimit = minOf(deviceFpsLimit, (it + 0.5).toInt().coerceAtLeast(1))
             }
+            refreshCodecPerformanceGuarantee(
+                target = profile,
+                freshnessActive = motionActive
+            )
             if (!motionActive && sourceFps != null &&
                 sourceFps.isFinite() && sourceFps >= 0.0 && sourceFps < 2.5 &&
                 (snapshot.recent?.frames ?: Int.MAX_VALUE) <= 3) {
@@ -1048,7 +1077,7 @@ class HostWebRtcSession(
             val profileMaximumFps =
                 minOf(
                     profile.motionFps,
-                    deviceFpsLimit
+                    sessionFpsLimit()
                 ).coerceAtLeast(1)
             val motionTargetFps =
                 minOf(
@@ -1110,7 +1139,13 @@ class HostWebRtcSession(
                 )
             val cadenceChanged =
                 cadencePressureChanged || interactionProbeChanged
-            if (motionChanged || cadenceChanged || resolutionChanged || oldDeviceLimit != deviceFpsLimit) {
+            if (
+                motionChanged ||
+                cadenceChanged ||
+                resolutionChanged ||
+                oldDeviceLimit != deviceFpsLimit ||
+                oldCodecGuarantee != codecGuaranteedFps
+            ) {
                 applyVideoPolicy(profile)
             }
             if (resolutionChanged) {
@@ -1341,6 +1376,10 @@ class HostWebRtcSession(
                     append(interactionActive)
                     append(" deviceMax=")
                     append(deviceFpsLimit)
+                    append("fps codecMax=")
+                    append(codecGuaranteedFps ?: "unknown")
+                    append("fps sessionMax=")
+                    append(sessionFpsLimit())
                     append("fps")
                     append('\n')
 
@@ -1531,7 +1570,7 @@ class HostWebRtcSession(
     private fun currentMotionTargetFps(): Int =
         minOf(
             cadenceGovernor.cap,
-            deviceFpsLimit,
+            sessionFpsLimit(),
             profile.motionFps
         ).coerceAtLeast(1)
 
@@ -1543,7 +1582,7 @@ class HostWebRtcSession(
             nowMs = nowMs,
             maximumFps =
                 minOf(
-                    deviceFpsLimit,
+                    sessionFpsLimit(),
                     profile.motionFps
                 ).coerceAtLeast(1)
         )
@@ -1619,29 +1658,65 @@ class HostWebRtcSession(
         )
     }
 
+    private fun sessionFpsLimit(): Int =
+        EncoderPerformancePolicy.effectiveLimit(
+            deviceLimitFps = deviceFpsLimit,
+            guaranteedCodecFps = codecGuaranteedFps
+        )
+
+    private fun refreshCodecPerformanceGuarantee(
+        target: CaptureProfile,
+        freshnessActive: Boolean
+    ): Boolean {
+        val geometry =
+            motionVideoBudget.apply(
+                target,
+                freshnessActive
+            )
+        val next =
+            encoderPerformanceEnvelope.guaranteedFpsCeiling(
+                implementation = activeEncoderImplementation,
+                codec = activeEncoderCodec,
+                width = geometry.captureWidthPx,
+                height = geometry.captureHeightPx,
+                maximumFps = MAX_SESSION_VIDEO_FPS
+            )
+        if (next == codecGuaranteedFps) return false
+        codecGuaranteedFps = next
+        return true
+    }
+
     private fun effectiveCaptureProfile(
         target: CaptureProfile
     ): CaptureProfile {
         val freshnessActive = freshnessPriorityActive()
+        val geometry =
+            motionVideoBudget.apply(
+                target,
+                freshnessActive
+            )
         val targetFps =
             RealtimeMediaPolicy.effectiveSourceFps(
                 idleFps = target.fps,
                 motionFps = target.motionFps,
                 cadenceCap = cadenceGovernor.cap,
-                deviceFpsLimit = deviceFpsLimit,
+                deviceFpsLimit = sessionFpsLimit(),
                 freshnessActive = freshnessActive
             )
 
-        val paced = if (targetFps == target.fps) {
-            target
+        return if (targetFps == geometry.fps) {
+            geometry
         } else {
-            target.copy(fps = targetFps)
+            geometry.copy(fps = targetFps)
         }
-        return motionVideoBudget.apply(paced, freshnessActive)
     }
 
     private fun applyVideoPolicy(target: CaptureProfile) {
         val freshnessActive = freshnessPriorityActive()
+        refreshCodecPerformanceGuarantee(
+            target = target,
+            freshnessActive = freshnessActive
+        )
         val policy =
             InteractiveVideoPolicy.forState(
                 tier = target.tier,
