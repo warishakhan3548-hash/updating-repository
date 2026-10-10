@@ -149,6 +149,44 @@ internal class PhotonFreshnessGovernor {
 
         val packetLoss =
             outbound.packetLossRatio.valid()
+
+        /*
+         * Successful RTX can hide a lossy interval from the eventual remote
+         * fractionLost value: packets are recovered, but the sender is still
+         * spending path capacity and RTT budget repairing old media. Treat that
+         * as an admission-control signal only. Native WebRTC still owns NACK,
+         * RTX, congestion control and pacing; recovery activity merely prevents
+         * this app-level governor from raising FPS/resolution while repair is
+         * materially active.
+         *
+         * NACK is normalized by the actual stats-window duration because fast
+         * interactive probes and idle probes do not use the same interval.
+         * Missing OEM counters preserve the existing behavior.
+         */
+        val retransmitRatio =
+            sender?.retransmitRatio.valid()
+        val nackRatePerSecond =
+            sender?.let { window ->
+                window.nacks
+                    ?.takeIf { it >= 0 && window.intervalMs > 0 }
+                    ?.let {
+                        it * 1_000.0 /
+                            window.intervalMs.toDouble()
+                    }
+            }
+        val recoveryPressure =
+            sender?.plis?.let { it > 0 } == true ||
+                retransmitRatio
+                    ?.let { it >= WATCH_RETRANSMIT_RATIO } == true ||
+                nackRatePerSecond
+                    ?.let { it >= WATCH_NACK_RATE_PER_SECOND } == true
+        val recoveryClean =
+            sender?.plis?.let { it == 0 } != false &&
+                retransmitRatio
+                    ?.let { it < CLEAN_RETRANSMIT_RATIO } != false &&
+                nackRatePerSecond
+                    ?.let { it <= CLEAN_NACK_RATE_PER_SECOND } != false
+
         val hardPressure =
             queueMs?.let { it >= PRESSURE_QUEUE_MS } == true ||
                 playoutMs?.let { it >= PRESSURE_PLAYOUT_MS } == true ||
@@ -167,7 +205,8 @@ internal class PhotonFreshnessGovernor {
                 glassRatio?.let { it < WATCH_GLASS_RATIO } == true ||
                 postAckPresent
                     ?.let { it >= WATCH_POST_ACK_PRESENT_MS } == true ||
-                packetLoss?.let { it >= WATCH_PACKET_LOSS } == true
+                packetLoss?.let { it >= WATCH_PACKET_LOSS } == true ||
+                recoveryPressure
 
         /*
          * Missing sender fractionLost must not freeze the high-FPS ladder on
@@ -213,6 +252,7 @@ internal class PhotonFreshnessGovernor {
                 queueMs?.let { it <= CLEAN_QUEUE_MS } == true &&
                 playoutMs?.let { it <= CLEAN_PLAYOUT_MS } == true &&
                 packetDeliveryClean &&
+                recoveryClean &&
                 receiver.presentationAgeMs
                     ?.let { it <= CLEAN_PRESENTATION_AGE_MS } != false &&
                 postAckPresent
@@ -298,6 +338,17 @@ internal class PhotonFreshnessGovernor {
         const val PRESSURE_PLAYOUT_MS = 160.0
 
         const val CLEAN_PACKET_LOSS = 0.025
+
+        /*
+         * Recovery activity is intentionally asymmetric: a small amount merely
+         * withholds risky quality growth, while a clearly active repair window
+         * becomes WATCH. It never becomes hard pressure by itself.
+         */
+        const val CLEAN_RETRANSMIT_RATIO = 0.03
+        const val WATCH_RETRANSMIT_RATIO = 0.08
+        const val CLEAN_NACK_RATE_PER_SECOND = 0.5
+        const val WATCH_NACK_RATE_PER_SECOND = 2.0
+
         const val MAX_MISSING_LOSS_RTT_MS = 300
         const val MAX_MISSING_LOSS_GLASS_GAP_MS = 70
         const val MIN_MISSING_LOSS_SUPPLY_FPS = 20.0
