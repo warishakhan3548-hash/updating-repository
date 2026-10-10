@@ -81,15 +81,41 @@ class AiObservationEngineTest {
         val validated = engine.validate(action(observed))
         assertNull(validated.error)
     }
-    @Test fun actualTargetPixelsOrSemanticsChangingRejectsTap() = runBlocking {
+    @Test fun changingPixelColorsAndButtonTextDoNotBlockStationaryTap() = runBlocking {
         val observed = engine.observe()
-        pixels = pixels.clone().apply { for (y in 175 until 210) for (x in 85 until 107) this[y * 120 + x] = 180.toByte() }
+        pixels = pixels.clone().apply {
+            for (y in 175 until 210) for (x in 85 until 107) this[y * 120 + x] = 180.toByte()
+        }
+        ui = ui!!.copy(nodes = listOf(icon.copy(text = "Animated countdown 11")))
+        val accepted = engine.validate(action(observed))
+        assertNull(accepted.error)
+        assertTrue(accepted.stillValid())
+        // A different control really taking the coordinate is still refused.
+        ui = ui!!.copy(nodes = listOf(icon.copy(id = "replacement-button", text = "Other")))
         assertEquals("TARGET_CHANGED", engine.validate(action(observed)).error)
-        pixels.fill(80)
-        val validated = engine.validate(action(observed)); assertNull(validated.error)
-        ui = ui!!.copy(nodes = listOf(icon.copy(text = "Delete")))
+        assertFalse(accepted.stillValid())
+    }
+
+    @Test fun changingOtherTextNeverAddsPreTapScreenCapture() = runBlocking {
+        var frameReads = 0
+        onFrame = { frameReads++ }
+        val observed = engine.observe()
+        assertEquals(1, frameReads)
+        ui = ui!!.copy(nodes = listOf(icon.copy(text = "Updating...")))
+        animateOtherRegion()
+        assertNull(engine.validate(action(observed)).error)
+        // The normal post-action observe remains the only new screenshot.
+        assertEquals(1, frameReads)
+    }
+
+    @Test fun disabledOrMovedTapTargetIsStillRejected() = runBlocking {
+        val observed = engine.observe()
+        ui = ui!!.copy(nodes = listOf(icon.copy(enabled = false)))
         assertEquals("TARGET_CHANGED", engine.validate(action(observed)).error)
-        assertFalse(validated.stillValid())
+        ui = ui!!.copy(nodes = listOf(icon.copy(left = 4, right = 28)))
+        assertEquals("TARGET_CHANGED", engine.validate(action(observed)).error)
+        ui = ui!!.copy(nodes = listOf(icon), windowId = 99)
+        assertEquals("FOREGROUND_CHANGED", engine.validate(action(observed)).error)
     }
 
     @Test fun lowSemanticDynamicCanvasToleratesLocalAnimationButKeepsSceneAndWindowGuards() = runBlocking {
@@ -153,13 +179,13 @@ class AiObservationEngineTest {
         assertEquals(100L, clock - changedAt)
     }
 
-    @Test fun tapCoordinatesSnapToSmallestEnabledClickableTargetCenter() = runBlocking {
+    @Test fun ordinaryTapKeepsTheExactVisionCoordinateInsideClickableControl() = runBlocking {
         val observed = engine.observe()
         val args = action(observed).put("x", 0.72).put("y", 0.72)
         val validation = engine.validate(args)
         assertNull(validation.error)
-        assertEquals(0.8, args.getDouble("x"), 0.0001)
-        assertEquals(0.8, args.getDouble("y"), 0.0001)
+        assertEquals(0.72, args.getDouble("x"), 0.0001)
+        assertEquals(0.72, args.getDouble("y"), 0.0001)
         assertTrue(validation.stillValid())
     }
 
