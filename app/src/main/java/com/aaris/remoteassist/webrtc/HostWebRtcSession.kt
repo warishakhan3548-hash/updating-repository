@@ -102,13 +102,19 @@ class HostWebRtcSession(
      * for the exact screen geometry, preventing periodic 45/60 fps trials that
      * a vendor MediaCodec cannot sustain in realtime.
      */
+    private val preferredScreenCodec =
+        WebRtcRuntime.preferredScreenCodec(
+            appContext,
+            sender = true
+        ).uppercase()
     private val screenEncoderPerformance =
-        ScreenEncoderPerformance.probe(
-            WebRtcRuntime.preferredScreenCodec(
-                appContext,
-                sender = true
-            )
+        mapOf(
+            "H264" to ScreenEncoderPerformance.probe("H264"),
+            "VP8" to ScreenEncoderPerformance.probe("VP8")
         )
+
+    @Volatile
+    private var activeScreenCodec = preferredScreenCodec
 
     private val captureQualityGovernor =
         CaptureQualityGovernor(
@@ -1007,6 +1013,17 @@ class HostWebRtcSession(
 
             val now = android.os.SystemClock.elapsedRealtime()
 
+            /*
+             * Codec recovery may legally move H264 <-> VP8 without rebuilding
+             * this session. Bind the throughput guard to the codec WebRTC is
+             * actually encoding, not just the startup preference.
+             */
+            snapshot.codec
+                ?.substringAfterLast('/')
+                ?.uppercase()
+                ?.takeIf(screenEncoderPerformance::containsKey)
+                ?.let { activeScreenCodec = it }
+
             // A quick getStats() kick may arrive before WebRTC has assembled a
             // complete outbound delta. Do not drain producer FPS or feed an
             // empty sender/receiver interval to the freshness governors: that
@@ -1065,10 +1082,10 @@ class HostWebRtcSession(
                     motionActive
                 )
             val encoderFpsLimit =
-                screenEncoderPerformance.maxFps(
+                encoderFpsLimit(
                     currentSpatialProfile.captureWidthPx,
                     currentSpatialProfile.captureHeightPx
-                ) ?: MAX_SESSION_VIDEO_FPS
+                )
             val profileMaximumFps =
                 minOf(
                     profile.motionFps,
@@ -1670,6 +1687,14 @@ class HostWebRtcSession(
         )
     }
 
+    private fun encoderFpsLimit(
+        widthPx: Int,
+        heightPx: Int
+    ): Int =
+        screenEncoderPerformance[activeScreenCodec]
+            ?.maxFps(widthPx, heightPx)
+            ?: MAX_SESSION_VIDEO_FPS
+
     private fun effectiveCaptureProfile(
         target: CaptureProfile
     ): CaptureProfile {
@@ -1687,10 +1712,10 @@ class HostWebRtcSession(
                 freshnessActive
             )
         val encoderFpsLimit =
-            screenEncoderPerformance.maxFps(
+            encoderFpsLimit(
                 spatial.captureWidthPx,
                 spatial.captureHeightPx
-            ) ?: MAX_SESSION_VIDEO_FPS
+            )
         val targetFps =
             RealtimeMediaPolicy.effectiveSourceFps(
                 idleFps = target.fps,
