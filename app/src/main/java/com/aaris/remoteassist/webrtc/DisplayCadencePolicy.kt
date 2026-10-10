@@ -10,8 +10,11 @@ package com.aaris.remoteassist.webrtc
  * decode, and EGL are healthy. A 50/60 cadence repeats every six refreshes,
  * 48/60 every five, 45/60 every four, and 40/60 every three.
  *
- * We therefore keep high-cadence (>30 fps) rungs whose reduced refresh ratio
- * repeats within a short display cycle. 60 fps remains the product ceiling even
+ * We therefore FILTER the already-proven high-cadence (>30 fps) adaptation
+ * ladder by display compatibility instead of inventing extra intermediate
+ * rates. This preserves the governor's validated recovery timing while removing
+ * rungs whose reduced refresh ratio has a long beat period. 60 fps remains the
+ * product ceiling even
  * on unusual high-refresh panels because Android may switch the Surface to a
  * compatible mode after the existing 60 fps frame-rate hint.
  *
@@ -46,11 +49,12 @@ internal object DisplayCadencePolicy {
 
         val firstHigh = maxOf(HIGH_CADENCE_MIN_FPS, floor)
         if (ceiling >= firstHigh) {
-            for (fps in ceiling downTo firstHigh) {
-                if (shortRepeatCycle(refresh, fps)) {
-                    rates += fps
-                }
-            }
+            legacyDescending
+                .asSequence()
+                .filter { it in firstHigh..ceiling }
+                .filter { it != PRODUCT_MAX_FPS }
+                .filter { shortRepeatCycle(refresh, it) }
+                .forEach(rates::add)
         }
 
         lowCadenceDescending
