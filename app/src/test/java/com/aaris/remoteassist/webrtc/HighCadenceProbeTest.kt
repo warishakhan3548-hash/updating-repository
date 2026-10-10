@@ -140,8 +140,10 @@ class HighCadenceProbeTest {
         assertFalse(g.probingHighCadence)
         assertTrue(
             "Expected evidence-backed promotion ladder, saw $seen",
-            seen.containsAll(listOf(30, 36, 40, 45, 50, 55, 60)) &&
+            seen.containsAll(listOf(30, 36, 40, 45, 48, 60)) &&
                 !seen.contains(33) &&
+                !seen.contains(50) &&
+                !seen.contains(55) &&
                 !seen.contains(58)
         )
     }
@@ -168,7 +170,7 @@ class HighCadenceProbeTest {
         assertEquals(60, g.cap)
     }
 
-    @Test fun sustainedMildGlassMissTrimsSixtyToFiftyEightNotThirty() {
+    @Test fun sustainedMildGlassMissUsesDisplayPacedReliefNotLongBeatTrim() {
         val g = VideoCadenceGovernor(60, 60)
         val recv =
             receiver(
@@ -198,7 +200,7 @@ class HighCadenceProbeTest {
                 producerFps = 60.0
             )
         )
-        assertEquals(58, g.cap)
+        assertEquals(48, g.cap)
     }
 
     @Test fun ordinaryQueuePressureNeedsConfirmationBeforeFineRelief() {
@@ -224,7 +226,7 @@ class HighCadenceProbeTest {
                 producerFps = 60.0
             )
         )
-        assertEquals(58, g.cap)
+        assertEquals(48, g.cap)
     }
 
     @Test fun severeQueueCanStillTakeLargeFreshnessRelief() {
@@ -497,6 +499,11 @@ class HighCadenceProbeTest {
         )
         assertEquals(
             59.94,
+            feedback.currentDisplayRefreshRateHz(42, 3, 1_200)!!,
+            0.001
+        )
+        assertEquals(
+            59.94,
             feedback.consume(42, 3, 1_200)!!.displayRefreshRateHz!!,
             0.001
         )
@@ -504,6 +511,13 @@ class HighCadenceProbeTest {
             59.94,
             feedback.consume(42, 3, 6_000)!!.displayRefreshRateHz!!,
             0.001
+        )
+        assertNull(
+            feedback.currentDisplayRefreshRateHz(
+                42,
+                3,
+                16_001
+            )
         )
         assertNull(
             feedback.consume(
