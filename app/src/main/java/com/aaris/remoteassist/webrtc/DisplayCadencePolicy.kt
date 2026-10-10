@@ -38,10 +38,12 @@ internal object DisplayCadencePolicy {
         val floor = floorFps.coerceAtLeast(1)
         val ceiling = ceilingFps.coerceAtLeast(floor)
         val refresh = normalizedRefresh(refreshRateHz)
-            ?: return legacyDescending
+        val sourceRefresh = normalizedRefresh(sourceRefreshRateHz)
+        if (refresh == null && sourceRefresh == null) {
+            return legacyDescending
                 .filter { it in floor..ceiling }
                 .ifEmpty { listOf(ceiling) }
-        val sourceRefresh = normalizedRefresh(sourceRefreshRateHz)
+        }
 
         val rates = linkedSetOf<Int>()
         val firstHigh = maxOf(HIGH_CADENCE_MIN_FPS, floor)
@@ -61,7 +63,7 @@ internal object DisplayCadencePolicy {
          */
         fun admitHigh(fps: Int): Boolean =
             fps in firstHigh..ceiling &&
-                shortRepeatCycle(refresh, fps) &&
+                (refresh == null || shortRepeatCycle(refresh, fps)) &&
                 sourceClockCompatible(sourceRefresh, fps)
 
         if (ceiling >= firstHigh) {
