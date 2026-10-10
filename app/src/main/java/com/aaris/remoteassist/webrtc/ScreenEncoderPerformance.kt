@@ -53,17 +53,12 @@ internal class ScreenEncoderPerformance private constructor(
         val safeHeight = height.coerceAtLeast(2)
 
         val exactImplementation =
-            implementationName
-                ?.trim()
-                ?.takeIf(String::isNotBlank)
-                ?.let { active ->
-                    capabilities.firstOrNull {
-                        it.implementationName.equals(
-                            active,
-                            ignoreCase = true
-                        )
-                    }
-                }
+            capabilities.firstOrNull {
+                implementationMatches(
+                    candidateName = it.implementationName,
+                    activeName = implementationName
+                )
+            }
 
         val scopedCapabilities =
             if (exactImplementation != null) {
@@ -239,18 +234,19 @@ internal class ScreenEncoderPerformance private constructor(
             return SOFTWARE_CODEC_MARKERS.none(name::contains)
         }
 
-        internal fun matchingImplementationName(
-            availableNames: List<String>,
+        internal fun implementationMatches(
+            candidateName: String,
             activeName: String?
-        ): String? {
+        ): Boolean {
             val normalized =
                 activeName
                     ?.trim()
                     ?.takeIf(String::isNotBlank)
-                    ?: return null
-            return availableNames.firstOrNull {
-                it.equals(normalized, ignoreCase = true)
-            }
+                    ?: return false
+            return candidateName.equals(
+                normalized,
+                ignoreCase = true
+            )
         }
 
         private val SOFTWARE_CODEC_MARKERS =
