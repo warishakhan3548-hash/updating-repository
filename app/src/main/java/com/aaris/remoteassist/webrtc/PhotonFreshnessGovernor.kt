@@ -176,12 +176,14 @@ internal class PhotonFreshnessGovernor {
             }
         val recoveryPressure =
             sender?.plis?.let { it > 0 } == true ||
+                sender?.firs?.let { it > 0 } == true ||
                 retransmitRatio
                     ?.let { it >= WATCH_RETRANSMIT_RATIO } == true ||
                 nackRatePerSecond
                     ?.let { it >= WATCH_NACK_RATE_PER_SECOND } == true
         val recoveryClean =
             sender?.plis?.let { it == 0 } != false &&
+                sender?.firs?.let { it == 0 } != false &&
                 retransmitRatio
                     ?.let { it < CLEAN_RETRANSMIT_RATIO } != false &&
                 nackRatePerSecond
