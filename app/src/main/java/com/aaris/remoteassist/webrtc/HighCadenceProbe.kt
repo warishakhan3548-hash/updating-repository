@@ -35,6 +35,7 @@ internal class HighCadenceProbe {
     private var lastProofAtMs: Long? = null
     private var lastPresentationSequenceSeen = 0L
     private var lastDisplayRefreshRateHz: Double? = null
+    private var lastSourceRefreshRateHz: Double? = null
 
     val probing: Boolean get() = trialFrom != null
 
@@ -96,8 +97,15 @@ internal class HighCadenceProbe {
         maximumFps: Int,
         allowProbe: Boolean,
         overloaded: Boolean,
-        nowMs: Long
+        nowMs: Long,
+        sourceRefreshRateHz: Double? = null
     ): Int? {
+        sourceRefreshRateHz
+            ?.takeIf {
+                it.isFinite() &&
+                    it in MIN_REFRESH_RATE_HZ..MAX_REFRESH_RATE_HZ
+            }
+            ?.let { lastSourceRefreshRateHz = it }
         if (currentFps != previousCap) {
             if (previousCap > currentFps) {
                 blockedUntilMs = nowMs + RETRY_COOLDOWN_MS
@@ -336,7 +344,8 @@ internal class HighCadenceProbe {
             currentFps = currentFps,
             refreshRateHz = lastDisplayRefreshRateHz,
             ceilingFps = limit,
-            floorFps = MIN_FINE_CADENCE_FPS
+            floorFps = MIN_FINE_CADENCE_FPS,
+            sourceRefreshRateHz = lastSourceRefreshRateHz
         )
 
     private fun previousLower(currentFps: Int): Int? =
@@ -344,7 +353,8 @@ internal class HighCadenceProbe {
             currentFps = currentFps,
             refreshRateHz = lastDisplayRefreshRateHz,
             floorFps = MIN_FINE_CADENCE_FPS,
-            ceilingFps = 60
+            ceilingFps = 60,
+            sourceRefreshRateHz = lastSourceRefreshRateHz
         )
 
     private fun nearestAtOrBelow(limit: Int): Int =
@@ -352,7 +362,8 @@ internal class HighCadenceProbe {
             limitFps = limit,
             refreshRateHz = lastDisplayRefreshRateHz,
             ceilingFps = 60,
-            floorFps = 1
+            floorFps = 1,
+            sourceRefreshRateHz = lastSourceRefreshRateHz
         )
 
     private fun toleratedDrops(frames: Int): Int =
@@ -398,6 +409,8 @@ internal class HighCadenceProbe {
 
     private companion object {
         const val MIN_FINE_CADENCE_FPS = 30
+        const val MIN_REFRESH_RATE_HZ = 30.0
+        const val MAX_REFRESH_RATE_HZ = 240.0
         const val MIN_SAMPLE_INTERVAL_MS = 500L
         const val MAX_SAMPLE_GAP_MS = 6_000L
         const val MAX_GLASS_PROOF_AGE_MS = 1_000
