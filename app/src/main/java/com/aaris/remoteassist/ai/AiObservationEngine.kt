@@ -207,7 +207,10 @@ class AiObservationEngine internal constructor(
             }
             if (ratio == null || ratio > 0.18) return refused("RESTORED_SCREEN_CHANGED")
         }
-        if (!navigation) {
+        if (!navigation && action != "tap") {
+            // Coordinate taps use the already-published full screenshot. Re-reading
+            // animated pixels here can falsely reject a perfectly stationary X/file
+            // item. Window, privacy, geometry and semantic identity are still checked.
             val fresh = freshFrame()
             if (fresh.rotation != rotation || !geometryMatches(fresh, geometry)) return refused("CAPTURE_GEOMETRY_CHANGED")
             val (localChanged, globalChangeRatio) = withContext(Dispatchers.Default) {
@@ -257,7 +260,6 @@ class AiObservationEngine internal constructor(
                 node.id == requestedTarget && node.enabled &&
                     (node.clickable || node.editable) && node.area > 0L
             }
-            // Fail closed instead of guessing when an id is stale or repeated.
             if (exact.size != 1) return false
             centerTap(args, exact.single())
             return true
@@ -265,83 +267,18 @@ class AiObservationEngine internal constructor(
 
         val x = args.optDouble("x", Double.NaN)
         val y = args.optDouble("y", Double.NaN)
-        if (!x.isFinite() || !y.isFinite() || x !in 0.0..1.0 || y !in 0.0..1.0) return false
-        if (width <= 0 || height <= 0) return false
-
-        /*
-         * A vision coordinate on a dynamic canvas is authoritative. Games,
-         * SurfaceView/OpenGL apps and custom-rendered boards often expose one
-         * giant Accessibility "clickable" surface covering most or all of the
-         * display. Center-snapping that container silently moves a correct dice/
-         * piece coordinate toward the middle of the board. Keep the model's
-         * fresh pixel coordinate unchanged unless it explicitly supplied a
-         * semantic targetId.
-         */
-        if (issuedMode == AiInteractionMode.DYNAMIC_CANVAS) return true
-
-        val tapX = x * width
-        val tapY = y * height
-        val displayArea = width.toLong() * height.toLong()
-        val clickable = ui.nodes.asSequence()
-            .filter { node ->
-                node.enabled && node.clickable && node.area > 0L &&
-                    node.area < displayArea / 3L
-            }
-            .toList()
-
-        // Semantic snapping is intentionally limited to bounded controls.
-        // Broad containers/canvases never override the coordinate chosen from pixels.
-        val direct = clickable.asSequence()
-            .filter { node -> node.contains(tapX, tapY) }
-            .minByOrNull { it.area }
-        if (direct != null) {
-            centerTap(args, direct)
-            return true
-        }
-
-        /*
-         * Vision models occasionally land a few pixels outside a small icon or
-         * button edge. Treat that as pointer imprecision, not as a reason to
-         * click arbitrary nearby UI: auto-aim only when exactly one reasonably
-         * sized clickable node falls inside a narrow normalized halo. If two
-         * controls are close together we deliberately keep the raw coordinate
-         * so the fresh-pixel/semantic validation can fail closed instead of
-         * guessing which control the model meant.
-         */
-        val nearby = clickable.filter { node ->
-            normalizedDistanceSquaredToNode(x, y, node) <= TAP_NEAR_MISS_RADIUS_SQ
-        }
-        if (nearby.size == 1) {
-            centerTap(args, nearby.single())
-        }
-        return true
+        // The model owns coordinate selection from its full-screen screenshot.
+        // Do not snap a DocumentsUI row or animated overlay to a different
+        // Accessibility container's center. Explicit targetId is the only
+        // semantic centering request.
+        return x.isFinite() && y.isFinite() &&
+            x in 0.0..1.0 && y in 0.0..1.0 &&
+            width > 0 && height > 0
     }
 
     private fun centerTap(args: JSONObject, node: AiUiNode) {
         args.put("x", ((node.left + node.right) / 2.0 / width).coerceIn(0.0, 1.0))
         args.put("y", ((node.top + node.bottom) / 2.0 / height).coerceIn(0.0, 1.0))
-    }
-
-    private fun normalizedDistanceSquaredToNode(
-        x: Double,
-        y: Double,
-        node: AiUiNode
-    ): Double {
-        val left = node.left.toDouble() / width
-        val right = node.right.toDouble() / width
-        val top = node.top.toDouble() / height
-        val bottom = node.bottom.toDouble() / height
-        val dx = when {
-            x < left -> left - x
-            x > right -> x - right
-            else -> 0.0
-        }
-        val dy = when {
-            y < top -> top - y
-            y > bottom -> y - bottom
-            else -> 0.0
-        }
-        return dx * dx + dy * dy
     }
 
     private fun actionScope(args: JSONObject, ui: AiUiSnapshot): AiActionScope? {
@@ -397,6 +334,19 @@ class AiObservationEngine internal constructor(
             return field.enabled && field == b.nodes.singleOrNull { it.focused && it.editable }
         }
         val scope = actionScope(args, a) ?: return false
+        if (args.getString("action") == "tap") {
+            // Ignore changing button labels, counters, previews and image content.
+            // Require only the same enabled actionable control at the requested
+            // coordinate; custom-rendered controls may expose no useful nodes.
+            val original = tapTargetAtScope(a, scope)
+            val current = tapTargetAtScope(b, scope)
+            if (original == null || current == null) return original == null && current == null
+            return original.enabled && current.enabled &&
+                original.role == current.role &&
+                original.clickable == current.clickable &&
+                original.editable == current.editable &&
+                (original.id.isBlank() || current.id.isBlank() || original.id == current.id)
+        }
         if (args.getString("action") in setOf("swipe", "drag", "two_finger") &&
             issuedMode != AiInteractionMode.STRICT &&
             a.nodes.none { it.editable && it.focused } &&
@@ -508,6 +458,13 @@ class AiObservationEngine internal constructor(
 
     fun currentPackageName(): String? = issuedUi?.packageName
 
+    private fun tapTargetAtScope(ui: AiUiSnapshot, scope: AiActionScope): AiUiNode? =
+        ui.nodes.filter {
+            it.enabled && (it.clickable || it.editable) &&
+                it.area in 1 until width.toLong() * height / 3 &&
+                it.contains(scope.x * width, scope.y * height)
+        }.minByOrNull { it.area }
+
     private fun targetAtScope(ui: AiUiSnapshot, scope: AiActionScope): AiUiNode? =
         ui.nodes.filter {
             it.area < width.toLong() * height / 3 && it.contains(scope.x * width, scope.y * height)
@@ -530,7 +487,5 @@ class AiObservationEngine internal constructor(
         private const val SETTLE_POLL_MS = 40L
         private const val DYNAMIC_SCENE_CHANGE_LIMIT = 0.42
         private const val PAGE_GESTURE_SCENE_CHANGE_LIMIT = 0.28
-        private const val TAP_NEAR_MISS_RADIUS = 0.035
-        private const val TAP_NEAR_MISS_RADIUS_SQ = TAP_NEAR_MISS_RADIUS * TAP_NEAR_MISS_RADIUS
     }
 }
