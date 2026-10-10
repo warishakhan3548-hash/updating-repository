@@ -29,6 +29,7 @@ import android.widget.TextView
 import com.aaris.remoteassist.control.GestureStreamPhase
 import com.aaris.remoteassist.webrtc.ControllerConnectionRuntime
 import com.aaris.remoteassist.webrtc.ControllerWebRtcSession
+import com.aaris.remoteassist.webrtc.DisplayCadencePolicy
 import com.aaris.remoteassist.webrtc.FallbackDeltaFrame
 import com.aaris.remoteassist.webrtc.FallbackDeltaPatch
 import com.aaris.remoteassist.webrtc.FallbackVideoFrame
@@ -1295,6 +1296,35 @@ class InlineRemoteControllerView(
         }
     }
 
+    private fun renderSynchronizerTargetFps(): Float {
+        /*
+         * Surface frame-rate votes and adaptive-refresh policy may move the
+         * controller between supported modes after this renderer is created.
+         * Build the immutable RenderSynchronizer against the fastest advertised
+         * mode so every real display refresh remains an eligible latest-frame
+         * presentation opportunity for the lifetime of this EGL thread.
+         */
+        @Suppress("DEPRECATION")
+        val display =
+            surfaceView.display
+                ?: activity.windowManager.defaultDisplay
+
+        val activeRefreshRateHz =
+            runCatching { display.refreshRate.toDouble() }
+                .getOrNull()
+        val maximumSupportedRefreshRateHz =
+            runCatching {
+                display.supportedModes
+                    .maxOfOrNull { it.refreshRate.toDouble() }
+            }.getOrNull()
+
+        return DisplayCadencePolicy.renderSynchronizerTargetFps(
+            activeRefreshRateHz = activeRefreshRateHz,
+            maximumSupportedRefreshRateHz =
+                maximumSupportedRefreshRateHz
+        )
+    }
+
     private fun ensureRenderer(): Boolean {
         if (eglRenderer != null) return true
 
@@ -1302,20 +1332,19 @@ class InlineRemoteControllerView(
             val renderer = EglRenderer("AarisInlineRemote")
             /*
              * Pinned WebRTC M150 already ships a Choreographer-backed
-             * RenderSynchronizer. Wire it into the existing EGL thread instead
-             * of inventing an application playback queue: swaps are admitted on
-             * display refresh windows, while EglRenderer's stable renderer id
-             * (overwritePendingFrames=true below) keeps only the newest pending
-             * swap update when a window is closed.
+             * RenderSynchronizer. Use it only as a vsync admission gate, not as
+             * a second 60 fps media pacer.
              *
-             * The target is the product's maximum media cadence, not the
-             * controller panel refresh. On 60 Hz this opens every refresh; on
-             * higher-refresh panels it selects display-aligned windows near
-             * 60 fps. Slow networks/decoders still deliver fewer frames and do
-             * not accumulate a second queue.
+             * A fixed 60 fps render target on a 90/120/144 Hz controller can
+             * fight the sender's display-aware cadence and create its own
+             * open/closed render-window beat. Target the fastest refresh mode
+             * this display can enter instead. The stream itself remains capped
+             * at 60 fps, and overwritePendingFrames=true below keeps only the
+             * freshest pending frame, so this adds no decoded-frame queue and
+             * does not increase encoded work.
              */
             val renderSynchronizer =
-                RenderSynchronizer(RENDER_SYNC_TARGET_FPS)
+                RenderSynchronizer(renderSynchronizerTargetFps())
             val renderThread =
                 EglThread.create(
                     null,
@@ -2878,12 +2907,6 @@ class InlineRemoteControllerView(
         AarisUi.dp(activity, value)
 
     companion object {
-        /*
-         * Match Aaris' maximum video cadence. RenderSynchronizer is display
-         * aligned and latest-wins; this is not a 60-frame producer requirement.
-         */
-        private const val RENDER_SYNC_TARGET_FPS = 60f
-
         private const val FIRST_FRAME_DEADLINE_MS = 3_500L
         private const val MEDIA_RECOVERY_RETRY_MS = 4_000L
         private const val RENDER_RECOVERY_RETRY_MS = 2_500L
