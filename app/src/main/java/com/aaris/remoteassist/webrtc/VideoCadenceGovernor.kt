@@ -26,6 +26,7 @@ class VideoCadenceGovernor(
     private var lastSenderIdentity: Pair<String, String?>? = null
     private var lastSenderFps: Double? = null
     private var lastSenderAtMs = Long.MIN_VALUE / 2
+    private var lastDisplayRefreshRateHz: Double? = null
     private val highCadenceProbe = HighCadenceProbe()
     private val highCadencePressureGate = HighCadencePressureGate()
     val probingHighCadence: Boolean get() = highCadenceProbe.probing
@@ -72,7 +73,7 @@ class VideoCadenceGovernor(
         if (window.processingMs?.let { !it.isFinite() || it < 0.0 ||
             it >= 1000.0 / ceiling } == true) return false
 
-        val next = ASCENDING_CAPS.firstOrNull { it > cap && it <= ceiling }
+        val next = LOW_ASCENDING_CAPS.firstOrNull { it > cap && it <= ceiling }
             ?: return false
         cap = next
         changedAt = nowMs
@@ -101,7 +102,7 @@ class VideoCadenceGovernor(
         if (nowMs - lastOverloadAtMs < QUIET_PROBE_COOLDOWN_MS) return false
         val target = minOf(
             maxFps,
-            ASCENDING_CAPS.firstOrNull { it >= minimumFps } ?: minimumFps
+            LOW_ASCENDING_CAPS.firstOrNull { it >= minimumFps } ?: minimumFps
         ).coerceAtLeast(1)
         if (cap >= target) return false
 
@@ -342,10 +343,11 @@ class VideoCadenceGovernor(
      * glass cadence with recent completed sender supply; sparse/unknown/expired
      * supply cannot establish a fast display-overload vote.
      *
-     * At high cadence one trustworthy hitch earns only one fine relief step
-     * (for example 60 -> 58). A large fall toward 30 still requires severe
-     * presentation/pipeline evidence. The bounded cooldown plus one-step rule
-     * prevents one scheduler pause from cascading through multiple levels.
+     * At high cadence one trustworthy hitch earns one display-paced relief
+     * step. This avoids long frame/vsync beat patterns such as 58/60 while a
+     * large fall toward 30 still requires severe presentation/pipeline evidence.
+     * The bounded cooldown plus one-step rule prevents one scheduler pause from
+     * cascading through multiple levels.
      */
     fun observeFastPresentation(
         intervalMs: Int,
@@ -353,8 +355,15 @@ class VideoCadenceGovernor(
         maxGapMs: Int,
         requestedFps: Int,
         interactionActive: Boolean,
-        nowMs: Long
+        nowMs: Long,
+        displayRefreshRateHz: Double? = null
     ): Boolean {
+        displayRefreshRateHz
+            ?.takeIf {
+                it.isFinite() &&
+                    it in MIN_DISPLAY_REFRESH_HZ..MAX_DISPLAY_REFRESH_HZ
+            }
+            ?.let { lastDisplayRefreshRateHz = it }
         if (
             !interactionActive ||
             nowMs < 0L ||
@@ -447,9 +456,12 @@ class VideoCadenceGovernor(
          * still take a stronger step for proven CPU/queue/loss pressure.
          */
         val next =
-            DESCENDING_CAPS.firstOrNull {
-                it < effectiveFps && it < cap
-            } ?: return false
+            DisplayCadencePolicy.nextLower(
+                currentFps = effectiveFps,
+                refreshRateHz = lastDisplayRefreshRateHz,
+                floorFps = 1,
+                ceilingFps = maxFps
+            )?.takeIf { it < cap } ?: return false
 
         // Moderate presentation-only relief is deliberately one fine step.
         if (!severe && next < SOFT_PRESENTATION_RELIEF_FPS) {
@@ -483,6 +495,13 @@ class VideoCadenceGovernor(
             lastSenderFps = null
             highCadencePressureGate.clearPresentation()
         }
+        receiver?.displayRefreshRateHz
+            ?.takeIf {
+                it.isFinite() &&
+                    it in MIN_DISPLAY_REFRESH_HZ..MAX_DISPLAY_REFRESH_HZ
+            }
+            ?.let { lastDisplayRefreshRateHz = it }
+
         val sender = outbound.recent ?: return false
         lastSenderFps = sender.fps.takeIf {
             nowMs >= 0L &&
@@ -793,14 +812,20 @@ class VideoCadenceGovernor(
 
             val ceiling = minOf(cap, requestedFps)
             /*
-             * Fine cadence steps avoid visible cliffs during ordinary interactive
-             * pressure: 60 can trim to 58, then 55/50 only if pressure persists.
-             * Severe queue/jitter/presentation pressure and CPU limitation are
-             * different: freshness is already at risk, so they may deliberately
-             * jump to a stronger <=30 fps relief step.
+             * Ordinary pressure takes one display-paced rung. Numerically tiny
+             * near-refresh trims can create long frame/vsync beat periods and
+             * visible micro-stutter even when the pipeline is otherwise healthy.
+             * Severe queue/jitter/presentation pressure and CPU limitation may
+             * still jump directly to the <=30 fps freshness ladder.
              */
             val needsStrongRelief = severePressure || cpuPressure
-            val ordinaryNext = DESCENDING_CAPS.firstOrNull { candidate ->
+            val cadenceSteps =
+                DisplayCadencePolicy.descending(
+                    refreshRateHz = lastDisplayRefreshRateHz,
+                    ceilingFps = maxFps,
+                    floorFps = 1
+                )
+            val ordinaryNext = cadenceSteps.firstOrNull { candidate ->
                 candidate < ceiling &&
                     (!needsStrongRelief || candidate <= STRONG_RELIEF_MAX_STEP_FPS)
             } ?: return false
@@ -812,7 +837,7 @@ class VideoCadenceGovernor(
                 }.minOrNull()
                 val guarded = delivered?.times(SEVERE_OBSERVED_HEADROOM)?.toInt()
                 if (guarded == null) ordinaryNext
-                else DESCENDING_CAPS.firstOrNull {
+                else cadenceSteps.firstOrNull {
                     it < ceiling &&
                         it <= guarded &&
                         it <= STRONG_RELIEF_MAX_STEP_FPS
@@ -900,7 +925,7 @@ class VideoCadenceGovernor(
             else MIN_RECOVERY_INTERVAL_MS
         if (healthy < healthySamplesRequired || nowMs - changedAt < recoveryIntervalMs) return false
 
-        val next = ASCENDING_CAPS.firstOrNull { it > cap && it <= minOf(maxFps, maximumFps, 30) } ?: return false
+        val next = LOW_ASCENDING_CAPS.firstOrNull { it > cap && it <= minOf(maxFps, maximumFps, 30) } ?: return false
         cap = next
         changedAt = nowMs
         healthy = 0
@@ -933,11 +958,11 @@ class VideoCadenceGovernor(
         cap <= RESOLUTION_REDUCTION_MAX_FPS && nowMs - changedAt >= RESOLUTION_REDUCTION_GRACE_MS
 
     private companion object {
-        val DESCENDING_CAPS =
-            listOf(60, 58, 55, 50, 45, 40, 36, 33, 30, 24, 20, 15)
-        val ASCENDING_CAPS =
-            listOf(15, 20, 24, 30, 33, 36, 40, 45, 50, 55, 58, 60)
+        val LOW_ASCENDING_CAPS =
+            listOf(15, 20, 24, 30)
 
+        const val MIN_DISPLAY_REFRESH_HZ = 30.0
+        const val MAX_DISPLAY_REFRESH_HZ = 240.0
         const val MOTION_RECOVERY_FPS_CEILING = 30
         const val INTERACTION_RESCUE_FLOOR_FPS = 24
         const val INTERACTION_FLOOR_CODEC_BUDGET_RATIO = 0.85
