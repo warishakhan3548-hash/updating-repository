@@ -9,15 +9,15 @@ class DisplayCadencePolicyTest {
         val ladder = DisplayCadencePolicy.descending(60.0, 60)
 
         assertEquals(
-            listOf(60, 48, 45, 40, 36, 30, 24, 20, 15),
+            listOf(60, 50, 48, 45, 40, 36, 30, 24, 20, 15),
             ladder
         )
         assertFalse(58 in ladder)
         assertFalse(55 in ladder)
-        assertFalse(50 in ladder)
+        assertTrue(50 in ladder)
         assertFalse(33 in ladder)
         assertEquals(
-            48,
+            50,
             DisplayCadencePolicy.nextLower(60, 60.0, ceilingFps = 60)
         )
     }
