@@ -102,6 +102,99 @@ class MotionVideoBudgetTest {
         assertEquals(240, budget.shortEdge)
     }
 
+    @Test fun nativeSourceAboveBudgetCeilingIsStableAcrossUnprovenTouchDownAndFingerUp() {
+        val nativeProfile =
+            CaptureProfile(
+                1080,
+                2400,
+                1080,
+                2400,
+                45,
+                10_000_000,
+                CaptureTier.HIGH,
+                60
+            )
+        val budget = MotionVideoBudget()
+
+        assertTrue(budget.primeForMotion(nativeProfile, 1_000L))
+        assertEquals(360, budget.shortEdge)
+
+        /*
+         * shortEdge is already a conservative control budget, but the running
+         * native source must remain untouched until a measured moving window
+         * validates a resize. This is the case the old 720-wide fixture could
+         * not expose.
+         */
+        assertEquals(nativeProfile, budget.apply(nativeProfile, true))
+
+        assertTrue(
+            budget.observe(
+                outbound = sender().copy(recent = null),
+                receiver = null,
+                sourceFps = null,
+                motionActive = false,
+                targetFps = 60,
+                nowMs = 1_500L
+            )
+        )
+        assertEquals(720, budget.shortEdge)
+
+        // Cancelling an unproven warm start must not merely move the surprise
+        // 1080 -> 720 resize from finger-down to finger-up.
+        assertEquals(nativeProfile, budget.apply(nativeProfile, false))
+    }
+
+    @Test fun nativeSourceResizeCommitsOnlyAfterMeasuredMotionPressure() {
+        val nativeProfile =
+            CaptureProfile(
+                1080,
+                2400,
+                1080,
+                2400,
+                45,
+                10_000_000,
+                CaptureTier.HIGH,
+                60
+            )
+        val budget = MotionVideoBudget()
+        assertTrue(budget.primeForMotion(nativeProfile, 1_000L))
+        val stressed =
+            sender(
+                fps = 42,
+                encode = 20.0,
+                queue = 5.0,
+                implementation = "c2.qti.avc.encoder"
+            )
+
+        assertFalse(
+            budget.observe(
+                outbound = stressed,
+                receiver = receiver(fps = 42, decode = 5.0, presented = 42),
+                sourceFps = 60.0,
+                motionActive = true,
+                targetFps = 60,
+                nowMs = 2_000L,
+                interactionActive = true
+            )
+        )
+        assertEquals(nativeProfile, budget.apply(nativeProfile, true))
+
+        assertTrue(
+            budget.observe(
+                outbound = stressed,
+                receiver = receiver(fps = 42, decode = 5.0, presented = 42),
+                sourceFps = 60.0,
+                motionActive = true,
+                targetFps = 60,
+                nowMs = 3_000L,
+                interactionActive = true
+            )
+        )
+        val relieved = budget.apply(nativeProfile, true)
+        assertEquals(240, relieved.captureWidthPx)
+        assertEquals(532, relieved.captureHeightPx)
+    }
+
     @Test fun newMotionWarmStartCapsBitrateWithoutTouchDownSourceResize() {
         val budget = MotionVideoBudget()
 
