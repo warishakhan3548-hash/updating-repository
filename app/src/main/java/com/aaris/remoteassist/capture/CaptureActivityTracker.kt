@@ -37,7 +37,12 @@ internal class CaptureActivityTracker {
                 Long.MAX_VALUE
             }
 
-        if (deltaNs != Long.MAX_VALUE) {
+        // Only gaps between two frames observed inside the current health
+        // window are comparable. The first frame after a long static screen may
+        // be seconds newer than the previous natural texture; counting that idle
+        // interval as producer jitter would downscale a perfectly healthy
+        // interaction at motion start.
+        if (frames > 0 && deltaNs != Long.MAX_VALUE) {
             maxInterFrameGapNs = maxOf(maxInterFrameGapNs, deltaNs)
         }
 
