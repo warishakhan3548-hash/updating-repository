@@ -1,5 +1,6 @@
 package org.webrtc;
 
+import android.annotation.TargetApi;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecInfo.CodecCapabilities;
@@ -186,6 +187,7 @@ public final class AarisLowLatencyVideoDecoderFactory implements VideoDecoderFac
       return Api30.isSupported(capabilities);
     }
 
+    @TargetApi(Build.VERSION_CODES.R)
     private static final class Api30 {
       private Api30() {}
 
