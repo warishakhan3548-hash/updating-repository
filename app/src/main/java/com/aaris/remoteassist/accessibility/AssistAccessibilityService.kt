@@ -221,14 +221,7 @@ class AssistAccessibilityService : AccessibilityService() {
         onResult: (Boolean) -> Unit
     ) {
         when (command) {
-            is TapCommand -> gesture(
-                command.xPx,
-                command.yPx,
-                command.xPx,
-                command.yPx,
-                REMOTE_TAP_DURATION_MS,
-                onResult
-            )
+            is TapCommand -> performTap(command, onResult)
             is LongPressCommand -> gesture(
                 command.xPx,
                 command.yPx,
@@ -389,6 +382,92 @@ class AssistAccessibilityService : AccessibilityService() {
         ).joinToString(" ")
 
         return SensitiveFieldHints.isSensitive(metadata)
+    }
+
+    /**
+     * The Android system file picker exposes clickable document rows even when
+     * touch injection is unreliable on a particular device/provider. Use its
+     * official Accessibility ACTION_CLICK at the exact AI-selected coordinate;
+     * if no eligible node accepts the action, fall back to the existing native
+     * touch stroke. No retries, extra screenshots or verification round-trips.
+     *
+     * Keep ordinary phone-to-phone control on its original gesture path.
+     */
+    private fun performTap(command: TapCommand, onResult: (Boolean) -> Unit) {
+        if (
+            AiConnectorRuntime.state.active &&
+            performDocumentPickerClick(command.xPx, command.yPx)
+        ) {
+            onResult(true)
+            return
+        }
+        gesture(
+            command.xPx,
+            command.yPx,
+            command.xPx,
+            command.yPx,
+            REMOTE_TAP_DURATION_MS,
+            onResult
+        )
+    }
+
+    private fun performDocumentPickerClick(x: Float, y: Float): Boolean {
+        if (!x.isFinite() || !y.isFinite()) return false
+        val root = rootInActiveWindow ?: return false
+        val pickerPackage = root.packageName?.toString().orEmpty()
+        if (
+            pickerPackage != "com.google.android.documentsui" &&
+            pickerPackage != "com.android.documentsui"
+        ) {
+            root.recycle()
+            return false
+        }
+
+        val bounds = Rect()
+        val displayArea = resources.displayMetrics.let { metrics ->
+            metrics.widthPixels.toLong() * metrics.heightPixels
+        }
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        var best: AccessibilityNodeInfo? = null
+        var bestArea = Long.MAX_VALUE
+        var visited = 0
+        try {
+            while (queue.isNotEmpty() && visited++ < MAX_DOCUMENT_PICKER_NODES) {
+                val node = queue.removeFirst()
+                var retained = false
+                try {
+                    if (!node.isVisibleToUser) continue
+                    node.getBoundsInScreen(bounds)
+                    val area = bounds.width().toLong() * bounds.height()
+                    if (
+                        node.isEnabled && node.isClickable &&
+                        area > 0L && area < displayArea / 3L &&
+                        bounds.contains(x.toInt(), y.toInt()) &&
+                        area < bestArea
+                    ) {
+                        best?.recycle()
+                        best = node
+                        bestArea = area
+                        retained = true
+                    }
+                    for (i in 0 until node.childCount.coerceAtMost(100)) {
+                        node.getChild(i)?.let { child ->
+                            if (queue.size < MAX_DOCUMENT_PICKER_NODES) queue.add(child)
+                            else child.recycle()
+                        }
+                    }
+                } finally {
+                    if (!retained) node.recycle()
+                }
+            }
+            // A completed ACTION_CLICK is a dispatched command, not proof the
+            // website accepted the PDF; the normal next screenshot shows that.
+            return best?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+        } finally {
+            best?.recycle()
+            while (queue.isNotEmpty()) queue.removeFirst().recycle()
+        }
     }
 
     private fun gesture(
@@ -1339,6 +1418,7 @@ class AssistAccessibilityService : AccessibilityService() {
         // Long enough to cross several 60 Hz input samples in games while
         // remaining perceptually instant for ordinary Android controls.
         private const val REMOTE_TAP_DURATION_MS = 80L
+        private const val MAX_DOCUMENT_PICKER_NODES = 320
         private const val MAX_REMOTE_FIELD_CHARS = 4000
         private const val MAX_PENDING_COMMANDS = 16
         private const val COMMAND_EXECUTION_TIMEOUT_MS = 3_000L
