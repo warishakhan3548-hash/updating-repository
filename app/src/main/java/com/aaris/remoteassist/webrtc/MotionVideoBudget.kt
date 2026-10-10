@@ -538,8 +538,12 @@ internal class MotionVideoBudget {
                 warmStartResizePending &&
                 (severe || predictiveResidencePressure || pressureSamples >= 2)
             ) {
-                warmStartResizePending = false
+                // Select while the speculative-warm-start guard is still
+                // armed. Clearing it first would make producer-only starvation
+                // look like a later pressure episode and skip 360 -> 240 in
+                // the same observation.
                 val confirmed = nextPressureRung()
+                warmStartResizePending = false
                 if (confirmed != shortEdge) {
                     shortEdge = confirmed
                 }
