@@ -7,7 +7,9 @@ import kotlin.math.roundToInt
  * Motion trades pixels before cadence. One-second interval telemetry drives a
  * 720 -> 540 -> 360 -> 240 ladder, with a final 180 short-edge freshness rung
  * only when moving-source evidence proves a bandwidth-limited stale queue.
- * The MediaProjection surface never changes.
+ * On Android 12+ the committed spatial envelope is also allowed to resize the
+ * MediaProjection VirtualDisplay; older Android versions keep their producer
+ * geometry fixed and only adapt the WebRTC output.
  *
  * The key invariant is "new pixels beat old pixels": under congestion we spend
  * resolution before cadence so WebRTC's MAINTAIN_FRAMERATE policy is not
@@ -42,6 +44,26 @@ internal class MotionVideoBudget {
      */
     private var warmStartResizePending = false
     private var preMotionShortEdge = 720
+
+    /*
+     * Spatial policy has two different states and they must never be conflated:
+     *
+     * shortEdge is the control-plane budget. It may move speculatively at the
+     * first sign of motion so bitrate/cadence admission can become conservative
+     * immediately.
+     *
+     * committedSourceShortEdge is the geometry that measured evidence has
+     * actually authorized the producer/VideoSource to use. On a native
+     * 1080-short-edge phone the historical 720 budget must NOT silently resize
+     * the running MediaProjection surface on touch-down. WebRTC hardware
+     * encoders reset their codec when the input size changes, so doing that at
+     * the first interactive frame creates exactly the hitch this governor is
+     * meant to avoid.
+     *
+     * Int.MAX_VALUE means "no app spatial clamp"; apply() still bounds against
+     * the current CaptureProfile.
+     */
+    private var committedSourceShortEdge = Int.MAX_VALUE
 
     /*
      * Predict freshness debt before it becomes an absolute queue alarm.
@@ -95,6 +117,10 @@ internal class MotionVideoBudget {
 
             val profileShortEdge =
                 minOf(profile.captureWidthPx, profile.captureHeightPx)
+            // Before motion the source follows CaptureProfile because
+            // holdingResolution was false. Snapshot that real running geometry
+            // independently from the speculative control budget.
+            committedSourceShortEdge = profileShortEdge
             val warmStartShortEdge =
                 motionWarmStartShortEdge(
                     profile = profile,
@@ -155,6 +181,7 @@ internal class MotionVideoBudget {
                 lastBandwidthPressureAtMs = Long.MIN_VALUE / 2
                 holdingResolution = false
                 shortEdge = 720
+                committedSourceShortEdge = Int.MAX_VALUE
             }
             return before != Triple(
             shortEdge,
@@ -211,6 +238,7 @@ internal class MotionVideoBudget {
         if (warmStartResizePending && softwarePath) {
             lastImplementation = implementation
             warmStartResizePending = false
+            committedSourceShortEdge = shortEdge
             changedAtMs = nowMs
             pressureSamples = 0
             healthySamples = 0
@@ -222,6 +250,7 @@ internal class MotionVideoBudget {
             lastImplementation = implementation
             if (isSoftwareEncoder(implementation) && shortEdge > 540) {
                 shortEdge = 540
+                committedSourceShortEdge = shortEdge
                 changedAtMs = nowMs
                 pressureSamples = 0
                 healthySamples = 0
@@ -547,6 +576,7 @@ internal class MotionVideoBudget {
                 if (confirmed != shortEdge) {
                     shortEdge = confirmed
                 }
+                committedSourceShortEdge = shortEdge
                 changedAtMs = nowMs
                 pressureSamples = 0
                 resetResidenceGrowth()
@@ -600,6 +630,7 @@ internal class MotionVideoBudget {
                 val next = nextPressureRung()
                 if (next != shortEdge) {
                     shortEdge = next
+                    committedSourceShortEdge = shortEdge
                     changedAtMs = nowMs
                     resetResidenceGrowth()
                 }
@@ -645,6 +676,7 @@ internal class MotionVideoBudget {
             healthySamples = if (healthy && allowResolutionRecovery) healthySamples + 1 else 0
             if (healthySamples >= 12 && nowMs - changedAtMs >= 12_000L && shortEdge < 720) {
                 shortEdge = when { shortEdge < 360 -> 360; shortEdge < 540 -> 540; else -> 720 }
+                committedSourceShortEdge = shortEdge
                 changedAtMs = nowMs
                 healthySamples = 0
                 resetResidenceGrowth()
@@ -661,17 +693,13 @@ internal class MotionVideoBudget {
         if (!motionActive && !holdingResolution) return profile
 
         /*
-         * Keep source geometry stable during the unvalidated warm-start window.
-         * shortEdge is still allowed to cap bitrate/cadence immediately; only
-         * the dimension actuator waits for measured moving-window evidence.
+         * Keep source geometry stable until measured evidence explicitly commits
+         * a spatial actuator move. The control-plane shortEdge may already be
+         * lower for bitrate admission, but it is not producer geometry.
          */
-        val sourceShortEdge =
-            if (warmStartResizePending) {
-                preMotionShortEdge
-            } else {
-                shortEdge
-            }
         val edge = minOf(profile.captureWidthPx, profile.captureHeightPx)
+        val sourceShortEdge =
+            minOf(edge, committedSourceShortEdge)
         if (edge <= sourceShortEdge) return profile
         val scale = sourceShortEdge.toDouble() / edge
         fun even(value: Int) = ((value * scale).roundToInt() / 2 * 2).coerceAtLeast(2)
