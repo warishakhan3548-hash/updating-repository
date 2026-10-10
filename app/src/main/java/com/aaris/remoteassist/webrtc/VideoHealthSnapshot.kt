@@ -30,6 +30,10 @@ data class VideoHealthSnapshot(
     val jitterTargetTotalSeconds: Double? = null,
     val jitterEmittedCount: Long? = null,
     val sendDelayTotalSeconds: Double? = null,
+    val retransmittedPackets: Long? = null,
+    val nackCount: Long? = null,
+    val pliCount: Long? = null,
+    val keyFrameCount: Long? = null,
     val recent: VideoHealthWindow? = null,
     val availableOutgoingBitrateBps: Double? = null
 ) {
@@ -276,7 +280,19 @@ data class VideoHealthSnapshot(
                     availableOutgoingBitrateBps = availableOutgoingBitrateBps,
                     streamId = selected.id, timestampUs = report.timestampUs,
                     processingTotalSeconds = decimal(members["totalEncodeTime"]),
-                    sendDelayTotalSeconds = decimal(members["totalPacketSendDelay"])
+                    sendDelayTotalSeconds = decimal(members["totalPacketSendDelay"]),
+                    /*
+                     * Recovery counters are cumulative RTP stats. Keep them
+                     * optional because Android/OEM WebRTC builds do not expose
+                     * every counter. VideoHealthWindowTracker converts only
+                     * comparable consecutive samples into interval evidence.
+                     */
+                    retransmittedPackets =
+                        members["retransmittedPacketsSent"]?.let(::number),
+                    nackCount = members["nackCount"]?.let(::number),
+                    pliCount = members["pliCount"]?.let(::number),
+                    keyFrameCount =
+                        members["keyFramesEncoded"]?.let(::number)
                 )
             } else {
                 VideoHealthSnapshot(
