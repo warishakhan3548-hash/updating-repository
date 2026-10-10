@@ -2,6 +2,7 @@ package com.aaris.remoteassist.webrtc
 
 import android.content.Context
 import android.hardware.display.DisplayManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import com.aaris.remoteassist.control.CommandLatencyTracker
@@ -167,10 +168,19 @@ class ControllerWebRtcSession(
          * yet; otherwise the controller can self-destruct while the user is
          * still legitimately approving screen sharing.
          */
-        displayManager?.registerDisplayListener(
-            displayListener,
-            handler
-        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
+            displayManager?.registerDisplayListener(
+                appContext.mainExecutor,
+                DisplayManager.EVENT_TYPE_DISPLAY_CHANGED or
+                    DisplayManager.EVENT_TYPE_DISPLAY_REFRESH_RATE,
+                displayListener
+            )
+        } else {
+            displayManager?.registerDisplayListener(
+                displayListener,
+                handler
+            )
+        }
         peer.start()
     }
 
