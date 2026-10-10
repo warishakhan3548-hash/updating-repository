@@ -160,6 +160,9 @@ class VideoHealthMetricsTest {
             timestampUs: Long,
             packetsSent: Long,
             retransmittedPacketsSent: Long,
+            retransmittedBytesSent: Long,
+            totalEncodedBytesTarget: Long,
+            hugeFramesSent: Long,
             nackCount: Long,
             pliCount: Long,
             firCount: Long,
@@ -178,6 +181,9 @@ class VideoHealthMetricsTest {
                     "totalEncodeTime" to framesEncoded * 0.005,
                     "totalPacketSendDelay" to packetsSent * 0.002,
                     "retransmittedPacketsSent" to retransmittedPacketsSent,
+                    "retransmittedBytesSent" to retransmittedBytesSent,
+                    "totalEncodedBytesTarget" to totalEncodedBytesTarget,
+                    "hugeFramesSent" to hugeFramesSent,
                     "nackCount" to nackCount,
                     "pliCount" to pliCount,
                     "firCount" to firCount,
@@ -200,6 +206,9 @@ class VideoHealthMetricsTest {
                 timestampUs = 1_000_000L,
                 packetsSent = 100,
                 retransmittedPacketsSent = 5,
+                retransmittedBytesSent = 5_000,
+                totalEncodedBytesTarget = 100_000,
+                hugeFramesSent = 0,
                 nackCount = 1,
                 pliCount = 0,
                 firCount = 0,
@@ -207,6 +216,9 @@ class VideoHealthMetricsTest {
                 framesEncoded = 20
             )
         assertEquals(5L, first.retransmittedPackets)
+        assertEquals(5_000L, first.retransmittedBytes)
+        assertEquals(100_000L, first.encodedBytesTarget)
+        assertEquals(0L, first.hugeFramesSent)
         assertEquals(1L, first.nackCount)
         assertEquals(0L, first.pliCount)
         assertEquals(0L, first.firCount)
@@ -220,6 +232,9 @@ class VideoHealthMetricsTest {
                         timestampUs = 2_000_000L,
                         packetsSent = 200,
                         retransmittedPacketsSent = 15,
+                        retransmittedBytesSent = 15_000,
+                        totalEncodedBytesTarget = 175_000,
+                        hugeFramesSent = 1,
                         nackCount = 4,
                         pliCount = 1,
                         firCount = 1,
@@ -232,6 +247,10 @@ class VideoHealthMetricsTest {
         // packetsSent includes retransmissions, so 10 recovered packets out of
         // 100 sent packets is a 10% repair share for this stats window.
         assertEquals(0.10, checkNotNull(recent.retransmitRatio), 0.0001)
+        // 100k payload delta - 10k RTX = 90k current media payload.
+        // WebRTC's encoded target grew by 75k, so this is a 20% overshoot.
+        assertEquals(1.20, checkNotNull(recent.encoderOvershootRatio), 0.0001)
+        assertEquals(1, recent.hugeFrames)
         assertEquals(3, recent.nacks)
         assertEquals(1, recent.plis)
         assertEquals(1, recent.firs)
