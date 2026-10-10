@@ -102,13 +102,14 @@ class MotionVideoBudgetTest {
         assertEquals(240, budget.shortEdge)
     }
 
-    @Test fun newMotionWarmStartsAtThreeSixtyBeforeTelemetryArrives() {
+    @Test fun newMotionWarmStartCapsBitrateWithoutTouchDownSourceResize() {
         val budget = MotionVideoBudget()
 
         assertTrue(budget.primeForMotion(profile, 1_000L))
         assertEquals(360, budget.shortEdge)
-        assertEquals(360, budget.apply(profile, true).captureWidthPx)
-        assertEquals(800, budget.apply(profile, true).captureHeightPx)
+        // The predictive rung is control-plane only until a complete moving
+        // window proves pressure. Touch-down must keep the running source shape.
+        assertEquals(profile, budget.apply(profile, true))
         assertEquals(30, budget.cadenceFloor(profile, true, 1_000L))
         assertEquals(900_000, budget.bitrateCeiling(profile, true))
 
@@ -116,6 +117,47 @@ class MotionVideoBudgetTest {
         // stream down after its first warm-start decision.
         assertFalse(budget.primeForMotion(profile, 1_500L))
         assertEquals(360, budget.shortEdge)
+        assertEquals(profile, budget.apply(profile, true))
+    }
+
+    @Test fun measuredMotionPressureCommitsThePredictedPixelRung() {
+        val budget = MotionVideoBudget()
+        assertTrue(budget.primeForMotion(profile, 0L))
+        assertEquals(profile, budget.apply(profile, true))
+
+        val overloaded = sender(fps = 20, encode = 35.0, queue = 5.0)
+        assertTrue(
+            budget.observe(
+                outbound = overloaded,
+                receiver = null,
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = 1_000L,
+                interactionActive = true
+            )
+        )
+        assertEquals(360, budget.apply(profile, true).captureWidthPx)
+        assertEquals(800, budget.apply(profile, true).captureHeightPx)
+    }
+
+    @Test fun unvalidatedWarmStartNeverLeaksIntoIdleGeometry() {
+        val budget = MotionVideoBudget()
+        assertTrue(budget.primeForMotion(profile, 0L))
+        assertEquals(profile, budget.apply(profile, true))
+
+        assertTrue(
+            budget.observe(
+                outbound = sender().copy(recent = null),
+                receiver = null,
+                sourceFps = null,
+                motionActive = false,
+                targetFps = 30,
+                nowMs = 500L
+            )
+        )
+        assertEquals(720, budget.shortEdge)
+        assertEquals(profile, budget.apply(profile, false))
     }
 
     @Test fun provenQuietHardwareHeadroomKeepsNativeResolutionAtTouchDown() {
@@ -167,7 +209,9 @@ class MotionVideoBudgetTest {
             )
         )
         assertEquals(540, budget.shortEdge)
-        assertEquals(540, budget.apply(profile, true).captureWidthPx)
+        // Moderate quiet-path evidence may cap the initial send budget, but
+        // must not resize the running source on the controller's first input.
+        assertEquals(profile, budget.apply(profile, true))
     }
 
     @Test fun warmStartBudgetsTheCadenceActuallyRequested() {
