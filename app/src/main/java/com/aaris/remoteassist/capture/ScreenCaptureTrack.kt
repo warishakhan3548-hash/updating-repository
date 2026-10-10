@@ -2,6 +2,7 @@ package com.aaris.remoteassist.capture
 
 import android.content.Context
 import android.media.projection.MediaProjection
+import android.os.Build
 import org.webrtc.ScreenCapturerAndroid
 import org.webrtc.SurfaceTextureHelper
 import org.webrtc.VideoSource
@@ -194,12 +195,26 @@ class ScreenCaptureTrack(
         adaptOutput(profile)
 
         val source = sourceGeometry ?: return
-        // ScreenCapturerAndroid ignores FPS and recreates/resizes the virtual
-        // display even for unchanged dimensions. Rebinding on every touch or
-        // bitrate tier change can corrupt OEM mirroring scale. Adapt the video
-        // source instead; only actual display rotation/resize touches capture.
-        if (source.updateDisplay(profile)) {
-            capturer.changeCaptureFormat(source.width, source.height, profile.fps)
+
+        /*
+         * ScreenCapturerAndroid ignores the FPS argument. On Android 12+ its
+         * changeCaptureFormat() path resizes the existing VirtualDisplay;
+         * before Android 12 it recreates the display, which is where vendor
+         * mirroring-scale regressions have historically appeared.
+         *
+         * Let the producer follow our already-hysteresis-gated spatial budget
+         * only on the safe resize path. This moves pixel relief in front of
+         * SurfaceTexture/GPU production instead of scaling an expensive native
+         * frame only after it has already been captured.
+         */
+        val allowAdaptiveProducerResize =
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+        if (source.update(profile, allowAdaptiveProducerResize)) {
+            capturer.changeCaptureFormat(
+                source.width,
+                source.height,
+                profile.fps
+            )
         }
     }
 
@@ -211,7 +226,13 @@ class ScreenCaptureTrack(
     }
 
     fun addSnapshotSink(sink: VideoSink) { snapshotSinks += sink }
-    fun sampleSourceFps(nowMs: Long): Double? = activityTracker.sampleFps(nowMs)
+
+    fun sampleSourceCadence(nowMs: Long): CaptureCadenceWindow? =
+        activityTracker.sample(nowMs)
+
+    fun sampleSourceFps(nowMs: Long): Double? =
+        activityTracker.sampleFps(nowMs)
+
     fun removeSnapshotSink(sink: VideoSink) { snapshotSinks -= sink }
 
     /**
