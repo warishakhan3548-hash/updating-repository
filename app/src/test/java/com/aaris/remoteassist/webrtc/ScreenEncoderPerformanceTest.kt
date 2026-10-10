@@ -30,6 +30,31 @@ class ScreenEncoderPerformanceTest {
     }
 
     @Test
+    fun activeMediaCodecMatchingIsExactCaseInsensitiveAndWhitespaceTolerant() {
+        assertEquals(
+            true,
+            ScreenEncoderPerformance.implementationMatches(
+                candidateName = "c2.qti.avc.encoder",
+                activeName = " C2.QTI.AVC.ENCODER "
+            )
+        )
+        assertEquals(
+            false,
+            ScreenEncoderPerformance.implementationMatches(
+                candidateName = "c2.qti.avc.encoder",
+                activeName = "c2.exynos.avc.encoder"
+            )
+        )
+        assertEquals(
+            false,
+            ScreenEncoderPerformance.implementationMatches(
+                candidateName = "c2.qti.avc.encoder",
+                activeName = null
+            )
+        )
+    }
+
+    @Test
     fun malformedOrMissingCodecRateDoesNotInventACeiling() {
         assertNull(
             ScreenEncoderPerformance.cadenceAtOrBelow(null)
