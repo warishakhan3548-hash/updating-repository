@@ -30,6 +30,20 @@ internal class MotionVideoBudget {
     private var lastBandwidthPressureAtMs = Long.MIN_VALUE / 2
 
     /*
+     * Entering motion may choose a conservative bitrate/pixel budget before a
+     * complete moving-window sample exists. Do not immediately turn that
+     * prediction into a VideoSource dimension change: vendor MediaCodec
+     * implementations may reconfigure at exactly the first touch/scroll frame.
+     *
+     * The speculative rung may cap bitrate immediately, but source geometry is
+     * held at the pre-motion rung until one complete motion sample either
+     * confirms pressure or proves the path healthy. Measured pressure still
+     * receives immediate app-level pixel relief after that first window.
+     */
+    private var warmStartResizePending = false
+    private var preMotionShortEdge = 720
+
+    /*
      * Predict freshness debt before it becomes an absolute queue alarm.
      * These are control-plane scalars only: no frame, texture or packet is
      * retained. The composition flag prevents a newly available receiver
@@ -60,7 +74,11 @@ internal class MotionVideoBudget {
     ): Boolean {
         if (nowMs < 0L) return false
 
-        val before = shortEdge to holdingResolution
+        val before = Triple(
+            shortEdge,
+            holdingResolution,
+            warmStartResizePending
+        )
         val enteringMotion = !holdingResolution
         holdingResolution = true
         lastMotionAtMs = nowMs
@@ -69,6 +87,8 @@ internal class MotionVideoBudget {
             pressureSamples = 0
             healthySamples = 0
             resetResidenceGrowth()
+            preMotionShortEdge = shortEdge
+            warmStartResizePending = false
 
             val profileShortEdge =
                 minOf(profile.captureWidthPx, profile.captureHeightPx)
@@ -83,11 +103,16 @@ internal class MotionVideoBudget {
                 shortEdge > warmStartShortEdge
             ) {
                 shortEdge = warmStartShortEdge
+                warmStartResizePending = true
                 changedAtMs = nowMs
             }
         }
 
-        return before != (shortEdge to holdingResolution)
+        return before != Triple(
+            shortEdge,
+            holdingResolution,
+            warmStartResizePending
+        )
     }
 
     fun observe(
@@ -100,9 +125,23 @@ internal class MotionVideoBudget {
         interactionActive: Boolean = false,
         allowResolutionRecovery: Boolean = true
     ): Boolean {
-        val before = shortEdge to holdingResolution
+        val before = Triple(
+            shortEdge,
+            holdingResolution,
+            warmStartResizePending
+        )
         val enteringMotion = !holdingResolution
         if (!motionActive) {
+            /*
+             * If motion ended before a complete moving-window sample validated
+             * the speculative warm-start rung, discard that prediction. This
+             * prevents a delayed idle callback from applying a touch-down
+             * resolution change after the gesture has already finished.
+             */
+            if (warmStartResizePending) {
+                shortEdge = preMotionShortEdge
+                warmStartResizePending = false
+            }
             pressureSamples = 0
             healthySamples = 0
             resetResidenceGrowth()
@@ -111,7 +150,11 @@ internal class MotionVideoBudget {
                 holdingResolution = false
                 shortEdge = 720
             }
-            return before != (shortEdge to holdingResolution)
+            return before != Triple(
+                shortEdge,
+                holdingResolution,
+                warmStartResizePending
+            )
         }
         holdingResolution = true
         lastMotionAtMs = nowMs
@@ -132,7 +175,11 @@ internal class MotionVideoBudget {
             // Short getStats probes do not have a complete sender interval.
             // Ignore them instead of erasing validated congestion evidence.
             // Expire that evidence on the next complete sample after a long gap.
-            return before != (shortEdge to holdingResolution)
+            return before != Triple(
+                shortEdge,
+                holdingResolution,
+                warmStartResizePending
+            )
         }
         if (nowMs - lastMeasuredSenderAtMs !in 0L..MAX_SENDER_SAMPLE_GAP_MS) {
             pressureSamples = 0
@@ -146,6 +193,25 @@ internal class MotionVideoBudget {
         // Detect the encoder actually in use, not just the negotiated MIME type.
         // Hardware remains preferred; software fallback must stay usable as well.
         val implementation = outbound.codecImplementation?.lowercase()
+        val softwarePath =
+            !implementation.isNullOrBlank() &&
+                isSoftwareEncoder(implementation)
+
+        /*
+         * A complete moving-window sample that identifies a software encoder is
+         * sufficient evidence to commit the conservative warm-start pixel rung.
+         * The resize happens here, after measurement, never on the touch event.
+         */
+        if (warmStartResizePending && softwarePath) {
+            lastImplementation = implementation
+            warmStartResizePending = false
+            changedAtMs = nowMs
+            pressureSamples = 0
+            healthySamples = 0
+            resetResidenceGrowth()
+            return true
+        }
+
         if (!implementation.isNullOrBlank() && (implementation != lastImplementation || enteringMotion)) {
             lastImplementation = implementation
             if (isSoftwareEncoder(implementation) && shortEdge > 540) {
@@ -369,6 +435,29 @@ internal class MotionVideoBudget {
                 pipelineDeadlinePressure ||
                 outbound.qualityLimitationReason == "cpu"
 
+        /*
+         * Validate the entry prediction with the first complete motion sample.
+         *
+         * Pressure: commit the already-selected conservative rung now. Reset
+         * changedAtMs to the real source-resize instant so another step cannot
+         * immediately stack on top of the codec reconfiguration.
+         *
+         * Clean/unknown: restore the pre-motion source rung. "No evidence" is
+         * not congestion, and must never create a touch-down resize.
+         */
+        if (warmStartResizePending) {
+            warmStartResizePending = false
+            if (pressured) {
+                changedAtMs = nowMs
+            } else {
+                shortEdge = preMotionShortEdge
+                pressureSamples = 0
+                healthySamples = 0
+                resetResidenceGrowth()
+                return true
+            }
+        }
+
         if (pressured) {
             healthySamples = 0
             pressureSamples++
@@ -492,16 +581,35 @@ internal class MotionVideoBudget {
                 resetResidenceGrowth()
             }
         }
-        return before != (shortEdge to holdingResolution)
+        return before != Triple(
+                shortEdge,
+                holdingResolution,
+                warmStartResizePending
+            )
     }
 
     fun apply(profile: CaptureProfile, motionActive: Boolean): CaptureProfile {
         if (!motionActive && !holdingResolution) return profile
+
+        /*
+         * Keep source geometry stable during the unvalidated warm-start window.
+         * shortEdge is still allowed to cap bitrate/cadence immediately; only
+         * the dimension actuator waits for measured moving-window evidence.
+         */
+        val sourceShortEdge =
+            if (warmStartResizePending) {
+                preMotionShortEdge
+            } else {
+                shortEdge
+            }
         val edge = minOf(profile.captureWidthPx, profile.captureHeightPx)
-        if (edge <= shortEdge) return profile
-        val scale = shortEdge.toDouble() / edge
+        if (edge <= sourceShortEdge) return profile
+        val scale = sourceShortEdge.toDouble() / edge
         fun even(value: Int) = ((value * scale).roundToInt() / 2 * 2).coerceAtLeast(2)
-        return profile.copy(captureWidthPx = even(profile.captureWidthPx), captureHeightPx = even(profile.captureHeightPx))
+        return profile.copy(
+            captureWidthPx = even(profile.captureWidthPx),
+            captureHeightPx = even(profile.captureHeightPx)
+        )
     }
 
     fun cadenceFloor(
