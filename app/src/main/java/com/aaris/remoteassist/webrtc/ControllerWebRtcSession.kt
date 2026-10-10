@@ -55,6 +55,23 @@ class ControllerWebRtcSession(
     private val handler = Handler(Looper.getMainLooper())
     private val displayManager =
         appContext.getSystemService(DisplayManager::class.java)
+    @Volatile
+    private var lastPublishedDisplayRefreshRateHz: Float? = null
+
+    private val displayRefreshUpdate =
+        Runnable {
+            if (closed.get()) return@Runnable
+            val refresh = currentDisplayRefreshRateHz() ?: return@Runnable
+            val previous = lastPublishedDisplayRefreshRateHz
+            if (
+                previous == null ||
+                kotlin.math.abs(refresh - previous) >=
+                    DISPLAY_REFRESH_CHANGE_EPSILON_HZ
+            ) {
+                publishDisplayCapabilities(refresh)
+            }
+        }
+
     private val displayListener =
         object : DisplayManager.DisplayListener {
             override fun onDisplayAdded(displayId: Int) = Unit
@@ -67,12 +84,17 @@ class ControllerWebRtcSession(
                     !closed.get()
                 ) {
                     /*
-                     * Surface.setFrameRate() may move a 90/120/144 Hz panel to
-                     * a different active mode. Publish that clock immediately
-                     * instead of letting the host pace against stale metadata
-                     * for up to one heartbeat interval.
+                     * Surface.setFrameRate(), power policy, or adaptive-refresh
+                     * policy can move the active clock. Display callbacks may
+                     * arrive in bursts, so coalesce them and only publish a
+                     * materially different rate. The heartbeat remains the
+                     * periodic freshness signal even when the rate is stable.
                      */
-                    publishDisplayCapabilities()
+                    handler.removeCallbacks(displayRefreshUpdate)
+                    handler.postDelayed(
+                        displayRefreshUpdate,
+                        DISPLAY_REFRESH_SETTLE_MS
+                    )
                 }
             }
         }
@@ -222,16 +244,21 @@ class ControllerWebRtcSession(
                 ?.takeIf { it.isFinite() && it in 1f..240f }
                 ?: return false
 
-        return peer.sendTelemetry(
-            ControlProtocol.encode(
-                ControlPacket.DisplayCapabilities(
-                    lease,
-                    display.generation,
-                    feedbackSequence.incrementAndGet(),
-                    refresh
+        val sent =
+            peer.sendTelemetry(
+                ControlProtocol.encode(
+                    ControlPacket.DisplayCapabilities(
+                        lease,
+                        display.generation,
+                        feedbackSequence.incrementAndGet(),
+                        refresh
+                    )
                 )
             )
-        )
+        if (sent) {
+            lastPublishedDisplayRefreshRateHz = refresh
+        }
+        return sent
     }
 
     @Suppress("DEPRECATION")
@@ -848,6 +875,7 @@ class ControllerWebRtcSession(
         screenReadyArmed.set(false)
         handler.removeCallbacks(helloWatchdog)
         handler.removeCallbacks(heartbeat)
+        handler.removeCallbacks(displayRefreshUpdate)
         runCatching {
             displayManager?.unregisterDisplayListener(
                 displayListener
@@ -874,6 +902,8 @@ class ControllerWebRtcSession(
 
     companion object {
         private const val HEARTBEAT_MS = 5_000L
+        private const val DISPLAY_REFRESH_SETTLE_MS = 150L
+        private const val DISPLAY_REFRESH_CHANGE_EPSILON_HZ = 0.75f
         private const val HELLO_TIMEOUT_MS = 90_000L
         private const val MAX_REMOTE_TEXT_CHARS = 500
         private const val MAX_GESTURE_PATH_POINTS = 96
