@@ -1830,7 +1830,7 @@ class HostWebRtcSession(
                 spatial.captureWidthPx,
                 spatial.captureHeightPx
             )
-        val targetFps =
+        val unalignedTargetFps =
             RealtimeMediaPolicy.effectiveSourceFps(
                 idleFps = target.fps,
                 motionFps = target.motionFps,
@@ -1842,6 +1842,30 @@ class HostWebRtcSession(
                     ),
                 freshnessActive = freshnessActive
             )
+
+        /*
+         * CaptureProfile can contain a non-harmonic ambient ceiling (STANDARD
+         * historically uses 45 fps). That target bypasses the cadence governor
+         * when the governor's cap is still 60, so filtering only governor rungs
+         * is not sufficient: a 60 Hz MediaProjection would still enter the
+         * session at 45 fps and exhibit an uneven 3-of-4 frame pattern.
+         *
+         * Quantize every high-cadence source target against the host display
+         * clock before it reaches VideoSource. <=30 fps is the recovery ladder
+         * and stays untouched. Missing clock data preserves the old target.
+         */
+        val targetFps =
+            if (unalignedTargetFps > 30) {
+                DisplayCadencePolicy.nearestAtOrBelow(
+                    limitFps = unalignedTargetFps,
+                    refreshRateHz = null,
+                    ceilingFps = unalignedTargetFps,
+                    floorFps = 1,
+                    sourceRefreshRateHz = sourceDisplayRefreshRateHz()
+                )
+            } else {
+                unalignedTargetFps
+            }
 
         return if (targetFps == spatial.fps) {
             spatial
