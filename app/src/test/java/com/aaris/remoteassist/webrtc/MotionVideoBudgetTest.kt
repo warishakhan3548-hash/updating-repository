@@ -120,13 +120,13 @@ class MotionVideoBudgetTest {
         assertEquals(profile, budget.apply(profile, true))
     }
 
-    @Test fun measuredMotionPressureCommitsThePredictedPixelRung() {
+    @Test fun measuredMotionPressureCommitsOneDirectPixelReliefStep() {
         val budget = MotionVideoBudget()
         assertTrue(budget.primeForMotion(profile, 0L))
         assertEquals(profile, budget.apply(profile, true))
 
         val overloaded = sender(fps = 20, encode = 35.0, queue = 5.0)
-        assertTrue(
+        assertFalse(
             budget.observe(
                 outbound = overloaded,
                 receiver = null,
@@ -137,8 +137,23 @@ class MotionVideoBudgetTest {
                 interactionActive = true
             )
         )
-        assertEquals(360, budget.apply(profile, true).captureWidthPx)
-        assertEquals(800, budget.apply(profile, true).captureHeightPx)
+        assertEquals(profile, budget.apply(profile, true))
+
+        assertTrue(
+            budget.observe(
+                outbound = overloaded,
+                receiver = null,
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = 2_000L,
+                interactionActive = true
+            )
+        )
+        // Two measured pressure windows already justify the 240 rung. Commit
+        // it directly rather than paying 360 then another MediaCodec resize.
+        assertEquals(240, budget.apply(profile, true).captureWidthPx)
+        assertEquals(532, budget.apply(profile, true).captureHeightPx)
     }
 
     @Test fun unvalidatedWarmStartNeverLeaksIntoIdleGeometry() {
