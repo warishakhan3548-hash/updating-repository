@@ -107,7 +107,11 @@ class FallbackScreenStreamer(
         val cpu = try {
             CpuFrameCopy.capture(
                 frame,
-                if (interactionActive.get()) 1600 else MAX_DIMENSION
+                if (interactionActive.get()) {
+                    INTERACTIVE_COPY_MAX_DIMENSION
+                } else {
+                    MAX_DIMENSION
+                }
             )
         } catch (error: Exception) {
             encoding.set(false)
@@ -731,6 +735,16 @@ class FallbackScreenStreamer(
     companion object {
         private const val MAX_DIMENSION =
             CaptureVideoContract.MAX_FALLBACK_SAFE_LONG_SIDE_PX
+
+        /*
+         * Recovery must never become the reason primary RTP stays unhealthy.
+         * CpuFrameCopy performs the texture -> I420 ownership handoff on the
+         * capture callback thread by design (retaining the SurfaceTexture for
+         * background conversion would be worse). During interaction, bound that
+         * synchronous readback to the 540-short-edge class on a typical phone.
+         * JPEG/delta work still runs on the independent fallback worker.
+         */
+        private const val INTERACTIVE_COPY_MAX_DIMENSION = 1_200
 
         private const val LEGACY_FRAME_INTERVAL_MS = 450L
         private const val ADAPTIVE_INITIAL_INTERVAL_MS = 90L
