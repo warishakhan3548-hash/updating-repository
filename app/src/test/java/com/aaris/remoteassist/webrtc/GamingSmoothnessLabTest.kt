@@ -282,21 +282,26 @@ class GamingSmoothnessLabTest {
             val net = scenario.netAt(nowMs)
             val target = cadence.cap.coerceIn(15, 60)
             val edge = budget.shortEdge
-            val bitrateCeilingKbps =
-                budget
-                    .bitrateCeiling(
-                        profile = profile,
-                        motionActive = true,
-                        targetFps = target
-                    ) / 1_000.0
-
-            // The plant intentionally has no magic bandwidth. Offered media load
-            // competes with the scenario link and any surplus drains backlog.
+            /*
+             * Keep the digital-twin plant independent from the configured RTP
+             * max-bitrate ceiling. In production maxBitrateBps is an admission
+             * ceiling, not an instruction to send that many bits; libwebrtc
+             * GCC/TWCC chooses the actual rate below it. Treating the ceiling as
+             * demand makes a healthy 9 Mbps path look overloaded merely because
+             * the full-quality ceiling is 10 Mbps.
+             *
+             * The plant instead generates an independent moving-screen workload
+             * from the control-plane pixel/cadence operating point. This keeps
+             * the lab useful for queue/cadence regressions without encoding the
+             * exact implementation under test back into the simulated network.
+             */
             val demandKbps =
                 max(
                     260.0,
-                    bitrateCeilingKbps *
-                        (0.72 + 0.28 * target / 60.0)
+                    labMotionDemandKbps(
+                        edge = edge,
+                        targetFps = target
+                    )
                 )
             val overloadRatio =
                 ((demandKbps - net.bandwidthKbps) / demandKbps)
@@ -557,6 +562,32 @@ class GamingSmoothnessLabTest {
         }
 
         return rows
+    }
+
+    private fun labMotionDemandKbps(
+        edge: Int,
+        targetFps: Int
+    ): Double {
+        val baselineKbps =
+            when {
+                edge <= 180 -> 350.0
+                edge <= 240 -> 500.0
+                edge <= 360 -> 900.0
+                edge <= 540 -> 1_800.0
+                else -> 3_200.0
+            }
+        val cadenceScale =
+            targetFps
+                .coerceIn(15, 60)
+                .toDouble() / 30.0
+        /*
+         * Screen motion is bursty rather than constant-CBR. Preserve the
+         * historical plant's cadence-dependent utilization envelope while
+         * keeping the model independent from MotionVideoBudget.bitrateCeiling().
+         */
+        val utilization =
+            0.72 + 0.28 * targetFps.coerceIn(15, 60) / 60.0
+        return baselineKbps * cadenceScale * utilization
     }
 
     private fun writeReports(
