@@ -9,20 +9,21 @@ import org.webrtc.RtpParameters
 
 class RealtimeMediaPolicyTest {
     @Test
-    fun remoteControlUsesZeroPlayoutWithBoundedDecoderBurstPacing() {
-        // Pinned M150 selects its low-latency renderer only for min=0,max<=500.
-        assertEquals(0, RealtimeMediaPolicy.PLAYOUT_DELAY_MIN_MS)
+    fun remoteControlKeepsNativeAdaptivePlayoutTiming() {
+        // A positive minimum keeps M150 out of its render-ASAP path, allowing
+        // native timestamp/jitter timing to smooth WAN arrival variance.
+        assertEquals(10, RealtimeMediaPolicy.PLAYOUT_DELAY_MIN_MS)
         assertTrue(
-            RealtimeMediaPolicy.PLAYOUT_DELAY_MAX_MS in 1..500
+            RealtimeMediaPolicy.PLAYOUT_DELAY_MAX_MS in
+                RealtimeMediaPolicy.PLAYOUT_DELAY_MIN_MS..500
         )
         assertEquals(
-            8,
-            RealtimeMediaPolicy.ZERO_PLAYOUT_DELAY_MIN_PACING_MS
-        )
-        assertEquals(
-            "WebRTC-ForceSendPlayoutDelay/min_ms:0,max_ms:500/" +
-                "WebRTC-ZeroPlayoutDelay/min_pacing:8ms/",
+            "WebRTC-ForceSendPlayoutDelay/min_ms:10,max_ms:500/",
             RealtimeMediaPolicy.FIELD_TRIALS
+        )
+        assertFalse(
+            RealtimeMediaPolicy.FIELD_TRIALS
+                .contains("WebRTC-ZeroPlayoutDelay")
         )
     }
 
