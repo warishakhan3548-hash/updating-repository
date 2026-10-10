@@ -461,7 +461,7 @@ class AiObservationEngine internal constructor(
     private fun tapTargetAtScope(ui: AiUiSnapshot, scope: AiActionScope): AiUiNode? =
         ui.nodes.filter {
             it.enabled && (it.clickable || it.editable) &&
-                it.area in 1 until width.toLong() * height / 3 &&
+                it.area > 0L && it.area < width.toLong() * height / 3L &&
                 it.contains(scope.x * width, scope.y * height)
         }.minByOrNull { it.area }
 
