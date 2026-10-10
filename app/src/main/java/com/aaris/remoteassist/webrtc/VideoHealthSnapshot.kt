@@ -33,6 +33,7 @@ data class VideoHealthSnapshot(
     val retransmittedPackets: Long? = null,
     val nackCount: Long? = null,
     val pliCount: Long? = null,
+    val firCount: Long? = null,
     val keyFrameCount: Long? = null,
     val recent: VideoHealthWindow? = null,
     val availableOutgoingBitrateBps: Double? = null
@@ -291,6 +292,7 @@ data class VideoHealthSnapshot(
                         members["retransmittedPacketsSent"]?.let(::number),
                     nackCount = members["nackCount"]?.let(::number),
                     pliCount = members["pliCount"]?.let(::number),
+                    firCount = members["firCount"]?.let(::number),
                     keyFrameCount =
                         members["keyFramesEncoded"]?.let(::number)
                 )
