@@ -27,6 +27,7 @@ class VideoCadenceGovernor(
     private var lastSenderFps: Double? = null
     private var lastSenderAtMs = Long.MIN_VALUE / 2
     private var lastDisplayRefreshRateHz: Double? = null
+    private var lastSourceRefreshRateHz: Double? = null
     private val highCadenceProbe = HighCadenceProbe()
     private val highCadencePressureGate = HighCadencePressureGate()
     val probingHighCadence: Boolean get() = highCadenceProbe.probing
@@ -486,7 +487,8 @@ class VideoCadenceGovernor(
                 currentFps = effectiveFps,
                 refreshRateHz = lastDisplayRefreshRateHz,
                 floorFps = 1,
-                ceilingFps = maxFps
+                ceilingFps = maxFps,
+                sourceRefreshRateHz = lastSourceRefreshRateHz
             )?.takeIf { it < cap } ?: return false
 
         // Moderate presentation-only relief is deliberately one fine step.
@@ -513,7 +515,8 @@ class VideoCadenceGovernor(
         minimumFps: Int = 1,
         producerFps: Double? = null,
         maximumFps: Int = maxFps,
-        allowHighCadenceProbe: Boolean = true
+        allowHighCadenceProbe: Boolean = true,
+        sourceRefreshRateHz: Double? = null
     ): Boolean {
         val senderIdentity = outbound.streamId to outbound.codec
         if (senderIdentity != lastSenderIdentity) {
@@ -527,6 +530,12 @@ class VideoCadenceGovernor(
                     it in MIN_DISPLAY_REFRESH_HZ..MAX_DISPLAY_REFRESH_HZ
             }
             ?.let { lastDisplayRefreshRateHz = it }
+        sourceRefreshRateHz
+            ?.takeIf {
+                it.isFinite() &&
+                    it in MIN_DISPLAY_REFRESH_HZ..MAX_DISPLAY_REFRESH_HZ
+            }
+            ?.let { lastSourceRefreshRateHz = it }
 
         val sender = outbound.recent ?: return false
         lastSenderFps = sender.fps.takeIf {
@@ -799,7 +808,8 @@ class VideoCadenceGovernor(
 
         highCadenceProbe.observe(
             outbound, receiver, producerFps, cap, minOf(maxFps, maximumFps),
-            allowHighCadenceProbe, probeOverloadConfirmed, nowMs
+            allowHighCadenceProbe, probeOverloadConfirmed, nowMs,
+            sourceRefreshRateHz = lastSourceRefreshRateHz
         )?.let { next ->
             val before = cap
             cap = next
@@ -849,7 +859,8 @@ class VideoCadenceGovernor(
                 DisplayCadencePolicy.descending(
                     refreshRateHz = lastDisplayRefreshRateHz,
                     ceilingFps = maxFps,
-                    floorFps = 1
+                    floorFps = 1,
+                    sourceRefreshRateHz = lastSourceRefreshRateHz
                 )
             val ordinaryNext = cadenceSteps.firstOrNull { candidate ->
                 candidate < ceiling &&
