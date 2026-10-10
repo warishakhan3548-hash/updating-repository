@@ -116,6 +116,15 @@ class HostWebRtcSession(
     @Volatile
     private var activeScreenCodec = preferredScreenCodec
 
+    /*
+     * getStats.encoderImplementation is the concrete MediaCodec component used
+     * by WebRTC (for example c2.qti.avc.encoder). Codec MIME alone is not enough:
+     * a device may expose multiple hardware H264/VP8 encoders with different
+     * performance guarantees.
+     */
+    @Volatile
+    private var activeScreenCodecImplementation: String? = null
+
     private val captureQualityGovernor =
         CaptureQualityGovernor(
             initialTier = captureTier,
@@ -1047,7 +1056,18 @@ class HostWebRtcSession(
                 ?.substringAfterLast('/')
                 ?.uppercase()
                 ?.takeIf(screenEncoderPerformance::containsKey)
-                ?.let { activeScreenCodec = it }
+                ?.let { observedCodec ->
+                    if (activeScreenCodec != observedCodec) {
+                        activeScreenCodec = observedCodec
+                        // Never carry a component identity across a codec
+                        // transition; the same stats sample may replace it below.
+                        activeScreenCodecImplementation = null
+                    }
+                }
+            snapshot.codecImplementation
+                ?.trim()
+                ?.takeIf(String::isNotBlank)
+                ?.let { activeScreenCodecImplementation = it }
 
             // A quick getStats() kick may arrive before WebRTC has assembled a
             // complete outbound delta. Do not drain producer FPS or feed an
@@ -1729,7 +1749,11 @@ class HostWebRtcSession(
         heightPx: Int
     ): Int =
         screenEncoderPerformance[activeScreenCodec]
-            ?.maxFps(widthPx, heightPx)
+            ?.maxFps(
+                width = widthPx,
+                height = heightPx,
+                implementationName = activeScreenCodecImplementation
+            )
             ?: MAX_SESSION_VIDEO_FPS
 
     private fun effectiveCaptureProfile(
