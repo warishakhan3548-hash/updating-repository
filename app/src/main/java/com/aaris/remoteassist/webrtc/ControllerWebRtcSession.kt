@@ -213,20 +213,29 @@ class ControllerWebRtcSession(
         val display =
             manager.getDisplay(Display.DEFAULT_DISPLAY)
                 ?: return null
-        val mode = display.mode
-        return display.supportedModes
-            .asSequence()
-            .filter {
-                it.physicalWidth == mode.physicalWidth &&
-                    it.physicalHeight == mode.physicalHeight
-            }
-            .map { it.refreshRate }
-            .filter { it.isFinite() && it > 0f }
-            .maxOrNull()
-            ?.coerceAtMost(240f)
-            ?: mode.refreshRate.takeIf {
-                it.isFinite() && it > 0f
-            }
+
+        /*
+         * Report the clock SurfaceFlinger is actually presenting against, not
+         * the panel's fastest supported mode. Sender cadence policy uses this
+         * value as a presentation clock. Advertising 120 Hz while the active
+         * mode is 60 Hz makes otherwise healthy 40/45/50 fps sender rungs look
+         * "display compatible" even though the controller must present them
+         * with uneven frame holds.
+         *
+         * The heartbeat republishes this value, so a later seamless
+         * Surface.setFrameRate() mode change naturally converges the host to
+         * the new active clock without a new protocol field.
+         */
+        val modeRefresh = display.mode.refreshRate
+        if (modeRefresh.isFinite() && modeRefresh in 1f..240f) {
+            return modeRefresh
+        }
+
+        @Suppress("DEPRECATION")
+        val fallback = display.refreshRate
+        return fallback.takeIf {
+            it.isFinite() && it in 1f..240f
+        }
     }
 
     fun sendPresentationHeartbeat(): Boolean {
