@@ -31,11 +31,15 @@ class AiObservationEngine internal constructor(
     private val freshFrame: suspend () -> AiRawFrame,
     private val now: () -> Long = SystemClock::elapsedRealtime,
     private val pause: suspend (Long) -> Unit = { delay(it) },
-    private val encodeFrame: (AiRawFrame, Int, List<android.graphics.Rect>, Int, Int, Boolean) -> FrameImageEncoder.Encoded = FrameImageEncoder::encode
+    private val encodeFrame: (AiRawFrame, Int, List<android.graphics.Rect>, Int, Int, Boolean) -> FrameImageEncoder.Encoded = FrameImageEncoder::encode,
+    private val freshDetailFrame: suspend () -> AiRawFrame = freshFrame
 ) {
     constructor(context: Context, snapshots: AiSnapshotProvider) : this(
-        context.packageName, { CaptureProfile.current(context, CaptureTier.BALANCED) },
-        AssistAccessibilityService::aiSnapshot, snapshots::fresh
+        ownPackage = context.packageName,
+        display = { CaptureProfile.current(context, CaptureTier.BALANCED) },
+        uiSnapshot = AssistAccessibilityService::aiSnapshot,
+        freshFrame = snapshots::fresh,
+        freshDetailFrame = snapshots::freshDetail
     )
 
     val ledger = AiScreenLedger()
@@ -70,7 +74,18 @@ class AiObservationEngine internal constructor(
             val revision = ledger.eventRevision
             val before = uiSnapshot() ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
             val geometry = display()
-            val frame = freshFrame()
+            /*
+             * Ordinary observations/fingerprints use the bounded normal
+             * readback. Only an explicit detail request pays for the larger
+             * texture-to-I420 transfer. Fingerprints are normalized to a fixed
+             * 240x432 grid, so later validation remains resolution independent.
+             */
+            val frame =
+                if (detail) {
+                    freshDetailFrame()
+                } else {
+                    freshFrame()
+                }
             if (!geometryMatches(frame, geometry)) { invalidate(); return error("CAPTURE_GEOMETRY_CHANGED") }
             val ui = uiSnapshot() ?: return error("DEVICE_LOCKED_OR_ACCESSIBILITY_OFF")
             // Never publish pixels if privacy masks or foreground window changed

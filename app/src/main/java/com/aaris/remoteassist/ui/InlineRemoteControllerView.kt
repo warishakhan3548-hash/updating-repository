@@ -47,6 +47,7 @@ import org.webrtc.EglBase
 import org.webrtc.EglRenderer
 import org.webrtc.EglThread
 import org.webrtc.GlRectDrawer
+import org.webrtc.RenderSynchronizer
 import org.webrtc.VideoFrame
 import org.webrtc.VideoSink
 import org.webrtc.VideoTrack
@@ -1299,21 +1300,39 @@ class InlineRemoteControllerView(
 
         return runCatching {
             val renderer = EglRenderer("AarisInlineRemote")
+            /*
+             * Pinned WebRTC M150 already ships a Choreographer-backed
+             * RenderSynchronizer. Wire it into the existing EGL thread instead
+             * of inventing an application playback queue: swaps are admitted on
+             * display refresh windows, while EglRenderer's stable renderer id
+             * (overwritePendingFrames=true below) keeps only the newest pending
+             * swap update when a window is closed.
+             *
+             * The target is the product's maximum media cadence, not the
+             * controller panel refresh. On 60 Hz this opens every refresh; on
+             * higher-refresh panels it selects display-aligned windows near
+             * 60 fps. Slow networks/decoders still deliver fewer frames and do
+             * not accumulate a second queue.
+             */
+            val renderSynchronizer =
+                RenderSynchronizer(RENDER_SYNC_TARGET_FPS)
             val renderThread =
                 EglThread.create(
                     null,
                     WebRtcRuntime.eglBase(activity)
                         .eglBaseContext,
-                    EglBase.CONFIG_PLAIN
+                    EglBase.CONFIG_PLAIN,
+                    renderSynchronizer
                 )
             renderEglThread = renderThread
             applyRenderThreadPriority(renderThread)
             /*
-             * Remote-control rendering is freshness-first, not A/V-sync-first.
-             * Keep presentation timestamps disabled and ask EglRenderer's
-             * scheduler to overwrite pending render updates. The renderer also
-             * keeps only one pending VideoFrame, so a slow swap drops obsolete
-             * work instead of turning smooth motion into a stale playback queue.
+             * Remote-control rendering remains freshness-first, not
+             * presentation-timestamp/A/V-sync-first. RenderSynchronizer aligns
+             * the *swap opportunity* to display refresh; it does not hold media
+             * by RTP timestamp. Keep presentation timestamps disabled and keep
+             * overwritePendingFrames enabled so both decoded-frame admission and
+             * deferred swap admission are latest-wins rather than FIFO.
              */
             renderer.init(
                 renderThread,
@@ -2859,6 +2878,12 @@ class InlineRemoteControllerView(
         AarisUi.dp(activity, value)
 
     companion object {
+        /*
+         * Match Aaris' maximum video cadence. RenderSynchronizer is display
+         * aligned and latest-wins; this is not a 60-frame producer requirement.
+         */
+        private const val RENDER_SYNC_TARGET_FPS = 60f
+
         private const val FIRST_FRAME_DEADLINE_MS = 3_500L
         private const val MEDIA_RECOVERY_RETRY_MS = 4_000L
         private const val RENDER_RECOVERY_RETRY_MS = 2_500L
