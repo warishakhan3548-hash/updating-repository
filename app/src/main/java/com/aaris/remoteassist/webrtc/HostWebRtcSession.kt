@@ -884,7 +884,13 @@ class HostWebRtcSession(
                             maxGapMs = packet.maxGapMs,
                             requestedFps = requestedFps,
                             interactionActive = interactionActive,
-                            nowMs = now
+                            nowMs = now,
+                            displayRefreshRateHz =
+                                receiverFeedback.currentDisplayRefreshRateHz(
+                                    current.leaseSecret,
+                                    current.displayGeneration,
+                                    now
+                                )
                         )
                     ) {
                         applyVideoPolicy(profile)
