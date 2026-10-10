@@ -81,6 +81,34 @@ class RealtimeMediaPolicyTest {
     }
 
     @Test
+    fun senderFramerateCeilingDoesNotFollowDynamicCadenceRungs() {
+        assertEquals(
+            60,
+            RealtimeMediaPolicy.senderFrameRateCeiling(
+                motionFps = 60,
+                deviceFpsLimit = 60,
+                encoderFpsLimit = 60
+            )
+        )
+        assertEquals(
+            30,
+            RealtimeMediaPolicy.senderFrameRateCeiling(
+                motionFps = 60,
+                deviceFpsLimit = 60,
+                encoderFpsLimit = 30
+            )
+        )
+        assertEquals(
+            20,
+            RealtimeMediaPolicy.senderFrameRateCeiling(
+                motionFps = 20,
+                deviceFpsLimit = 60,
+                encoderFpsLimit = 60
+            )
+        )
+    }
+
+    @Test
     fun nativeSpatialReliefMaintainsFrameRateUnderSuddenCodecPressure() {
         assertEquals(
             RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE,
