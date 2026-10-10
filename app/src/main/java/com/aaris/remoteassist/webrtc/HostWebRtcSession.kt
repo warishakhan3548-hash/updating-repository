@@ -1633,6 +1633,17 @@ class HostWebRtcSession(
         val effective = effectiveCaptureProfile(target)
 
         /*
+         * Do not change the Java/VideoSource dimensions while pixels are
+         * actively moving. MotionVideoBudget may still lower the sender bitrate
+         * ceiling immediately and libwebrtc's MAINTAIN_FRAMERATE QualityScaler
+         * can adapt encoder resolution without an app-forced MediaCodec input
+         * reconfiguration. The measured app pixel envelope is committed after
+         * motion settles, when a codec resize cannot puncture the gesture with
+         * a visible freeze/keyframe gap.
+         */
+        capture.setOutputResizeDeferred(freshnessActive)
+
+        /*
          * Health telemetry follows the same freshness clock as capture. During
          * controller input or autonomous source motion, sender pressure is
          * sampled sub-second; quiet screens fall back to a lower-overhead loop.
