@@ -69,14 +69,14 @@ class AiTapAutoAimTest {
             .put("y", y)
 
     @Test
-    fun isolatedNearMissSnapsToClickableCenter() = runBlocking {
+    fun coordinateTapRemainsExactWithoutTargetId() = runBlocking {
         val observed = engine.observe()
         val args = tap(observed, 0.69, 0.80)
 
         val validation = engine.validate(args)
 
         assertNull(validation.error)
-        assertEquals(0.80, args.getDouble("x"), 0.0001)
+        assertEquals(0.69, args.getDouble("x"), 0.0001)
         assertEquals(0.80, args.getDouble("y"), 0.0001)
         assertTrue(validation.stillValid())
     }
