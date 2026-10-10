@@ -131,6 +131,8 @@ public final class AarisLowLatencyVideoDecoderFactory implements VideoDecoderFac
     private @Nullable MediaCodecInfo findHardwareDecoder(VideoCodecMimeType type) {
       MediaCodecList codecList =
           new MediaCodecList(MediaCodecList.ALL_CODECS);
+      MediaCodecInfo firstCompatible = null;
+
       for (MediaCodecInfo info : codecList.getCodecInfos()) {
         if (info == null || info.isEncoder()) {
           continue;
@@ -148,14 +150,29 @@ public final class AarisLowLatencyVideoDecoderFactory implements VideoDecoderFac
           if (MediaCodecUtils.selectColorFormat(
                   MediaCodecUtils.DECODER_COLOR_FORMATS,
                   capabilities)
-              != null) {
+              == null) {
+            continue;
+          }
+
+          if (firstCompatible == null) {
+            firstCompatible = info;
+          }
+
+          /*
+           * Do not assume MediaCodecList order is latency-optimal. Some devices
+           * expose a generic C2/OMX decoder first and a dedicated low-latency
+           * decoder later. Prefer the first compatible decoder that explicitly
+           * advertises Android's FEATURE_LowLatency; if none does, preserve the
+           * normal first-compatible WebRTC behavior.
+           */
+          if (LowLatencyCapability.isSupported(capabilities)) {
             return info;
           }
         } catch (RuntimeException ignored) {
           // Broken vendor entries are skipped exactly like an unavailable codec.
         }
       }
-      return null;
+      return firstCompatible;
     }
   }
 
