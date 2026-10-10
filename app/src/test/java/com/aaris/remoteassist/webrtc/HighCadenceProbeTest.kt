@@ -124,6 +124,80 @@ class HighCadenceProbeTest {
             assertTrue("Loss/drop evidence must not promote high cadence", g.cap <= 30)
         }
     }
+    @Test
+    fun spatialBudgetTransitionCancelsActiveTrialWithoutDroppingLearnedCap() {
+        val g = VideoCadenceGovernor(60, 30)
+
+        assertFalse(
+            sample(
+                g,
+                1_000L,
+                recv = receiver(30, sequence = 1)
+            )
+        )
+        assertTrue(
+            sample(
+                g,
+                2_000L,
+                recv = receiver(30, sequence = 2)
+            )
+        )
+        assertEquals(36, g.cap)
+        assertTrue(g.probingHighCadence)
+
+        g.onSpatialBudgetTransition(2_100L)
+
+        assertEquals(36, g.cap)
+        assertFalse(g.probingHighCadence)
+
+        // The first post-resize glass sample may describe a codec restart.
+        // It must not immediately launch another cadence experiment.
+        assertFalse(
+            sample(
+                g,
+                2_600L,
+                fps = 36,
+                recv = receiver(36, sequence = 3)
+            )
+        )
+        assertEquals(36, g.cap)
+        assertFalse(g.probingHighCadence)
+    }
+
+    @Test
+    fun spatialBudgetTransitionInvalidatesPreResizeFastPresentationEvidence() {
+        val g = VideoCadenceGovernor(60, 60)
+
+        // Seed completed sender supply for the old spatial operating point.
+        assertFalse(
+            g.observe(
+                outbound = sender(fps = 60),
+                receiver = receiver(60, sequence = 10),
+                requestedFps = 60,
+                nowMs = 1_000L,
+                producerFps = 60.0
+            )
+        )
+        assertEquals(60, g.cap)
+
+        g.onSpatialBudgetTransition(1_100L)
+
+        // A controller hitch immediately after resize must wait for fresh
+        // post-resize sender supply before it may vote on cadence.
+        assertFalse(
+            g.observeFastPresentation(
+                intervalMs = 500,
+                renderedFrames = 10,
+                maxGapMs = 200,
+                requestedFps = 60,
+                interactionActive = true,
+                nowMs = 1_600L,
+                displayRefreshRateHz = 60.0
+            )
+        )
+        assertEquals(60, g.cap)
+    }
+
     @Test fun cleanPathUsesFastPromotionAndFineReliefHysteresis() {
         val g = VideoCadenceGovernor(60, 30)
         val seen = linkedSetOf(g.cap)
