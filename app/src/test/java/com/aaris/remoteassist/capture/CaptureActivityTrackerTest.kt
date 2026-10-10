@@ -70,4 +70,23 @@ class CaptureActivityTrackerTest {
         assertEquals(3, sample.frames)
     }
 
+
+    @Test fun firstFrameAfterIdleDoesNotReportTheIdleIntervalAsJitter() {
+        val tracker = CaptureActivityTracker()
+        assertNull(tracker.sample(1_000))
+
+        var timestamp = 1_000_000_000L
+        tracker.onFrame(timestamp)
+        val first = checkNotNull(tracker.sample(2_000))
+        assertNull(first.maxGapMs)
+
+        timestamp += 5_000_000_000L
+        tracker.onFrame(timestamp)
+        timestamp += 40_000_000L
+        tracker.onFrame(timestamp)
+
+        val resumed = checkNotNull(tracker.sample(3_000))
+        assertEquals(40.0, checkNotNull(resumed.maxGapMs), 0.01)
+    }
+
 }
