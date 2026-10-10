@@ -31,8 +31,6 @@ data class VideoHealthSnapshot(
     val jitterEmittedCount: Long? = null,
     val sendDelayTotalSeconds: Double? = null,
     val retransmittedPackets: Long? = null,
-    val retransmittedBytes: Long? = null,
-    val encodedBytesTarget: Long? = null,
     val hugeFramesSent: Long? = null,
     val nackCount: Long? = null,
     val pliCount: Long? = null,
@@ -293,10 +291,6 @@ data class VideoHealthSnapshot(
                      */
                     retransmittedPackets =
                         members["retransmittedPacketsSent"]?.let(::number),
-                    retransmittedBytes =
-                        members["retransmittedBytesSent"]?.let(::number),
-                    encodedBytesTarget =
-                        members["totalEncodedBytesTarget"]?.let(::number),
                     hugeFramesSent =
                         members["hugeFramesSent"]?.let(::number),
                     nackCount = members["nackCount"]?.let(::number),
