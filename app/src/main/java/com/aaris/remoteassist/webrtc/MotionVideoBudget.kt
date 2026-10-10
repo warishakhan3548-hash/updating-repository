@@ -57,11 +57,14 @@ internal class MotionVideoBudget {
     /**
      * New motion must not blindly pay a MediaCodec resolution restart.
      *
-     * Unknown / software / pressured paths keep the conservative 360-short-edge
-     * warm start. When the immediately preceding quiet WebRTC sample proves a
-     * fast hardware encoder plus real bandwidth headroom, preserve 540 or 720
-     * instead. That keeps the first controller gesture on the already-running
-     * codec configuration instead of creating a visible touch-down reset.
+     * Unknown / software / pressured paths may select a conservative
+     * 360-short-edge control budget. When the immediately preceding quiet
+     * WebRTC sample proves a fast hardware encoder plus real bandwidth
+     * headroom, the control budget may preserve 540 or 720 instead.
+     *
+     * Crucially, a predicted lower rung is not applied to VideoSource geometry
+     * on touch-down. It may cap bitrate immediately, but a real moving-window
+     * pressure sample must confirm the source resize first.
      *
      * Repeated motion pulses only refresh the hold; they never knock a
      * continuously healthy stream back down after the first decision.
@@ -436,26 +439,20 @@ internal class MotionVideoBudget {
                 outbound.qualityLimitationReason == "cpu"
 
         /*
-         * Validate the entry prediction with the first complete motion sample.
+         * Validate the entry prediction with measured moving-window pressure.
          *
-         * Pressure: commit the already-selected conservative rung now. Reset
+         * Pressure commits the already-selected conservative rung now. Reset
          * changedAtMs to the real source-resize instant so another step cannot
          * immediately stack on top of the codec reconfiguration.
          *
-         * Clean/unknown: restore the pre-motion source rung. "No evidence" is
-         * not congestion, and must never create a touch-down resize.
+         * A clean or incomplete-pressure window does NOT commit the speculative
+         * source resize. Keep the pre-motion VideoSource geometry stable while
+         * the control budget remains conservative; native libwebrtc adaptation
+         * and the existing recovery hysteresis can then prove more headroom.
          */
-        if (warmStartResizePending) {
+        if (warmStartResizePending && pressured) {
             warmStartResizePending = false
-            if (pressured) {
-                changedAtMs = nowMs
-            } else {
-                shortEdge = preMotionShortEdge
-                pressureSamples = 0
-                healthySamples = 0
-                resetResidenceGrowth()
-                return true
-            }
+            changedAtMs = nowMs
         }
 
         if (pressured) {
