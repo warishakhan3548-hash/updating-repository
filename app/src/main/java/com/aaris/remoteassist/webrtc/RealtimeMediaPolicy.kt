@@ -7,13 +7,15 @@ import org.webrtc.RtpParameters
 /**
  * Cross-layer realtime policy for remote-control video.
  *
- * Keep a small positive receiver smoothing floor and a bounded recovery window.
- * WebRTC owns RTP ordering, retransmission deadlines and timed decode; the app
- * never retains a second queue of decoded textures.
+ * Keep one timing authority per stage. Pinned libwebrtc M150 owns RTP ordering,
+ * repair and bounded decoder pacing; the controller EGL path owns final
+ * display/vsync pacing with latest-frame-wins semantics. Do not add a second
+ * Java-side decoded-frame queue or a second timestamp-smoothing stage.
  */
 internal object RealtimeMediaPolicy {
-    const val PLAYOUT_DELAY_MIN_MS = 10
+    const val PLAYOUT_DELAY_MIN_MS = 0
     const val PLAYOUT_DELAY_MAX_MS = 500
+    const val ZERO_PLAYOUT_DELAY_MIN_PACING_MS = 8
 
     /*
      * Interactive remoting is a single latency-sensitive video stream. DSCP is
@@ -25,15 +27,23 @@ internal object RealtimeMediaPolicy {
     const val VIDEO_NETWORK_PRIORITY = Priority.HIGH
 
     /*
-     * In pinned libwebrtc M150, min=0 with max<=500 selects RenderTime=0:
-     * render as soon as possible, bypassing timestamp-based smoothing. A small
-     * positive minimum enables native timing without imposing a 500 ms hold.
-     * The upper bound also accommodates the browser's adaptive 100..500 ms
-     * target, avoiding a receiver minimum greater than the sender maximum.
-     * Both values are best-effort RTP hints, not guaranteed end-to-end latency.
+     * Pinned libwebrtc M150 has a dedicated interactive path: min=0 with
+     * max<=500 makes VCMTiming::RenderTime() return zero, so completed frames
+     * are scheduled for decode/render as soon as possible instead of first
+     * accumulating adaptive timestamp playout delay.
+     *
+     * Zero playout does NOT mean unbounded decoder bursts. M150's
+     * FrameDecodeTiming has a low-latency min_pacing guard; pin its current
+     * 8 ms default explicitly so a future dependency update cannot silently
+     * change our motion cadence contract. The controller's EglRenderer then
+     * performs the single final vsync/latest-frame presentation decision.
+     *
+     * max=500 remains the interoperability ceiling for the RTP playout-delay
+     * hint and keeps M150 inside its low-latency-rendering threshold.
      */
     const val FIELD_TRIALS =
-        "WebRTC-ForceSendPlayoutDelay/min_ms:10,max_ms:500/"
+        "WebRTC-ForceSendPlayoutDelay/min_ms:0,max_ms:500/" +
+            "WebRTC-ZeroPlayoutDelay/min_pacing:8ms/"
 
     /*
      * getStats() is diagnostic/adaptation work, not part of the media hot path.
