@@ -234,6 +234,7 @@ class ControllerWebRtcSession(
         )
     }
 
+    @Suppress("DEPRECATION")
     private fun currentDisplayRefreshRateHz(): Float? {
         val display =
             displayManager
@@ -241,25 +242,30 @@ class ControllerWebRtcSession(
                 ?: return null
 
         /*
-         * Report the clock SurfaceFlinger is actually presenting against, not
-         * the panel's fastest supported mode. Sender cadence policy uses this
-         * value as a presentation clock. Advertising 120 Hz while the active
-         * mode is 60 Hz makes otherwise healthy 40/45/50 fps sender rungs look
-         * "display compatible" even though the controller must present them
-         * with uneven frame holds.
+         * This value is a presentation clock, not a capability ceiling.
          *
-         * The heartbeat republishes this value, so a later seamless
-         * Surface.setFrameRate() mode change naturally converges the host to
-         * the new active clock without a new protocol field.
+         * Display.getRefreshRate() is intentionally read first. Android's
+         * DisplayManager documentation uses that read to subscribe clients to
+         * refresh-rate change callbacks, and it reflects the effective current
+         * display refresh seen by this process. Using the fastest entry from
+         * supportedModes here used to misclassify a 60 Hz active session on a
+         * 120 Hz-capable panel as 120 Hz. That changes DisplayCadencePolicy's
+         * adaptation ladder (for example, a 60 Hz controller can lose the
+         * 50/45 fps relief rungs and fall much more abruptly).
+         *
+         * The physical active mode remains a defensive fallback for OEMs that
+         * return an invalid effective rate.
          */
-        val modeRefresh = display.mode.refreshRate
-        if (modeRefresh.isFinite() && modeRefresh in 1f..240f) {
-            return modeRefresh
+        val effectiveRefresh = display.refreshRate
+        if (
+            effectiveRefresh.isFinite() &&
+            effectiveRefresh in 1f..240f
+        ) {
+            return effectiveRefresh
         }
 
-        @Suppress("DEPRECATION")
-        val fallback = display.refreshRate
-        return fallback.takeIf {
+        val modeRefresh = display.mode.refreshRate
+        return modeRefresh.takeIf {
             it.isFinite() && it in 1f..240f
         }
     }
