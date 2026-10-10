@@ -38,6 +38,36 @@ internal class HighCadenceProbe {
 
     val probing: Boolean get() = trialFrom != null
 
+    /**
+     * A source-size transition changes the encoder operating point underneath a
+     * high-cadence experiment. Preserve the learned cadence ceiling, but discard
+     * trial/presentation proof gathered for the old pixel rate and require one
+     * fresh post-resize window before probing upward again.
+     *
+     * Failed-target backoff is intentionally retained: changing pixels must not
+     * erase evidence that a cadence rung recently failed on this session.
+     */
+    fun onSpatialBudgetTransition(
+        currentFps: Int,
+        nowMs: Long
+    ) {
+        if (nowMs < 0L) return
+
+        previousCap = currentFps.coerceAtLeast(1)
+        trialFrom = null
+        trialAtMs = 0L
+        trialGood = 0
+        trialBad = 0
+        healthyWindows = 0
+        candidateSinceMs = 0L
+        lastProofAtMs = null
+        blockedUntilMs =
+            maxOf(
+                blockedUntilMs,
+                nowMs + SPATIAL_TRANSITION_SETTLE_MS
+            )
+    }
+
     fun debugSummary(nowMs: Long): String {
         fun remainingSeconds(deadlineMs: Long): String {
             val remaining = (deadlineMs - nowMs).coerceAtLeast(0L)
@@ -394,6 +424,7 @@ internal class HighCadenceProbe {
         const val MIN_PROMOTION_WINDOW_SPACING_MS = 500L
 
         const val RETRY_COOLDOWN_MS = 4_000L
+        const val SPATIAL_TRANSITION_SETTLE_MS = 1_000L
         const val MAX_PROBE_BACKOFF_EXPONENT = 4
         const val MAX_TRACKED_TRIAL_FAILURES = MAX_PROBE_BACKOFF_EXPONENT + 1
         const val MAX_RETRY_COOLDOWN_MS = 64_000L
