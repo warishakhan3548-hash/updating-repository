@@ -190,23 +190,14 @@ internal class PhotonFreshnessGovernor {
                     ?.let { it <= CLEAN_NACK_RATE_PER_SECOND } != false
 
         /*
-         * Encoder rate control is another admission-control signal, not a
-         * second congestion controller. The interval ratio compares actual RTP
-         * media payload (RTX removed) with WebRTC's cumulative encoded-byte
-         * target. A transient key/scene-change frame may legitimately overshoot;
-         * therefore this only withholds risky growth / enters WATCH. Queue,
-         * playout and glass evidence still decide hard relief.
-         *
-         * Missing stats preserve legacy behavior on OEM builds.
+         * A WebRTC huge frame is >=2.5x the target frame size. During a scene
+         * change/keyframe burst, do not simultaneously promote cadence/detail.
+         * This is deliberately admission-only: a large frame can be legitimate
+         * and must not force a downshift unless queue/playout/glass evidence
+         * also proves real pressure. Missing OEM counters preserve behavior.
          */
-        val encoderOvershootRatio =
-            sender?.encoderOvershootRatio.valid()
-        val encoderRateControlPressure =
-            encoderOvershootRatio
-                ?.let { it >= WATCH_ENCODER_OVERSHOOT_RATIO } == true
-        val encoderRateControlClean =
-            encoderOvershootRatio
-                ?.let { it <= CLEAN_ENCODER_OVERSHOOT_RATIO } != false
+        val encoderBurstClean =
+            sender?.hugeFrames?.let { it == 0 } != false
 
         val hardPressure =
             queueMs?.let { it >= PRESSURE_QUEUE_MS } == true ||
@@ -227,8 +218,7 @@ internal class PhotonFreshnessGovernor {
                 postAckPresent
                     ?.let { it >= WATCH_POST_ACK_PRESENT_MS } == true ||
                 packetLoss?.let { it >= WATCH_PACKET_LOSS } == true ||
-                recoveryPressure ||
-                encoderRateControlPressure
+                recoveryPressure
 
         /*
          * Missing sender fractionLost must not freeze the high-FPS ladder on
@@ -275,7 +265,7 @@ internal class PhotonFreshnessGovernor {
                 playoutMs?.let { it <= CLEAN_PLAYOUT_MS } == true &&
                 packetDeliveryClean &&
                 recoveryClean &&
-                encoderRateControlClean &&
+                encoderBurstClean &&
                 receiver.presentationAgeMs
                     ?.let { it <= CLEAN_PRESENTATION_AGE_MS } != false &&
                 postAckPresent
@@ -361,15 +351,6 @@ internal class PhotonFreshnessGovernor {
         const val PRESSURE_PLAYOUT_MS = 160.0
 
         const val CLEAN_PACKET_LOSS = 0.025
-
-        /*
-         * Windowed rate-control admission. 1.0 means the RTP media payload
-         * matches WebRTC's own cumulative target-byte budget. Allow ordinary
-         * codec/header variance, but require <=15% overshoot for clean growth
-         * and treat >=35% as WATCH. It never creates hard pressure alone.
-         */
-        const val CLEAN_ENCODER_OVERSHOOT_RATIO = 1.15
-        const val WATCH_ENCODER_OVERSHOOT_RATIO = 1.35
 
         /*
          * Recovery activity is intentionally asymmetric: a small amount merely
