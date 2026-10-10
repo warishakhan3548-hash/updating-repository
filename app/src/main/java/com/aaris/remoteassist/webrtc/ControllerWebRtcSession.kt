@@ -53,6 +53,29 @@ class ControllerWebRtcSession(
     private var lastVideoLivenessMs = 0L
     private val gestureStreamIds = AtomicLong(0L)
     private val handler = Handler(Looper.getMainLooper())
+    private val displayManager =
+        appContext.getSystemService(DisplayManager::class.java)
+    private val displayListener =
+        object : DisplayManager.DisplayListener {
+            override fun onDisplayAdded(displayId: Int) = Unit
+
+            override fun onDisplayRemoved(displayId: Int) = Unit
+
+            override fun onDisplayChanged(displayId: Int) {
+                if (
+                    displayId == Display.DEFAULT_DISPLAY &&
+                    !closed.get()
+                ) {
+                    /*
+                     * Surface.setFrameRate() may move a 90/120/144 Hz panel to
+                     * a different active mode. Publish that clock immediately
+                     * instead of letting the host pace against stale metadata
+                     * for up to one heartbeat interval.
+                     */
+                    publishDisplayCapabilities()
+                }
+            }
+        }
     private val transport = ControlTransportTracker()
     private val inboundVideoLiveness =
         InboundVideoLivenessMonitor()
@@ -103,7 +126,8 @@ class ControllerWebRtcSession(
                 )
                 // Display capability is control-plane metadata, not proof that
                 // EGL presented a frame. Publish it independently so a renderer
-                // stall cannot make the host forget the controller's FPS ceiling.
+                // stall cannot make the host forget the controller's active
+                // presentation clock.
                 publishDisplayCapabilities()
             }
 
@@ -121,6 +145,10 @@ class ControllerWebRtcSession(
          * yet; otherwise the controller can self-destruct while the user is
          * still legitimately approving screen sharing.
          */
+        displayManager?.registerDisplayListener(
+            displayListener,
+            handler
+        )
         peer.start()
     }
 
@@ -207,11 +235,9 @@ class ControllerWebRtcSession(
     }
 
     private fun currentDisplayRefreshRateHz(): Float? {
-        val manager =
-            appContext.getSystemService(DisplayManager::class.java)
-                ?: return null
         val display =
-            manager.getDisplay(Display.DEFAULT_DISPLAY)
+            displayManager
+                ?.getDisplay(Display.DEFAULT_DISPLAY)
                 ?: return null
 
         /*
@@ -816,6 +842,11 @@ class ControllerWebRtcSession(
         screenReadyArmed.set(false)
         handler.removeCallbacks(helloWatchdog)
         handler.removeCallbacks(heartbeat)
+        runCatching {
+            displayManager?.unregisterDisplayListener(
+                displayListener
+            )
+        }
         inboundVideoLiveness.reset()
         commandLatency.reset()
         inputToGlass.reset()
