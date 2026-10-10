@@ -1068,14 +1068,20 @@ class HostWebRtcSession(
                     )
                 }
 
-            val sourceFps = capture.sampleSourceFps(now)
+            val sourceCadence =
+                capture.sampleSourceCadence(now)
+            val sourceFps = sourceCadence?.fps
+            val sourceMaxGapMs = sourceCadence?.maxGapMs
             val motionChanged =
                 passiveMotionPriority.observe(
                     window = snapshot.recent,
                     nowMs = now,
                     sourceFps = sourceFps
                 )
-            val motionActive = freshnessPriorityActive(now)
+            val sourceMotionActive =
+                passiveMotionPriority.isActive(now)
+            val motionActive =
+                interactionActive || sourceMotionActive
             val oldDeviceLimit = deviceFpsLimit
             deviceFpsLimit = when {
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
@@ -1144,7 +1150,11 @@ class HostWebRtcSession(
                 allowResolutionRecovery =
                     !cadenceGovernor.probingHighCadence &&
                     !interactionActive &&
-                    photonPolicy.allowResolutionRecovery
+                    photonPolicy.allowResolutionRecovery,
+                sourceMaxGapMs = sourceMaxGapMs,
+                sourceMotionActive = sourceMotionActive,
+                canResizeProducerSurface =
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
             )
 
             /*
@@ -1351,6 +1361,8 @@ class HostWebRtcSession(
                     append(effective.captureHeightPx)
                     append(" source=")
                     append(fps(sourceFps))
+                    append(" srcGap=")
+                    append(metric(sourceMaxGapMs, "ms"))
                     append(" target=")
                     append(effective.fps)
                     append("fps send=")
