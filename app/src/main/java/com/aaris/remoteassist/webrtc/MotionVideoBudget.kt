@@ -126,7 +126,10 @@ internal class MotionVideoBudget {
         targetFps: Int,
         nowMs: Long,
         interactionActive: Boolean = false,
-        allowResolutionRecovery: Boolean = true
+        allowResolutionRecovery: Boolean = true,
+        sourceMaxGapMs: Double? = null,
+        sourceMotionActive: Boolean = false,
+        canResizeProducerSurface: Boolean = false
     ): Boolean {
         val before = Triple(
             shortEdge,
@@ -260,6 +263,49 @@ internal class MotionVideoBudget {
                 it < expectedPresentation * 0.8 || (received.maxRenderGapMs ?: 0) >= 150
             } == true
         val measuredSourceFps = sourceFps.valid()
+        val measuredSourceMaxGapMs = sourceMaxGapMs.valid()
+
+        /*
+         * Receiver/encoder telemetry cannot repair a frame that Android never
+         * produced. On Android 12+ the WebRTC screen capturer can resize the
+         * existing VirtualDisplay, so a proven moving source that collapses to
+         * a few FPS (or develops large producer gaps) may spend pixels at the
+         * producer itself.
+         *
+         * sourceMotionActive is deliberately stricter than interactionActive:
+         * it is backed by recent natural MediaProjection timestamps. A finger
+         * held on a static form therefore cannot blur the screen merely because
+         * no new frames are expected. Older Android versions keep the historic
+         * fixed producer geometry because changeCaptureFormat() recreates the
+         * VirtualDisplay there.
+         */
+        val producerGapThresholdMs =
+            maxOf(
+                MIN_PRODUCER_STALL_GAP_MS,
+                frameMs * PRODUCER_STALL_FRAME_MULTIPLIER
+            )
+        val producerStarvationPressure =
+            canResizeProducerSurface &&
+                sourceMotionActive &&
+                (
+                    measuredSourceFps?.let {
+                        it >= MIN_PRODUCER_STARVATION_FPS &&
+                            it < MIN_MOVING_SOURCE_FPS
+                    } == true ||
+                        measuredSourceMaxGapMs?.let {
+                            it >= producerGapThresholdMs
+                        } == true
+                    )
+        val severeProducerStarvation =
+            producerStarvationPressure &&
+                (
+                    measuredSourceFps?.let {
+                        it in 0.0..SEVERE_PRODUCER_STARVATION_FPS
+                    } == true ||
+                        measuredSourceMaxGapMs?.let {
+                            it >= SEVERE_PRODUCER_STALL_GAP_MS
+                        } == true
+                    )
 
         /*
          * A real controller gesture is authoritative motion evidence. Do not
@@ -436,6 +482,7 @@ internal class MotionVideoBudget {
                 predictiveBandwidthPressure ||
                 predictiveResidencePressure ||
                 pipelineDeadlinePressure ||
+                producerStarvationPressure ||
                 outbound.qualityLimitationReason == "cpu"
 
         /*
@@ -445,6 +492,7 @@ internal class MotionVideoBudget {
          */
         fun nextPressureRung(): Int =
             when {
+                severeProducerStarvation && shortEdge > 360 -> 360
                 shortEdge > 540 -> 540
                 shortEdge > 360 -> 360
                 shortEdge > 240 &&
@@ -454,7 +502,8 @@ internal class MotionVideoBudget {
                             bandwidthFreshnessPressure ||
                             predictiveBandwidthPressure ||
                             predictiveResidencePressure ||
-                            pipelineDeadlinePressure
+                            pipelineDeadlinePressure ||
+                            producerStarvationPressure
                         ) -> 240
                 shortEdge > 180 &&
                     (
@@ -469,7 +518,8 @@ internal class MotionVideoBudget {
             pressureSamples++
             val severe = (queueMs ?: 0.0) >= 150.0 ||
                 (sender.frames >= 2 && sender.fps <= 10.0 && encodePressure) ||
-                severeBandwidthFreshnessPressure
+                severeBandwidthFreshnessPressure ||
+                severeProducerStarvation
 
             /*
              * Do not let one ordinary jitter/render sample turn a speculative
@@ -516,6 +566,8 @@ internal class MotionVideoBudget {
             val settleMs = when {
                 severeBandwidthFreshnessPressure ->
                     BANDWIDTH_FAST_SETTLE_MS
+                producerStarvationPressure ->
+                    PRODUCER_STARVATION_FAST_SETTLE_MS
                 predictiveBandwidthPressure ->
                     BWE_PREDICTIVE_SETTLE_MS
                 predictiveResidencePressure ->
@@ -923,6 +975,19 @@ internal class MotionVideoBudget {
         const val HIGH_CADENCE_FAST_SETTLE_MS = 1_500L
         const val BANDWIDTH_PRESSURE_HOLD_MS = 2_500L
         const val MIN_MOVING_SOURCE_FPS = 8.0
+
+        // Raw MediaProjection starvation is a different failure mode from
+        // encoder/network under-delivery. These thresholds intentionally line
+        // up with the passive-motion hold region: stable 24/30/60 fps content
+        // never qualifies, while the observed 2-6 fps collapse and >140 ms
+        // producer gaps do.
+        const val MIN_PRODUCER_STARVATION_FPS = 2.5
+        const val SEVERE_PRODUCER_STARVATION_FPS = 6.0
+        const val MIN_PRODUCER_STALL_GAP_MS = 140.0
+        const val SEVERE_PRODUCER_STALL_GAP_MS = 250.0
+        const val PRODUCER_STALL_FRAME_MULTIPLIER = 4.0
+        const val PRODUCER_STARVATION_FAST_SETTLE_MS = 1_000L
+
         const val INTERACTION_DELIVERY_RATIO = 0.75
         const val PASSIVE_DELIVERY_RATIO = 0.75
         const val NETWORK_QUEUE_PRESSURE_MS = 90.0
