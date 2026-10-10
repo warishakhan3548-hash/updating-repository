@@ -218,6 +218,15 @@ class HostWebRtcSession(
                     }
                 }
             }
+        },
+        onCaptureTiming = { timing ->
+            // Only one compact diagnostic per bounded capture sample window.
+            // UI/log listeners never run on the SurfaceTexture capture thread.
+            policyHandler.post {
+                if (!closed.get()) {
+                    listener.onDiagnostic(timing.compact())
+                }
+            }
         }
     )
 
@@ -1095,7 +1104,8 @@ class HostWebRtcSession(
                     receiver = receiver,
                     producerFps = sourceFps,
                     interactionActive = interactionActive && deviceFpsLimit >= 30,
-                    nowMs = now
+                    nowMs = now,
+                    allowHighCadencePromotion = photonPolicy.allowCadencePromotion
                 )
             val cadenceChanged =
                 cadencePressureChanged || interactionProbeChanged

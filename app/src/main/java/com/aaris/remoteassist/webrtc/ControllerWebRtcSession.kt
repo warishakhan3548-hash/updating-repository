@@ -51,6 +51,9 @@ class ControllerWebRtcSession(
     private var lastPhotonReportMs = 0L
     private val feedbackSequence = AtomicLong(0L)
     private var lastVideoLivenessMs = 0L
+    // Published by the main/UI lane and read from the getStats callback. Keep
+    // the whole diagnostic sample together so its timestamp is never mismatched.
+    @Volatile private var latestGlassCadence: Pair<Long, String>? = null
     private val gestureStreamIds = AtomicLong(0L)
     private val handler = Handler(Looper.getMainLooper())
     private val transport = ControlTransportTracker()
@@ -165,6 +168,8 @@ class ControllerWebRtcSession(
         if (displayRefreshRateHz != null) {
             publishDisplayCapabilities(displayRefreshRateHz)
         }
+        latestGlassCadence =
+            SystemClock.elapsedRealtime() to window.compact()
         return peer.sendTelemetry(
             bytes = ControlProtocol.encode(
                 ControlPacket.PresentationFeedback(
@@ -213,20 +218,14 @@ class ControllerWebRtcSession(
         val display =
             manager.getDisplay(Display.DEFAULT_DISPLAY)
                 ?: return null
-        val mode = display.mode
-        return display.supportedModes
-            .asSequence()
-            .filter {
-                it.physicalWidth == mode.physicalWidth &&
-                    it.physicalHeight == mode.physicalHeight
-            }
-            .map { it.refreshRate }
-            .filter { it.isFinite() && it > 0f }
-            .maxOrNull()
-            ?.coerceAtMost(240f)
-            ?: mode.refreshRate.takeIf {
-                it.isFinite() && it > 0f
-            }
+        // supportedModes.max() is only a hardware capability, not the mode
+        // currently scanning out pixels. Advertising 120 Hz while Android is
+        // actually refreshing at 60/30 Hz can make the host chase an impossible
+        // presentation FPS and trigger false source/codec adaptation pressure.
+        // Heartbeats republish this value after a Surface frame-rate mode switch.
+        return display.mode.refreshRate.takeIf {
+            it.isFinite() && it in 1f..240f
+        }
     }
 
     fun sendPresentationHeartbeat(): Boolean {
@@ -759,7 +758,12 @@ class ControllerWebRtcSession(
         // from a quiet remote screen without introducing another stats poll.
         if (now - lastVideoLivenessMs >= 3_000L) {
             lastVideoLivenessMs = now
-            listener.onDiagnostic(snapshot.compact())
+            val glass = latestGlassCadence?.takeIf {
+                now >= it.first && now - it.first <= 3_000L
+            }?.second
+            listener.onDiagnostic(
+                snapshot.compact() + (glass?.let { " • glass={$it}" } ?: "")
+            )
         }
 
         when (

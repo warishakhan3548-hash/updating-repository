@@ -93,6 +93,11 @@ data class VideoHealthWindow(
 class VideoHealthWindowTracker {
     private var previous: VideoHealthSnapshot? = null
 
+    /** A new ICE media epoch must not inherit an old FPS/queue baseline. */
+    @Synchronized fun reset() {
+        previous = null
+    }
+
     @Synchronized fun sample(current: VideoHealthSnapshot): VideoHealthSnapshot {
         val old = previous
         if (

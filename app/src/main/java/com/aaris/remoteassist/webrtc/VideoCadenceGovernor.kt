@@ -123,7 +123,8 @@ class VideoCadenceGovernor(
         receiver: VideoHealthWindow?,
         producerFps: Double?,
         interactionActive: Boolean,
-        nowMs: Long
+        nowMs: Long,
+        allowHighCadencePromotion: Boolean = true
     ): Boolean {
         if (!interactionActive) {
             interactiveHeadroom = 0
@@ -132,6 +133,8 @@ class VideoCadenceGovernor(
         }
 
         val sender = outbound.recent
+        val cleanBandwidthProof =
+            hasCleanBandwidthProbeEvidence(outbound, sender, producerFps)
 
         /*
          * A recent overload must block blind finger-down promotion, but it must
@@ -162,7 +165,8 @@ class VideoCadenceGovernor(
                     } == true
             val qualityHealthy =
                 outbound.qualityLimitationReason == null ||
-                    outbound.qualityLimitationReason.equals("none", ignoreCase = true)
+                    outbound.qualityLimitationReason.equals("none", ignoreCase = true) ||
+                    cleanBandwidthProof
             /*
              * Emergency rescue below 24 fps is intentionally more tolerant
              * than a 24 -> 30 promotion. At 240/360-wide emergency rungs a
@@ -264,7 +268,8 @@ class VideoCadenceGovernor(
 
         val qualityHealthy =
             outbound.qualityLimitationReason == null ||
-                outbound.qualityLimitationReason.equals("none", ignoreCase = true)
+                outbound.qualityLimitationReason.equals("none", ignoreCase = true) ||
+                cleanBandwidthProof
         val networkHealthy =
             (outbound.roundTripTimeMs?.let { it in 0..INTERACTION_PROBE_MAX_RTT_MS } == true) &&
                 (outbound.packetLossRatio ?: 0.0) < INTERACTION_PROBE_MAX_LOSS
@@ -296,7 +301,12 @@ class VideoCadenceGovernor(
 
         if (
             interactiveHeadroom < INTERACTION_PROBE_SAMPLES ||
-            nowMs - changedAt < INTERACTION_PROBE_COOLDOWN_MS
+            nowMs - changedAt < INTERACTION_PROBE_COOLDOWN_MS ||
+            // Sender/decoder headroom alone is not proof of fresh pixels on
+            // glass. The host's PhotonFreshnessGovernor must authorize the
+            // 24 -> 30 promotion from a new, clean EGL presentation window.
+            // Do not require this for sub-24 emergency motion recovery.
+            !allowHighCadencePromotion
         ) {
             return false
         }
@@ -450,6 +460,46 @@ class VideoCadenceGovernor(
         return true
     }
 
+    /**
+     * At an already-low cadence, a native "bandwidth" label alone cannot
+     * prove congestion. GCC can report a bandwidth limitation while the 15/20
+     * fps sender is meeting its current cap with a completely empty RTP queue.
+     *
+     * Permit ONLY a bounded recovery probe, after independent producer,
+     * encoder, queue, loss, RTT and BWE headroom agree. Unknown readings or
+     * an unproven producer fail closed. The existing governor still requires
+     * consecutive windows/cooldowns, and native GCC remains authoritative.
+     */
+    private fun hasCleanBandwidthProbeEvidence(
+        outbound: VideoHealthSnapshot,
+        sender: VideoHealthWindow?,
+        producerFps: Double?
+    ): Boolean {
+        if (!outbound.qualityLimitationReason.equals("bandwidth", ignoreCase = true)) return false
+        if (cap >= 30 || sender == null ||
+            sender.intervalMs !in 500..6_000 ||
+            sender.frames < MIN_MEASURED_FRAMES ||
+            sender.fps < cap * 0.90
+        ) return false
+
+        if (producerFps?.let { it.isFinite() && it >= cap * 1.10 } != true) return false
+        val frameBudgetMs = 1_000.0 / cap
+        if (sender.processingMs?.let {
+                it.isFinite() && it in 0.0..(frameBudgetMs * CODEC_HEADROOM_BUDGET_RATIO)
+            } != true) return false
+        if (sender.sendQueueMs?.let {
+                it.isFinite() && it in 0.0..HEALTHY_QUEUE_MS
+            } != true) return false
+        if (outbound.roundTripTimeMs?.let { it in 0..HEALTHY_RTT_MS } != true) return false
+        if (outbound.packetLossRatio?.let {
+                it.isFinite() && it in 0.0..HEALTHY_PACKET_LOSS_RATIO
+            } != true) return false
+        if (sender.bitrateBps <= 0L) return false
+        val bandwidthEstimate = outbound.availableOutgoingBitrateBps ?: return false
+        return bandwidthEstimate.isFinite() &&
+            bandwidthEstimate >= sender.bitrateBps.toDouble() * CLEAN_BWE_HEADROOM_RATIO
+    }
+
     fun observe(
         outbound: VideoHealthSnapshot,
         receiver: VideoHealthWindow?,
@@ -467,6 +517,8 @@ class VideoCadenceGovernor(
             highCadencePressureGate.clearPresentation()
         }
         val sender = outbound.recent ?: return false
+        val cleanBandwidthProof =
+            hasCleanBandwidthProbeEvidence(outbound, sender, producerFps)
         lastSenderFps = sender.fps.takeIf {
             nowMs >= 0L &&
                 sender.intervalMs in FAST_PRESENTATION_MIN_WINDOW_MS..
@@ -844,7 +896,8 @@ class VideoCadenceGovernor(
                     )
         val receiverHealthy =
             if (receiver == null) {
-                outbound.qualityLimitationReason == "none" &&
+                (outbound.qualityLimitationReason.equals("none", ignoreCase = true) ||
+                    cleanBandwidthProof) &&
                     outbound.roundTripTimeMs != null && outbound.roundTripTimeMs < HEALTHY_RTT_MS
             } else {
                 receiver.frames >= MIN_MEASURED_FRAMES &&
@@ -861,7 +914,8 @@ class VideoCadenceGovernor(
                 sender.processingMs != null && sender.processingMs < budgetMs * CODEC_HEADROOM_BUDGET_RATIO &&
                 receiverHealthy && loss < HEALTHY_PACKET_LOSS_RATIO &&
                 (sender.sendQueueMs ?: 0.0) < HEALTHY_QUEUE_MS &&
-                outbound.qualityLimitationReason != "bandwidth"
+                (!outbound.qualityLimitationReason.equals("bandwidth", ignoreCase = true) ||
+                    cleanBandwidthProof)
 
         healthy = if (headroom) healthy + 1 else 0
 
@@ -1024,6 +1078,7 @@ class VideoCadenceGovernor(
         const val HEALTHY_JITTER_MS = 45.0
         const val HEALTHY_QUEUE_MS = 20.0
         const val HEALTHY_PACKET_LOSS_RATIO = 0.025
+        const val CLEAN_BWE_HEADROOM_RATIO = 1.50
         const val HEALTHY_PRESENTATION_RATIO = 0.90
         const val HEALTHY_RENDER_GAP_MS = 50.0
         const val HEALTHY_RENDER_GAP_BUDGET_MULTIPLIER = 3.0
