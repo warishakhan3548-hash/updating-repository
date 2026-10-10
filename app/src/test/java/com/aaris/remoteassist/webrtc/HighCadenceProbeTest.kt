@@ -140,9 +140,8 @@ class HighCadenceProbeTest {
         assertFalse(g.probingHighCadence)
         assertTrue(
             "Expected evidence-backed promotion ladder, saw $seen",
-            seen.containsAll(listOf(30, 36, 40, 45, 48, 60)) &&
+            seen.containsAll(listOf(30, 36, 40, 45, 48, 50, 60)) &&
                 !seen.contains(33) &&
-                !seen.contains(50) &&
                 !seen.contains(55) &&
                 !seen.contains(58)
         )
@@ -200,7 +199,7 @@ class HighCadenceProbeTest {
                 producerFps = 60.0
             )
         )
-        assertEquals(48, g.cap)
+        assertEquals(50, g.cap)
     }
 
     @Test fun ordinaryQueuePressureNeedsConfirmationBeforeFineRelief() {
@@ -226,7 +225,7 @@ class HighCadenceProbeTest {
                 producerFps = 60.0
             )
         )
-        assertEquals(48, g.cap)
+        assertEquals(50, g.cap)
     }
 
     @Test fun severeQueueCanStillTakeLargeFreshnessRelief() {
