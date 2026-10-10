@@ -84,14 +84,61 @@ internal object DisplayCadencePolicy {
         refreshRateHz: Double?,
         ceilingFps: Int = PRODUCT_MAX_FPS,
         floorFps: Int = 1
-    ): Int? =
-        descending(
-            refreshRateHz = refreshRateHz,
-            ceilingFps = ceilingFps,
-            floorFps = floorFps
-        ).asReversed().firstOrNull {
-            it > currentFps && it <= ceilingFps
-        }
+    ): Int? {
+        /*
+         * Promotion and relief have different visual failure modes.
+         *
+         * Relief may still use a short-repeat non-harmonic rung to drain an
+         * encoder/pacer backlog without a huge 60 -> 30 cliff. Promotion is
+         * stricter: when the active display exposes an exact high-cadence
+         * harmonic inside the current device/encoder ceiling, never climb past
+         * that harmonic into a cadence that necessarily needs uneven pulldown.
+         *
+         * Examples:
+         *   90 Hz  -> steady ceiling 45 fps
+         *   120 Hz -> steady ceiling 60 fps
+         *   144 Hz -> steady ceiling 48 fps
+         *   165 Hz -> steady ceiling 55 fps
+         *
+         * If the encoder ceiling is below every exact harmonic (for example a
+         * 45 fps codec ceiling on a 60 Hz panel), preserve the existing
+         * short-repeat ladder rather than forcing a large drop to 30 fps.
+         */
+        val harmonicCeiling =
+            normalizedRefresh(refreshRateHz)
+                ?.let { refresh ->
+                    harmonicPromotionCeiling(
+                        refreshHz = refresh,
+                        ceilingFps = ceilingFps
+                    )
+                }
+        val boundedCeiling =
+            harmonicCeiling?.let { minOf(ceilingFps, it) }
+                ?: ceilingFps
+
+        val candidates =
+            descending(
+                refreshRateHz = refreshRateHz,
+                ceilingFps = boundedCeiling,
+                floorFps = floorFps
+            ).toMutableSet()
+
+        /*
+         * Some useful exact divisors (48 on 144 Hz, 42 on 84 Hz, etc.) are not
+         * part of the historical pressure ladder. Add only the single proven
+         * harmonic ceiling for promotion; do not expand the relief ladder.
+         */
+        harmonicCeiling
+            ?.takeIf {
+                it in maxOf(currentFps + 1, floorFps)..boundedCeiling
+            }
+            ?.let(candidates::add)
+
+        return candidates
+            .asSequence()
+            .filter { it > currentFps && it <= boundedCeiling }
+            .minOrNull()
+    }
 
     fun nearestAtOrBelow(
         limitFps: Int,
@@ -105,6 +152,59 @@ internal object DisplayCadencePolicy {
             floorFps = floorFps
         ).firstOrNull { it <= limitFps }
             ?: minOf(limitFps.coerceAtLeast(1), HIGH_CADENCE_MIN_FPS - 1)
+
+    /**
+     * RenderSynchronizer is a display-vsync gate, not a producer FPS request.
+     *
+     * Keep its target at least as fast as every refresh mode the controller can
+     * enter during the session. The screen stream itself is still capped at
+     * PRODUCT_MAX_FPS, while EglRenderer keeps one latest-wins pending frame.
+     * This prevents a fixed 60 fps RenderSynchronizer from becoming a second,
+     * independent pacing clock on 90/120/144/165 Hz panels.
+     */
+    fun renderSynchronizerTargetFps(
+        activeRefreshRateHz: Double?,
+        maximumSupportedRefreshRateHz: Double? = null
+    ): Float {
+        val active =
+            activeRefreshRateHz
+                ?.takeIf {
+                    it.isFinite() &&
+                        it in MIN_REFRESH_HZ..MAX_REFRESH_HZ
+                }
+        val supported =
+            maximumSupportedRefreshRateHz
+                ?.takeIf {
+                    it.isFinite() &&
+                        it in MIN_REFRESH_HZ..MAX_REFRESH_HZ
+                }
+
+        return maxOf(
+            PRODUCT_MAX_FPS.toDouble(),
+            active ?: 0.0,
+            supported ?: 0.0
+        )
+            .coerceAtMost(MAX_REFRESH_HZ)
+            .toFloat()
+    }
+
+    private fun harmonicPromotionCeiling(
+        refreshHz: Int,
+        ceilingFps: Int
+    ): Int? {
+        val ceiling =
+            minOf(
+                PRODUCT_MAX_FPS,
+                ceilingFps,
+                refreshHz
+            )
+        if (ceiling < HIGH_CADENCE_MIN_FPS) return null
+
+        return (ceiling downTo HIGH_CADENCE_MIN_FPS)
+            .firstOrNull { candidate ->
+                refreshHz % candidate == 0
+            }
+    }
 
     private fun normalizedRefresh(value: Double?): Int? {
         if (
