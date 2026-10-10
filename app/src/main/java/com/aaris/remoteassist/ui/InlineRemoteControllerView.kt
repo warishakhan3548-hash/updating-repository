@@ -1308,14 +1308,15 @@ class InlineRemoteControllerView(
              * (overwritePendingFrames=true below) keeps only the newest pending
              * swap update when a window is closed.
              *
-             * The target is the product's maximum media cadence, not the
-             * controller panel refresh. On 60 Hz this opens every refresh; on
-             * higher-refresh panels it selects display-aligned windows near
-             * 60 fps. Slow networks/decoders still deliver fewer frames and do
-             * not accumulate a second queue.
+             * Synchronize admission to the controller's active display clock,
+             * not to an additional fixed 60 Hz gate. A 45 fps stream on a
+             * 90 Hz display can then land every two refreshes; a 60 fps stream
+             * on 120 Hz lands every two refreshes. The synchronizer does not
+             * manufacture frames, so opening every physical refresh adds no
+             * second media queue and sparse streams remain sparse.
              */
             val renderSynchronizer =
-                RenderSynchronizer(RENDER_SYNC_TARGET_FPS)
+                RenderSynchronizer(renderSynchronizationTargetFps())
             val renderThread =
                 EglThread.create(
                     null,
@@ -1499,6 +1500,22 @@ class InlineRemoteControllerView(
             // Android defines 0 Hz as clearing this Surface's preference.
             applySurfaceFrameRateHint(0)
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun renderSynchronizationTargetFps(): Float {
+        val refreshRate =
+            runCatching {
+                activity.windowManager.defaultDisplay.refreshRate
+            }.getOrNull()
+
+        return refreshRate
+            ?.takeIf {
+                it.isFinite() &&
+                    it in MIN_RENDER_SYNC_REFRESH_HZ..
+                        MAX_RENDER_SYNC_REFRESH_HZ
+            }
+            ?: RENDER_SYNC_FALLBACK_FPS
     }
 
     /**
@@ -2879,10 +2896,13 @@ class InlineRemoteControllerView(
 
     companion object {
         /*
-         * Match Aaris' maximum video cadence. RenderSynchronizer is display
-         * aligned and latest-wins; this is not a 60-frame producer requirement.
+         * RenderSynchronizer follows the controller's active Choreographer
+         * clock. 60 Hz is only the defensive fallback when Android cannot
+         * expose a sane current refresh rate.
          */
-        private const val RENDER_SYNC_TARGET_FPS = 60f
+        private const val RENDER_SYNC_FALLBACK_FPS = 60f
+        private const val MIN_RENDER_SYNC_REFRESH_HZ = 30f
+        private const val MAX_RENDER_SYNC_REFRESH_HZ = 240f
 
         private const val FIRST_FRAME_DEADLINE_MS = 3_500L
         private const val MEDIA_RECOVERY_RETRY_MS = 4_000L
