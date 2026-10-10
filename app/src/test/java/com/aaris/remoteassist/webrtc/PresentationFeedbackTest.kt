@@ -19,6 +19,40 @@ class PresentationFeedbackTest {
         assertEquals(104, result.maxGapMs)
     }
 
+    @Test fun tailSwapGapsRemainVisibleDespiteHealthyAverageFps() {
+        val tracker = PresentationCadenceTracker(minWindowMs = 500)
+        assertNull(tracker.onPresented(1_000L))
+
+        // 49 good 10ms swaps and one 100ms hitch: mean FPS alone hides
+        // the worst-case visible judder. Nearest-rank p95 must stay 10ms,
+        // while p99 correctly observes the single tail outlier.
+        for (i in 1..49) {
+            assertNull(tracker.onPresented(1_000L + 10L * i))
+        }
+        val sample = checkNotNull(tracker.onPresented(1_590L))
+        assertEquals(50, sample.renderedFrames)
+        assertEquals(590, sample.intervalMs)
+        assertEquals(100, sample.maxGapMs)
+        assertEquals(10, sample.p95GapMs)
+        assertEquals(100, sample.p99GapMs)
+        assertTrue(sample.compact().contains("p99Gap=100ms"))
+    }
+
+    @Test fun rendererResetCannotLeakPreviousPercentileSamples() {
+        val tracker = PresentationCadenceTracker(minWindowMs = 500)
+        tracker.onPresented(1_000L)
+        val first = checkNotNull(tracker.onPresented(1_500L))
+        assertEquals(500, first.p99GapMs)
+
+        tracker.reset()
+        assertNull(tracker.onPresented(2_000L))
+        assertNull(tracker.onPresented(2_100L))
+        val second = checkNotNull(tracker.onPresented(2_500L))
+        assertEquals(400, second.maxGapMs)
+        assertEquals(400, second.p95GapMs)
+        assertEquals(400, second.p99GapMs)
+    }
+
     @Test fun defaultTrackerSurfacesPresentationStateWithinHalfSecond() {
         val tracker = PresentationCadenceTracker()
         assertNull(tracker.onPresented(1_000))

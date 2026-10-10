@@ -11,6 +11,21 @@ package com.aaris.remoteassist.ui
 internal object RendererContinuityPolicy {
     private const val EGL_STALL_MS = 3_000L
     private const val RECENT_DECODE_MS = 2_000L
+    // An EGL swap is not evidence of *current* presentation after the main
+    // looper has queued its feedback runnable for an arbitrary period.
+    // This bound is intentionally above one normal 500 ms cadence window.
+    private const val MAX_FEEDBACK_DISPATCH_AGE_MS = 1_000L
+
+    /**
+     * Prevent queued, obsolete EGL swaps from refreshing host liveness, from
+     * biasing the cadence governor or from confirming an already-stalled renderer.
+     * Both timestamps must use SystemClock.elapsedRealtime() on the same phone.
+     * Ordinary in-order callbacks are unaffected; no new queue or worker.
+     */
+    fun isFreshPresentationCallback(nowMs: Long, presentedAtMs: Long): Boolean =
+        presentedAtMs > 0L &&
+            nowMs >= presentedAtMs &&
+            nowMs - presentedAtMs <= MAX_FEEDBACK_DISPATCH_AGE_MS
 
     fun shouldRecover(
         nowMs: Long,

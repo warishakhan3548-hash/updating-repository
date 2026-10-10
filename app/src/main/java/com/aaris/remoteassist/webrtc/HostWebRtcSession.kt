@@ -218,6 +218,15 @@ class HostWebRtcSession(
                     }
                 }
             }
+        },
+        onCaptureTiming = { timing ->
+            // Only one compact diagnostic per bounded capture sample window.
+            // UI/log listeners never run on the SurfaceTexture capture thread.
+            policyHandler.post {
+                if (!closed.get()) {
+                    listener.onDiagnostic(timing.compact())
+                }
+            }
         }
     )
 

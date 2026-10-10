@@ -237,11 +237,24 @@ internal class PhotonFreshnessGovernor {
                 completeCleanEvidence -> PhotonFreshnessState.CLEAN
                 else -> PhotonFreshnessState.UNKNOWN
             }
+        /*
+         * A retained EGL presentation window may still describe the current
+         * receiver health, but it is NOT a new glass-delivery observation.
+         * Once the clean-window threshold has been reached, allowing upgrades
+         * on every intervening sender getStats() callback would reuse the same
+         * old presentation proof for multiple cadence/resolution promotions.
+         * Keep accumulated clean history; authorize each upgrade only when
+         * this observation contains a genuinely new, clean EGL window.
+         */
+        val newCleanGlassProof =
+            actualNewGlassWindow && completeCleanEvidence
         val allowCadencePromotion =
             state == PhotonFreshnessState.CLEAN &&
+                newCleanGlassProof &&
                 cleanGlassWindows >= CLEAN_WINDOWS_FOR_CADENCE
         val allowResolutionRecovery =
             state == PhotonFreshnessState.CLEAN &&
+                newCleanGlassProof &&
                 cleanGlassWindows >= CLEAN_WINDOWS_FOR_DETAIL &&
                 !interactionActive
 
