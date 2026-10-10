@@ -26,7 +26,7 @@ class ScreenCaptureTrack(
     private val factory = WebRtcRuntime.factory(appContext)
     private val eglBase = WebRtcRuntime.eglBase(appContext)
     private val closed = AtomicBoolean(false)
-    private val interactionPriorityActive = AtomicBoolean(false)
+    private val realtimePriorityActive = AtomicBoolean(false)
     private val snapshotSinks = CopyOnWriteArraySet<VideoSink>()
     private val sampleClock = CaptureSampleClock()
     private val activityTracker = CaptureActivityTracker()
@@ -216,22 +216,25 @@ class ScreenCaptureTrack(
 
     /**
      * Give the SurfaceTexture delivery lane a temporary scheduling advantage
-     * while remote input is actively changing pixels. This does not create
-     * extra frames or increase encoder work; it only reduces scheduler jitter
-     * between SurfaceTexture availability and libwebrtc's capture observer.
+     * whenever fresh screen motion is latency-critical. The caller owns the
+     * authoritative freshness state (remote input OR observed source motion),
+     * so inertial scrolling/video/game animation does not lose scheduling
+     * priority immediately when a finger lifts.
      *
-     * Read the newest requested state on the owner thread so a rapid
-     * active->idle transition cannot leave the thread permanently boosted.
+     * This does not create frames or increase encoder work; it only reduces
+     * scheduler jitter between SurfaceTexture availability and libwebrtc's
+     * capture observer. Read the newest requested state on the owner thread so
+     * rapid transitions cannot leave the thread permanently boosted.
      */
-    fun setInteractionPriority(active: Boolean) {
+    fun setRealtimePriority(active: Boolean) {
         if (closed.get()) return
-        if (interactionPriorityActive.getAndSet(active) == active) return
+        if (realtimePriorityActive.getAndSet(active) == active) return
 
         surfaceTextureHelper.handler.post {
             if (closed.get()) return@post
             android.os.Process.setThreadPriority(
                 RealtimeMediaPolicy.threadPriority(
-                    interactionPriorityActive.get()
+                    realtimePriorityActive.get()
                 )
             )
         }
@@ -266,7 +269,7 @@ class ScreenCaptureTrack(
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
-        interactionPriorityActive.set(false)
+        realtimePriorityActive.set(false)
         surfaceTextureHelper.handler.removeCallbacks(idleRefresh)
         snapshotSinks.clear()
 
