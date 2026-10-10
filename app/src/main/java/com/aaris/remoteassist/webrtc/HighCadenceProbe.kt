@@ -34,6 +34,7 @@ internal class HighCadenceProbe {
     private var trialBad = 0
     private var lastProofAtMs: Long? = null
     private var lastPresentationSequenceSeen = 0L
+    private var lastDisplayRefreshRateHz: Double? = null
 
     val probing: Boolean get() = trialFrom != null
 
@@ -82,6 +83,7 @@ internal class HighCadenceProbe {
 
         val sender = outbound.recent
         val refresh = receiver?.displayRefreshRateHz.valid()
+        refresh?.let { lastDisplayRefreshRateHz = it }
         val displayLimit = refresh?.let { (it + 0.5).toInt() }
         val limit = minOf(maximumFps, displayLimit ?: 60)
         if (limit < currentFps) {
@@ -294,23 +296,34 @@ internal class HighCadenceProbe {
      * capable 60 Hz phone visibly stuck in 30-45 fps for too long. Promotion
      * therefore uses moderately spaced evidence-backed steps.
      *
-     * Relief remains finer grained: when pressure appears at 60 fps we still
-     * trim to 58, then 55, etc. That preserves smoothness instead of turning a
-     * small transient into a visible cliff.
+     * Relief is display-paced rather than numerically tiny. A 60 -> 58 trim
+     * looks gentle on paper but creates a long frame/vsync beat on a 60 Hz
+     * panel. Prefer the nearest short-repeat cadence proven compatible with the
+     * controller display; unknown capability preserves the legacy ladder.
      */
     private fun nextHigher(currentFps: Int, limit: Int): Int? =
-        ASCENDING_CADENCE_STEPS.firstOrNull {
-            it > currentFps && it <= limit
-        }
+        DisplayCadencePolicy.nextHigher(
+            currentFps = currentFps,
+            refreshRateHz = lastDisplayRefreshRateHz,
+            ceilingFps = limit,
+            floorFps = MIN_FINE_CADENCE_FPS
+        )
 
     private fun previousLower(currentFps: Int): Int? =
-        DESCENDING_CADENCE_STEPS
-            .firstOrNull { it < currentFps }
+        DisplayCadencePolicy.nextLower(
+            currentFps = currentFps,
+            refreshRateHz = lastDisplayRefreshRateHz,
+            floorFps = MIN_FINE_CADENCE_FPS,
+            ceilingFps = 60
+        )
 
     private fun nearestAtOrBelow(limit: Int): Int =
-        DESCENDING_CADENCE_STEPS
-            .firstOrNull { it <= limit }
-            ?: minOf(limit, MIN_FINE_CADENCE_FPS)
+        DisplayCadencePolicy.nearestAtOrBelow(
+            limitFps = limit,
+            refreshRateHz = lastDisplayRefreshRateHz,
+            ceilingFps = 60,
+            floorFps = 1
+        )
 
     private fun toleratedDrops(frames: Int): Int =
         when {
@@ -354,11 +367,6 @@ internal class HighCadenceProbe {
         this?.takeIf { it.isFinite() && it >= 0.0 }
 
     private companion object {
-        val ASCENDING_CADENCE_STEPS =
-            listOf(30, 36, 40, 45, 50, 55, 60)
-        val DESCENDING_CADENCE_STEPS =
-            listOf(60, 58, 55, 50, 45, 40, 36, 33, 30)
-
         const val MIN_FINE_CADENCE_FPS = 30
         const val MIN_SAMPLE_INTERVAL_MS = 500L
         const val MAX_SAMPLE_GAP_MS = 6_000L
