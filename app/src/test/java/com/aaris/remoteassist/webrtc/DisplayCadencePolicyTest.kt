@@ -9,7 +9,7 @@ class DisplayCadencePolicyTest {
         val ladder = DisplayCadencePolicy.descending(60.0, 60)
 
         assertEquals(
-            listOf(60, 50, 48, 45, 40, 36, 30, 24, 20, 15),
+            listOf(60, 50, 45, 40, 36, 30, 24, 20, 15),
             ladder
         )
         assertFalse(58 in ladder)
@@ -35,11 +35,11 @@ class DisplayCadencePolicyTest {
         val ladder = DisplayCadencePolicy.descending(90.0, 60)
 
         assertEquals(
-            listOf(60, 54, 45, 36, 30, 24, 20, 15),
+            listOf(60, 45, 36, 30, 24, 20, 15),
             ladder
         )
         assertEquals(
-            54,
+            45,
             DisplayCadencePolicy.nextLower(60, 90.0, ceilingFps = 60)
         )
     }
@@ -49,11 +49,11 @@ class DisplayCadencePolicyTest {
         val ladder = DisplayCadencePolicy.descending(120.0, 60)
 
         assertEquals(
-            listOf(60, 48, 40, 30, 24, 20, 15),
+            listOf(60, 40, 30, 24, 20, 15),
             ladder
         )
         assertEquals(
-            48,
+            40,
             DisplayCadencePolicy.nearestAtOrBelow(
                 limitFps = 55,
                 refreshRateHz = 120.0,
