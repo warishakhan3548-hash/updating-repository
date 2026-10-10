@@ -8,7 +8,12 @@ class PhotonFreshnessGovernorTest {
         fps: Int = 60,
         queueMs: Double = 8.0,
         encodeMs: Double = 5.0,
-        loss: Double = 0.0
+        loss: Double = 0.0,
+        hugeFrames: Int? = 0,
+        retransmitRatio: Double? = 0.0,
+        nacks: Int? = 0,
+        plis: Int? = 0,
+        firs: Int? = 0
     ) =
         VideoHealthSnapshot(
             direction = "outbound",
@@ -31,7 +36,12 @@ class PhotonFreshnessGovernorTest {
                     jitterMs = null,
                     dropped = null,
                     freezes = null,
-                    sendQueueMs = queueMs
+                    sendQueueMs = queueMs,
+                    hugeFrames = hugeFrames,
+                    retransmitRatio = retransmitRatio,
+                    nacks = nacks,
+                    plis = plis,
+                    firs = firs
                 )
         )
 
@@ -170,5 +180,135 @@ class PhotonFreshnessGovernorTest {
 
         assertTrue(checkNotNull(p).allowCadencePromotion)
         assertFalse(checkNotNull(p).allowResolutionRecovery)
+    }
+
+    @Test
+    fun hugeFrameBurstWithholdsGrowthWithoutInventingPressure() {
+        val g = PhotonFreshnessGovernor()
+        g.observe(outbound(), receiver(), 60, false, 1_000)
+
+        val p =
+            g.observe(
+                outbound(hugeFrames = 1),
+                receiver(),
+                60,
+                false,
+                1_500
+            )
+
+        assertEquals(PhotonFreshnessState.UNKNOWN, p.state)
+        assertEquals(0, p.cleanGlassWindows)
+        assertFalse(p.allowCadencePromotion)
+        assertFalse(p.allowResolutionRecovery)
+    }
+
+    @Test
+    fun missingHugeFrameCounterPreservesLegacyCleanEvidence() {
+        val g = PhotonFreshnessGovernor()
+        g.observe(
+            outbound(hugeFrames = null),
+            receiver(),
+            60,
+            false,
+            1_000
+        )
+        val p =
+            g.observe(
+                outbound(hugeFrames = null),
+                receiver(),
+                60,
+                false,
+                1_500
+            )
+
+        assertEquals(PhotonFreshnessState.CLEAN, p.state)
+        assertTrue(p.allowCadencePromotion)
+    }
+
+    @Test
+    fun activeRetransmissionRepairBlocksPromotionWithoutInventingHardPressure() {
+        val g = PhotonFreshnessGovernor()
+        g.observe(outbound(), receiver(), 60, false, 1_000)
+        val p =
+            g.observe(
+                outbound(
+                    retransmitRatio = 0.12,
+                    nacks = 2,
+                    plis = 0
+                ),
+                receiver(),
+                60,
+                false,
+                2_000
+            )
+
+        assertEquals(PhotonFreshnessState.WATCH, p.state)
+        assertEquals(0, p.cleanGlassWindows)
+        assertFalse(p.allowCadencePromotion)
+        assertFalse(p.allowResolutionRecovery)
+    }
+
+    @Test
+    fun pictureLossIndicationCancelsCleanPromotionEvidence() {
+        val g = PhotonFreshnessGovernor()
+        g.observe(outbound(), receiver(), 60, false, 1_000)
+        g.observe(outbound(), receiver(), 60, false, 1_500)
+
+        val p =
+            g.observe(
+                outbound(plis = 1),
+                receiver(),
+                60,
+                false,
+                2_000
+            )
+
+        assertEquals(PhotonFreshnessState.WATCH, p.state)
+        assertEquals(0, p.cleanGlassWindows)
+        assertFalse(p.allowCadencePromotion)
+    }
+
+    @Test
+    fun fullIntraRequestBlocksPromotionLikePictureLossIndication() {
+        val g = PhotonFreshnessGovernor()
+        g.observe(outbound(), receiver(), 60, false, 1_000)
+
+        val p =
+            g.observe(
+                outbound(firs = 1),
+                receiver(),
+                60,
+                false,
+                2_000
+            )
+
+        assertEquals(PhotonFreshnessState.WATCH, p.state)
+        assertEquals(0, p.cleanGlassWindows)
+        assertFalse(p.allowCadencePromotion)
+        assertFalse(p.allowResolutionRecovery)
+    }
+
+    @Test
+    fun lightNackActivityWithholdsGrowthWithoutForcingPressure() {
+        val g = PhotonFreshnessGovernor()
+        val p =
+            g.observe(
+                outbound(
+                    retransmitRatio = 0.01,
+                    nacks = 1,
+                    plis = 0
+                ),
+                receiver(),
+                60,
+                false,
+                1_000
+            )
+
+        // One NACK in a one-second sample is not a reason to downshift, but it
+        // is also not sufficiently clean evidence for an upward quality step.
+        assertEquals(PhotonFreshnessState.UNKNOWN, p.state)
+        assertEquals(0, p.cleanGlassWindows)
+        assertFalse(p.allowCadencePromotion)
+        assertFalse(p.allowResolutionRecovery)
     }
 }
