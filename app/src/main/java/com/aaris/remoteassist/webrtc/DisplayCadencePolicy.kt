@@ -2,30 +2,32 @@ package com.aaris.remoteassist.webrtc
 
 /**
  * Chooses sender cadence rungs that compose predictably on the controller's
- * physical display.
+ * active display clock.
  *
- * Arbitrary near-refresh rates are deceptively expensive for remote control.
- * For example, 58 fps on a 60 Hz panel repeats its frame/vsync phase only after
- * 30 refreshes, which can look like periodic micro-stutter even when RTP,
- * decode, and EGL are healthy. A 50/60 cadence repeats every six refreshes,
- * 48/60 every five, 45/60 every four, and 40/60 every three.
+ * A short beat cycle is still judder. For example, 50 fps on a 60 Hz display
+ * necessarily alternates one-vsync and two-vsync frame holds even when capture,
+ * RTP, decode and EGL are otherwise perfect. Remote-control motion makes that
+ * cadence error especially visible during scrolling and games.
  *
- * We therefore FILTER the already-proven high-cadence (>30 fps) adaptation
- * ladder by display compatibility instead of inventing extra intermediate
- * rates. This preserves the governor's validated recovery timing while removing
- * rungs whose reduced refresh ratio has a long beat period. 60 fps remains the
- * product ceiling even
- * on unusual high-refresh panels because Android may switch the Surface to a
- * compatible mode after the existing 60 fps frame-rate hint.
+ * For the >30 fps quality ladder, keep only rates that divide the controller's
+ * measured active refresh clock exactly. This gives every encoded frame a
+ * stable integer number of display refreshes. 48 fps is included because it is
+ * the natural high-cadence rung for common 144 Hz panels.
  *
- * <=30 fps is the pressure/recovery safety ladder, where freshness and encoder
- * headroom matter more than perfect phase matching.
+ * <=30 fps remains the pressure/recovery safety ladder. Those rungs deliberately
+ * stay available even when they are not harmonic because severe encoder/network
+ * pressure values freshness and queue drainage over ideal presentation cadence.
  *
- * Missing/invalid display capability preserves the previous ladder exactly.
+ * Missing/invalid display capability preserves the historical adaptation ladder
+ * exactly, so mixed-version peers keep their previous behavior.
  */
 internal object DisplayCadencePolicy {
     private val legacyDescending =
         listOf(60, 58, 55, 50, 45, 40, 36, 33, 30, 24, 20, 15)
+
+    private val displayAlignedHighDescending =
+        listOf(60, 58, 55, 50, 48, 45, 40, 36, 33)
+
     private val lowCadenceDescending =
         listOf(30, 24, 20, 15)
 
@@ -42,18 +44,13 @@ internal object DisplayCadencePolicy {
                 .ifEmpty { listOf(ceiling) }
 
         val rates = linkedSetOf<Int>()
-
-        if (ceiling >= PRODUCT_MAX_FPS && PRODUCT_MAX_FPS >= floor) {
-            rates += PRODUCT_MAX_FPS
-        }
-
         val firstHigh = maxOf(HIGH_CADENCE_MIN_FPS, floor)
+
         if (ceiling >= firstHigh) {
-            legacyDescending
+            displayAlignedHighDescending
                 .asSequence()
                 .filter { it in firstHigh..ceiling }
-                .filter { it != PRODUCT_MAX_FPS }
-                .filter { shortRepeatCycle(refresh, it) }
+                .filter { harmonicOnDisplay(refresh, it) }
                 .forEach(rates::add)
         }
 
@@ -118,27 +115,16 @@ internal object DisplayCadencePolicy {
         return kotlin.math.round(value).toInt().coerceAtLeast(1)
     }
 
-    private fun shortRepeatCycle(refreshHz: Int, fps: Int): Boolean {
+    private fun harmonicOnDisplay(
+        refreshHz: Int,
+        fps: Int
+    ): Boolean {
         if (fps <= 0 || fps > refreshHz) return false
-        val divisor = greatestCommonDivisor(refreshHz, fps)
-        val repeatVsyncs = refreshHz / divisor
-        return repeatVsyncs <= MAX_HIGH_CADENCE_REPEAT_VSYNCS
-    }
-
-    private fun greatestCommonDivisor(a: Int, b: Int): Int {
-        var x = kotlin.math.abs(a)
-        var y = kotlin.math.abs(b)
-        while (y != 0) {
-            val remainder = x % y
-            x = y
-            y = remainder
-        }
-        return x.coerceAtLeast(1)
+        return refreshHz % fps == 0
     }
 
     private const val PRODUCT_MAX_FPS = 60
     private const val HIGH_CADENCE_MIN_FPS = 31
-    private const val MAX_HIGH_CADENCE_REPEAT_VSYNCS = 6
     private const val MIN_REFRESH_HZ = 30.0
     private const val MAX_REFRESH_HZ = 240.0
 }
