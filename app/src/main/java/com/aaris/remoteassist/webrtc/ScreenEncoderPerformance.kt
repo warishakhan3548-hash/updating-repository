@@ -60,12 +60,6 @@ internal class ScreenEncoderPerformance private constructor(
                 )
             }
 
-        val scopedCapabilities =
-            if (exactImplementation != null) {
-                listOf(exactImplementation)
-            } else {
-                capabilities
-            }
         val scopeName =
             exactImplementation
                 ?.implementationName
@@ -81,15 +75,23 @@ internal class ScreenEncoderPerformance private constructor(
         if (unknownSizes.contains(key)) return null
 
         val measured =
-            scopedCapabilities
-                .mapNotNull {
-                    realtimeLimit(
-                        it.video,
-                        safeWidth,
-                        safeHeight
-                    )
-                }
-                .maxOrNull()
+            if (exactImplementation != null) {
+                realtimeLimit(
+                    exactImplementation.video,
+                    safeWidth,
+                    safeHeight
+                )
+            } else {
+                capabilities
+                    .mapNotNull {
+                        realtimeLimit(
+                            it.video,
+                            safeWidth,
+                            safeHeight
+                        )
+                    }
+                    .maxOrNull()
+            }
 
         if (measured == null) {
             unknownSizes += key
