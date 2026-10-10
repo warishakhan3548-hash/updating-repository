@@ -27,6 +27,7 @@ class ScreenCaptureTrack(
     private val eglBase = WebRtcRuntime.eglBase(appContext)
     private val closed = AtomicBoolean(false)
     private val interactionPriorityActive = AtomicBoolean(false)
+    private val outputResizeDeferred = AtomicBoolean(false)
     private val snapshotSinks = CopyOnWriteArraySet<VideoSink>()
     private val sampleClock = CaptureSampleClock()
     private val activityTracker = CaptureActivityTracker()
@@ -191,28 +192,71 @@ class ScreenCaptureTrack(
 
     fun update(profile: CaptureProfile) {
         if (closed.get() || !started) return
-        adaptOutput(profile)
 
         val source = sourceGeometry ?: return
         // ScreenCapturerAndroid ignores FPS and recreates/resizes the virtual
         // display even for unchanged dimensions. Rebinding on every touch or
         // bitrate tier change can corrupt OEM mirroring scale. Adapt the video
         // source instead; only actual display rotation/resize touches capture.
-        if (source.updateDisplay(profile)) {
+        //
+        // Resolve physical display geometry first. A real rotation/resize must
+        // never be hidden by the dynamic-content resize guard below.
+        val displayGeometryChanged = source.updateDisplay(profile)
+        adaptOutput(
+            profile = profile,
+            forceResize = displayGeometryChanged
+        )
+        if (displayGeometryChanged) {
             capturer.changeCaptureFormat(source.width, source.height, profile.fps)
         }
     }
 
-    private fun adaptOutput(profile: CaptureProfile) {
-        val next = Triple(profile.captureWidthPx, profile.captureHeightPx, profile.fps)
+    private fun adaptOutput(
+        profile: CaptureProfile,
+        forceResize: Boolean = false
+    ) {
+        val requested =
+            Triple(
+                profile.captureWidthPx,
+                profile.captureHeightPx,
+                profile.fps
+            )
+        val next =
+            resolveRealtimeCaptureOutputFormat(
+                current = outputFormat,
+                requested = requested,
+                deferResize = outputResizeDeferred.get(),
+                forceResize = forceResize
+            )
         if (next == outputFormat) return
-        videoSource.adaptOutputFormat(next.first, next.second, next.third)
+        videoSource.adaptOutputFormat(
+            next.first,
+            next.second,
+            next.third
+        )
         outputFormat = next
     }
 
     fun addSnapshotSink(sink: VideoSink) { snapshotSinks += sink }
     fun sampleSourceFps(nowMs: Long): Double? = activityTracker.sampleFps(nowMs)
     fun removeSnapshotSink(sink: VideoSink) { snapshotSinks -= sink }
+
+    /**
+     * Keep the Java/VideoSource input dimensions stable while fresh pixels are
+     * actively moving. Changing adaptOutputFormat() dimensions can force vendor
+     * MediaCodec to reconfigure exactly when the controller needs continuous
+     * frame delivery. During that window libwebrtc's MAINTAIN_FRAMERATE quality
+     * scaler remains free to adapt encoder resolution inside this stable source
+     * envelope; FPS changes still apply immediately.
+     *
+     * Once motion settles, the host clears this guard and the latest measured
+     * app-level pixel budget is committed during a quiet frame interval. Real
+     * display rotation/resize bypasses the guard via forceResize.
+     */
+    fun setOutputResizeDeferred(deferred: Boolean) {
+        if (closed.get()) return
+        outputResizeDeferred.set(deferred)
+    }
 
     /**
      * Give the SurfaceTexture delivery lane a temporary scheduling advantage
@@ -267,6 +311,7 @@ class ScreenCaptureTrack(
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         interactionPriorityActive.set(false)
+        outputResizeDeferred.set(false)
         surfaceTextureHelper.handler.removeCallbacks(idleRefresh)
         snapshotSinks.clear()
 
@@ -284,4 +329,31 @@ class ScreenCaptureTrack(
         runCatching { videoSource.dispose() }
         runCatching { surfaceTextureHelper.dispose() }
     }
+}
+
+
+/**
+ * Resolve the VideoSource adaptation envelope without introducing a second
+ * frame queue or retaining a texture. Dynamic content may change FPS
+ * immediately, but width/height stay fixed until the motion window ends.
+ */
+internal fun resolveRealtimeCaptureOutputFormat(
+    current: Triple<Int, Int, Int>?,
+    requested: Triple<Int, Int, Int>,
+    deferResize: Boolean,
+    forceResize: Boolean = false
+): Triple<Int, Int, Int> {
+    if (
+        current == null ||
+        !deferResize ||
+        forceResize
+    ) {
+        return requested
+    }
+
+    return Triple(
+        current.first,
+        current.second,
+        requested.third
+    )
 }
