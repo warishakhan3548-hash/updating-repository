@@ -36,9 +36,9 @@ internal class MotionVideoBudget {
      * implementations may reconfigure at exactly the first touch/scroll frame.
      *
      * The speculative rung may cap bitrate immediately, but source geometry is
-     * held at the pre-motion rung until one complete motion sample either
-     * confirms pressure or proves the path healthy. Measured pressure still
-     * receives immediate app-level pixel relief after that first window.
+     * held at the pre-motion rung until measured motion pressure satisfies the
+     * existing hysteresis. If motion ends first, the speculative resize is
+     * discarded. Measured pressure still receives app-level pixel relief.
      */
     private var warmStartResizePending = false
     private var preMotionShortEdge = 720
@@ -154,10 +154,10 @@ internal class MotionVideoBudget {
                 shortEdge = 720
             }
             return before != Triple(
-                shortEdge,
-                holdingResolution,
-                warmStartResizePending
-            )
+            shortEdge,
+            holdingResolution,
+            warmStartResizePending
+        )
         }
         holdingResolution = true
         lastMotionAtMs = nowMs
@@ -179,10 +179,10 @@ internal class MotionVideoBudget {
             // Ignore them instead of erasing validated congestion evidence.
             // Expire that evidence on the next complete sample after a long gap.
             return before != Triple(
-                shortEdge,
-                holdingResolution,
-                warmStartResizePending
-            )
+            shortEdge,
+            holdingResolution,
+            warmStartResizePending
+        )
         }
         if (nowMs - lastMeasuredSenderAtMs !in 0L..MAX_SENDER_SAMPLE_GAP_MS) {
             pressureSamples = 0
@@ -592,10 +592,10 @@ internal class MotionVideoBudget {
             }
         }
         return before != Triple(
-                shortEdge,
-                holdingResolution,
-                warmStartResizePending
-            )
+            shortEdge,
+            holdingResolution,
+            warmStartResizePending
+        )
     }
 
     fun apply(profile: CaptureProfile, motionActive: Boolean): CaptureProfile {
