@@ -13,7 +13,7 @@ import org.webrtc.RtpParameters
  */
 internal object RealtimeMediaPolicy {
     const val PLAYOUT_DELAY_MIN_MS = 10
-    const val PLAYOUT_DELAY_MAX_MS = 500
+    const val PLAYOUT_DELAY_MAX_MS = 150
 
     /*
      * Interactive remoting is a single latency-sensitive video stream. DSCP is
@@ -28,12 +28,16 @@ internal object RealtimeMediaPolicy {
      * In pinned libwebrtc M150, min=0 with max<=500 selects RenderTime=0:
      * render as soon as possible, bypassing timestamp-based smoothing. A small
      * positive minimum enables native timing without imposing a 500 ms hold.
-     * The upper bound also accommodates the browser's adaptive 100..500 ms
-     * target, avoiding a receiver minimum greater than the sender maximum.
-     * Both values are best-effort RTP hints, not guaranteed end-to-end latency.
+     * Remote-control video is freshness-sensitive: WebRTC's playout-delay
+     * design explicitly calls out roughly 100/150/200 ms as interactive
+     * streaming ranges, while larger ~400 ms-class windows are appropriate for
+     * non-interactive video smoothing. Keep a tiny 10 ms floor for native
+     * timestamp scheduling, but cap the best-effort receiver residence at
+     * 150 ms so jitter adaptation cannot intentionally preserve half a second
+     * of obsolete screen state after the network recovers.
      */
     const val FIELD_TRIALS =
-        "WebRTC-ForceSendPlayoutDelay/min_ms:10,max_ms:500/"
+        "WebRTC-ForceSendPlayoutDelay/min_ms:10,max_ms:150/"
 
     /*
      * getStats() is diagnostic/adaptation work, not part of the media hot path.
