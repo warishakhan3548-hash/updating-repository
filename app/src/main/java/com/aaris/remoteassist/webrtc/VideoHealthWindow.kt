@@ -12,6 +12,14 @@ data class VideoHealthWindow(
     val freezes: Int?,
     val bitrateBps: Long = 0,
     val sendQueueMs: Double? = null,
+    /**
+     * RTP media payload bytes (excluding retransmissions) divided by the
+     * encoder's cumulative target bytes for this interval. Values above 1.0
+     * mean the encoder emitted more payload than its own target budget.
+     */
+    val encoderOvershootRatio: Double? = null,
+    /** WebRTC huge-frame events in this interval (>=2.5x target frame size). */
+    val hugeFrames: Int? = null,
     /** Fraction of packets in this interval that were retransmissions. */
     val retransmitRatio: Double? = null,
     /** RTCP recovery requests received by the sender during this interval. */
@@ -95,6 +103,10 @@ data class VideoHealthWindow(
         val target = jitterTargetMs?.roundToInt()?.let { " target=${it}ms" }.orEmpty()
         val recovery =
             buildString {
+                encoderOvershootRatio
+                    ?.takeIf { it.isFinite() && it >= 0.0 }
+                    ?.let { append(" enc=${(it * 100.0).roundToInt()}%") }
+                hugeFrames?.let { append(" huge=$it") }
                 retransmitRatio
                     ?.takeIf { it.isFinite() && it >= 0.0 }
                     ?.let { append(" rtx=${(it * 100.0).roundToInt()}%") }
@@ -176,6 +188,39 @@ class VideoHealthWindowTracker {
             } else {
                 null
             }
+        val retransmittedBytes =
+            if (
+                current.retransmittedBytes != null &&
+                old.retransmittedBytes != null
+            ) {
+                (current.retransmittedBytes - old.retransmittedBytes)
+                    .takeIf { it >= 0L && it <= bytes }
+            } else {
+                null
+            }
+        val targetBytes =
+            if (
+                current.encodedBytesTarget != null &&
+                old.encodedBytesTarget != null
+            ) {
+                (current.encodedBytesTarget - old.encodedBytesTarget)
+                    .takeIf { it > 0L }
+            } else {
+                null
+            }
+        val mediaPayloadBytes =
+            when {
+                retransmittedBytes != null -> bytes - retransmittedBytes
+                retransmitted == 0L -> bytes
+                else -> null
+            }
+        val encoderOvershootRatio =
+            if (mediaPayloadBytes != null && targetBytes != null) {
+                (mediaPayloadBytes.toDouble() / targetBytes.toDouble())
+                    .takeIf { it.isFinite() && it in 0.0..20.0 }
+            } else {
+                null
+            }
         val emitted =
             if (
                 current.jitterEmittedCount != null &&
@@ -209,6 +254,12 @@ class VideoHealthWindowTracker {
                         current.sendDelayTotalSeconds,
                         old.sendDelayTotalSeconds,
                         packets
+                    ),
+                encoderOvershootRatio = encoderOvershootRatio,
+                hugeFrames =
+                    recoveryCount(
+                        current.hugeFramesSent,
+                        old.hugeFramesSent
                     ),
                 retransmitRatio = retransmitRatio,
                 nacks =
