@@ -262,6 +262,18 @@ class DisplayCadencePolicyTest {
     }
 
     @Test
+    fun sourceClockStillProtectsCadenceBeforeControllerRefreshArrives() {
+        assertEquals(
+            listOf(60, 30, 24, 20, 15),
+            DisplayCadencePolicy.descending(
+                refreshRateHz = null,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+    }
+
+    @Test
     fun unknownDisplayPreservesLegacyAdaptationExactly() {
         assertEquals(
             listOf(60, 58, 55, 50, 45, 40, 36, 33, 30, 24, 20, 15),
