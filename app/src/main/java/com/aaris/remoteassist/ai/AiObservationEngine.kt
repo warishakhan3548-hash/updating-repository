@@ -207,10 +207,13 @@ class AiObservationEngine internal constructor(
             }
             if (ratio == null || ratio > 0.18) return refused("RESTORED_SCREEN_CHANGED")
         }
-        if (!navigation && action != "tap") {
-            // Coordinate taps use the already-published full screenshot. Re-reading
-            // animated pixels here can falsely reject a perfectly stationary X/file
-            // item. Window, privacy, geometry and semantic identity are still checked.
+        val canvasWithoutTarget = action == "tap" &&
+            issuedMode == AiInteractionMode.DYNAMIC_CANVAS &&
+            tapTargetAtScope(observed, checkNotNull(scope)) == null
+        if (!navigation && (action != "tap" || canvasWithoutTarget)) {
+            // Ordinary coordinate taps never depend on re-reading animated pixels.
+            // A custom-rendered canvas with no semantic target retains a coarse
+            // full-scene guard against complete scene replacement (not minor motion).
             val fresh = freshFrame()
             if (fresh.rotation != rotation || !geometryMatches(fresh, geometry)) return refused("CAPTURE_GEOMETRY_CHANGED")
             val (localChanged, globalChangeRatio) = withContext(Dispatchers.Default) {
@@ -223,16 +226,17 @@ class AiObservationEngine internal constructor(
                 issuedMode != AiInteractionMode.STRICT &&
                 observed.nodes.none { it.editable && it.focused } &&
                 ui.nodes.none { it.editable && it.focused }
-            val semanticTargetPresent = targetAtScope(observed, checkNotNull(scope)) != null || args.has("targetId")
-            val dynamicCanvasCoordinateTap =
-                issuedMode == AiInteractionMode.DYNAMIC_CANVAS && !semanticTargetPresent
-            if (dynamicCanvasCoordinateTap || gestureOnPage) {
-                // Swipes/pinches on content pages can overlap changing text/animation.
-                // Do not make them depend on the exact Accessibility node set or
-                // every pixel in the gesture corridor. A major page change still
-                // rejects the action, as do all window/privacy/geometry guards.
-                val limit = if (gestureOnPage) PAGE_GESTURE_SCENE_CHANGE_LIMIT else DYNAMIC_SCENE_CHANGE_LIMIT
-                if (globalChangeRatio == null || globalChangeRatio > limit) return refused("TARGET_CHANGED")
+            if (action == "tap") {
+                // Canvas-only fallback: a nearly complete scene replacement is
+                // not background animation; never replay an old coordinate there.
+                if (canvasWithoutTarget &&
+                    (globalChangeRatio == null || globalChangeRatio > CANVAS_SCENE_REPLACEMENT_LIMIT)
+                ) return refused("TARGET_CHANGED")
+            } else if (gestureOnPage) {
+                // Swipes and pinches already tolerate moving page content.
+                if (globalChangeRatio == null || globalChangeRatio > PAGE_GESTURE_SCENE_CHANGE_LIMIT) {
+                    return refused("TARGET_CHANGED")
+                }
             } else if (localChanged) {
                 return refused("TARGET_CHANGED")
             }
@@ -485,7 +489,7 @@ class AiObservationEngine internal constructor(
         private const val QUIET_WINDOW_MS = 100L
         private const val MAX_ANIMATED_SETTLE_MS = 220L
         private const val SETTLE_POLL_MS = 40L
-        private const val DYNAMIC_SCENE_CHANGE_LIMIT = 0.42
+        private const val CANVAS_SCENE_REPLACEMENT_LIMIT = 0.90
         private const val PAGE_GESTURE_SCENE_CHANGE_LIMIT = 0.28
     }
 }
