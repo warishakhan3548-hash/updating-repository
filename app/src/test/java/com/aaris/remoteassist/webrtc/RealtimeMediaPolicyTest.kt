@@ -9,18 +9,15 @@ import org.webrtc.RtpParameters
 
 class RealtimeMediaPolicyTest {
     @Test
-    fun remoteControlBoundsNativePlayoutForInteractiveFreshness() {
+    fun remoteControlEnablesNativeTimingWithinTheBrowserRecoveryCeiling() {
         // min=0,max<=500 bypasses timestamp scheduling in pinned M150.
-        // Keep native timing with a tiny positive floor, but do not let the
-        // receiver deliberately accumulate streaming-class stale-frame debt.
         assertEquals(10, RealtimeMediaPolicy.PLAYOUT_DELAY_MIN_MS)
-        assertEquals(150, RealtimeMediaPolicy.PLAYOUT_DELAY_MAX_MS)
-        assertEquals(
-            "WebRTC-ForceSendPlayoutDelay/min_ms:10,max_ms:150/",
-            RealtimeMediaPolicy.FIELD_TRIALS
-        )
         assertTrue(
-            RealtimeMediaPolicy.PLAYOUT_DELAY_MAX_MS <= 200
+            RealtimeMediaPolicy.PLAYOUT_DELAY_MAX_MS in 1..500
+        )
+        assertEquals(
+            "WebRTC-ForceSendPlayoutDelay/min_ms:10,max_ms:500/",
+            RealtimeMediaPolicy.FIELD_TRIALS
         )
     }
 
