@@ -12,6 +12,12 @@ data class VideoHealthWindow(
     val freezes: Int?,
     val bitrateBps: Long = 0,
     val sendQueueMs: Double? = null,
+    /** Fraction of packets in this interval that were retransmissions. */
+    val retransmitRatio: Double? = null,
+    /** RTCP recovery requests received by the sender during this interval. */
+    val nacks: Int? = null,
+    val plis: Int? = null,
+    val keyFrames: Int? = null,
     val presentationIntervalMs: Int? = null,
     val presentedFrames: Int? = null,
     val maxRenderGapMs: Int? = null,
@@ -86,7 +92,16 @@ data class VideoHealthWindow(
             " present=alive age=${it}ms"
         }.orEmpty()
         val target = jitterTargetMs?.roundToInt()?.let { " target=${it}ms" }.orEmpty()
-        return "${fps.roundToInt()}fps ${bitrateBps / 1000}kbps codec=${processingMs?.roundToInt()}ms jitter=${jitterMs?.roundToInt()}ms$target drop=$dropped freeze=$freezes queue=${sendQueueMs?.roundToInt()}ms$presentation"
+        val recovery =
+            buildString {
+                retransmitRatio
+                    ?.takeIf { it.isFinite() && it >= 0.0 }
+                    ?.let { append(" rtx=${(it * 100.0).roundToInt()}%") }
+                nacks?.let { append(" nack=$it") }
+                plis?.let { append(" pli=$it") }
+                keyFrames?.let { append(" key=$it") }
+            }
+        return "${fps.roundToInt()}fps ${bitrateBps / 1000}kbps codec=${processingMs?.roundToInt()}ms jitter=${jitterMs?.roundToInt()}ms$target drop=$dropped freeze=$freezes queue=${sendQueueMs?.roundToInt()}ms$recovery$presentation"
     }
 }
 
@@ -134,6 +149,31 @@ class VideoHealthWindowTracker {
         }
         fun count(total: Long?, before: Long?): Int? = if (total == null || before == null) null else
             (total - before).takeIf { it in 0..2048 }?.toInt()
+        fun recoveryCount(total: Long?, before: Long?): Int? =
+            if (total == null || before == null) {
+                null
+            } else {
+                (total - before)
+                    .takeIf { it in 0..1_000_000 }
+                    ?.toInt()
+            }
+        val retransmitted =
+            if (
+                current.retransmittedPackets != null &&
+                old.retransmittedPackets != null
+            ) {
+                (current.retransmittedPackets - old.retransmittedPackets)
+                    .takeIf { it >= 0L }
+            } else {
+                null
+            }
+        val retransmitRatio =
+            if (retransmitted != null && packets > 0L) {
+                (retransmitted.toDouble() / packets.toDouble())
+                    .takeIf { it.isFinite() && it in 0.0..1.0 }
+            } else {
+                null
+            }
         val emitted =
             if (
                 current.jitterEmittedCount != null &&
@@ -167,6 +207,22 @@ class VideoHealthWindowTracker {
                         current.sendDelayTotalSeconds,
                         old.sendDelayTotalSeconds,
                         packets
+                    ),
+                retransmitRatio = retransmitRatio,
+                nacks =
+                    recoveryCount(
+                        current.nackCount,
+                        old.nackCount
+                    ),
+                plis =
+                    recoveryCount(
+                        current.pliCount,
+                        old.pliCount
+                    ),
+                keyFrames =
+                    recoveryCount(
+                        current.keyFrameCount,
+                        old.keyFrameCount
                     ),
                 jitterTargetMs =
                     average(
