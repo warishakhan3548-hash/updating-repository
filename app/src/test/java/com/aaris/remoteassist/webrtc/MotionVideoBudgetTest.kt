@@ -126,6 +126,12 @@ class MotionVideoBudgetTest {
          * not expose.
          */
         assertEquals(nativeProfile, budget.apply(nativeProfile, true))
+        // The speculative 360 control budget must not hard-cut rate control
+        // while the encoder is still consuming native 1080x2400 frames.
+        assertEquals(
+            10_000_000,
+            budget.bitrateCeiling(nativeProfile, true, targetFps = 60)
+        )
 
         assertTrue(
             budget.observe(
@@ -193,24 +199,32 @@ class MotionVideoBudgetTest {
         val relieved = budget.apply(nativeProfile, true)
         assertEquals(240, relieved.captureWidthPx)
         assertEquals(532, relieved.captureHeightPx)
+        // Once pressure has committed the source rung, rate control may tighten
+        // in the same operating point instead of leading geometry speculatively.
+        assertEquals(
+            1_000_000,
+            budget.bitrateCeiling(nativeProfile, true, targetFps = 60)
+        )
     }
 
-    @Test fun newMotionWarmStartCapsBitrateWithoutTouchDownSourceResize() {
+    @Test fun newMotionWarmStartKeepsBitrateAlignedWithCommittedSourceGeometry() {
         val budget = MotionVideoBudget()
 
         assertTrue(budget.primeForMotion(profile, 1_000L))
         assertEquals(360, budget.shortEdge)
         // The predictive rung is control-plane only until a complete moving
-        // window proves pressure. Touch-down must keep the running source shape.
+        // window proves pressure. Touch-down keeps both the running source
+        // shape and its matching sender ceiling; GCC still owns the actual rate.
         assertEquals(profile, budget.apply(profile, true))
         assertEquals(30, budget.cadenceFloor(profile, true, 1_000L))
-        assertEquals(900_000, budget.bitrateCeiling(profile, true))
+        assertEquals(3_000_000, budget.bitrateCeiling(profile, true))
 
         // Repeated motion pulses refresh the hold but never keep knocking a
         // stream down after its first warm-start decision.
         assertFalse(budget.primeForMotion(profile, 1_500L))
         assertEquals(360, budget.shortEdge)
         assertEquals(profile, budget.apply(profile, true))
+        assertEquals(3_000_000, budget.bitrateCeiling(profile, true))
     }
 
     @Test fun measuredMotionPressureCommitsOneDirectPixelReliefStep() {
@@ -850,8 +864,10 @@ class MotionVideoBudgetTest {
     @Test fun sixtyFpsBandwidthPredictionUsesPixelRateNotThirtyFpsRung() {
         val sixty = MotionVideoBudget()
         assertTrue(sixty.primeForMotion(profile, 0L))
+        // Prediction may use the speculative 360 rung, but the RTP ceiling
+        // stays aligned with the still-committed 720-wide source.
         assertEquals(
-            1_800_000,
+            3_000_000,
             sixty.bitrateCeiling(profile, true, targetFps = 60)
         )
         val path =
@@ -898,7 +914,7 @@ class MotionVideoBudgetTest {
         val thirty = MotionVideoBudget()
         assertTrue(thirty.primeForMotion(profile, 0L))
         assertEquals(
-            900_000,
+            3_000_000,
             thirty.bitrateCeiling(profile, true, targetFps = 30)
         )
         val thirtyPath =
