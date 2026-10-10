@@ -154,4 +154,81 @@ class VideoHealthMetricsTest {
         )
         assertEquals("b", snapshot.streamId)
     }
+
+    @Test fun outboundRecoveryCountersBecomeIntervalRepairEvidence() {
+        fun outbound(
+            timestampUs: Long,
+            packetsSent: Long,
+            retransmittedPacketsSent: Long,
+            nackCount: Long,
+            pliCount: Long,
+            keyFramesEncoded: Long,
+            framesEncoded: Long
+        ): VideoHealthSnapshot {
+            val item =
+                stat(
+                    "video",
+                    "outbound-rtp",
+                    "kind" to "video",
+                    "bytesSent" to packetsSent * 1_000,
+                    "packetsSent" to packetsSent,
+                    "framesEncoded" to framesEncoded,
+                    "framesSent" to framesEncoded,
+                    "totalEncodeTime" to framesEncoded * 0.005,
+                    "totalPacketSendDelay" to packetsSent * 0.002,
+                    "retransmittedPacketsSent" to retransmittedPacketsSent,
+                    "nackCount" to nackCount,
+                    "pliCount" to pliCount,
+                    "keyFramesEncoded" to keyFramesEncoded
+                )
+            return checkNotNull(
+                VideoHealthSnapshot.from(
+                    RTCStatsReport(
+                        timestampUs,
+                        mapOf("video" to item)
+                    ),
+                    PeerRole.HOST
+                )
+            )
+        }
+
+        val tracker = VideoHealthWindowTracker()
+        val first =
+            outbound(
+                timestampUs = 1_000_000L,
+                packetsSent = 100,
+                retransmittedPacketsSent = 5,
+                nackCount = 1,
+                pliCount = 0,
+                keyFramesEncoded = 1,
+                framesEncoded = 20
+            )
+        assertEquals(5L, first.retransmittedPackets)
+        assertEquals(1L, first.nackCount)
+        assertEquals(0L, first.pliCount)
+        assertEquals(1L, first.keyFrameCount)
+        tracker.sample(first)
+
+        val recent =
+            checkNotNull(
+                tracker.sample(
+                    outbound(
+                        timestampUs = 2_000_000L,
+                        packetsSent = 200,
+                        retransmittedPacketsSent = 15,
+                        nackCount = 4,
+                        pliCount = 1,
+                        keyFramesEncoded = 2,
+                        framesEncoded = 50
+                    )
+                ).recent
+            )
+
+        // packetsSent includes retransmissions, so 10 recovered packets out of
+        // 100 sent packets is a 10% repair share for this stats window.
+        assertEquals(0.10, checkNotNull(recent.retransmitRatio), 0.0001)
+        assertEquals(3, recent.nacks)
+        assertEquals(1, recent.plis)
+        assertEquals(1, recent.keyFrames)
+    }
 }
