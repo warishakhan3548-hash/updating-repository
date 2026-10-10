@@ -11,7 +11,8 @@ class PhotonFreshnessGovernorTest {
         loss: Double = 0.0,
         retransmitRatio: Double? = 0.0,
         nacks: Int? = 0,
-        plis: Int? = 0
+        plis: Int? = 0,
+        firs: Int? = 0
     ) =
         VideoHealthSnapshot(
             direction = "outbound",
@@ -37,7 +38,8 @@ class PhotonFreshnessGovernorTest {
                     sendQueueMs = queueMs,
                     retransmitRatio = retransmitRatio,
                     nacks = nacks,
-                    plis = plis
+                    plis = plis,
+                    firs = firs
                 )
         )
 
@@ -219,6 +221,26 @@ class PhotonFreshnessGovernorTest {
         assertEquals(PhotonFreshnessState.WATCH, p.state)
         assertEquals(0, p.cleanGlassWindows)
         assertFalse(p.allowCadencePromotion)
+    }
+
+    @Test
+    fun fullIntraRequestBlocksPromotionLikePictureLossIndication() {
+        val g = PhotonFreshnessGovernor()
+        g.observe(outbound(), receiver(), 60, false, 1_000)
+
+        val p =
+            g.observe(
+                outbound(firs = 1),
+                receiver(),
+                60,
+                false,
+                2_000
+            )
+
+        assertEquals(PhotonFreshnessState.WATCH, p.state)
+        assertEquals(0, p.cleanGlassWindows)
+        assertFalse(p.allowCadencePromotion)
+        assertFalse(p.allowResolutionRecovery)
     }
 
     @Test
