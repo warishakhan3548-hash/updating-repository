@@ -1143,6 +1143,111 @@ class MotionVideoBudgetTest {
         assertEquals(540, budget.shortEdge)
     }
 
+    @Test fun strongEndToEndHeadroomRecoversClarityWithoutTwelveSecondBlur() {
+        val budget = MotionVideoBudget()
+        val collapse = sender(6, 53.0, 585.0, "libvpx")
+
+        // Commit an actual source/sender downshift to 360px.
+        assertTrue(budget.observe(collapse, null, 30.0, true, 30, 1_000L))
+        assertEquals(540, budget.shortEdge)
+        assertTrue(budget.observe(collapse, null, 30.0, true, 30, 4_000L))
+        assertEquals(360, budget.shortEdge)
+        assertEquals(360, budget.apply(profile, true).captureWidthPx)
+
+        val recovered =
+            sender().copy(
+                availableOutgoingBitrateBps = 5_000_000.0
+            )
+
+        // Three consecutive clean end-to-end windows restore readable 540px.
+        repeat(2) { index ->
+            budget.observe(
+                outbound = recovered,
+                receiver = receiver(),
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = 5_000L + index * 1_000L
+            )
+        }
+        assertEquals(360, budget.shortEdge)
+        budget.observe(
+            outbound = recovered,
+            receiver = receiver(),
+            sourceFps = 30.0,
+            motionActive = true,
+            targetFps = 30,
+            nowMs = 7_000L
+        )
+        assertEquals(540, budget.shortEdge)
+
+        // Native resolution is a more expensive probe: five fresh windows and
+        // a five-second settle are required for the final 720px upshift.
+        repeat(4) { index ->
+            budget.observe(
+                outbound = recovered,
+                receiver = receiver(),
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = 8_000L + index * 1_000L
+            )
+        }
+        assertEquals(540, budget.shortEdge)
+        budget.observe(
+            outbound = recovered,
+            receiver = receiver(),
+            sourceFps = 30.0,
+            motionActive = true,
+            targetFps = 30,
+            nowMs = 12_000L
+        )
+        assertEquals(720, budget.shortEdge)
+    }
+
+    @Test fun fastClarityRecoveryRequiresControllerGlassAndRealBweHeadroom() {
+        val budget = MotionVideoBudget()
+        val collapse = sender(6, 53.0, 585.0, "libvpx")
+        budget.observe(collapse, null, 30.0, true, 30, 1_000L)
+        budget.observe(collapse, null, 30.0, true, 30, 4_000L)
+        assertEquals(360, budget.shortEdge)
+
+        val strongSender =
+            sender().copy(
+                availableOutgoingBitrateBps = 5_000_000.0
+            )
+
+        // Sender-only health is insufficient. Fast recovery requires the
+        // controller to prove decode + jitter + actual presentation health.
+        repeat(5) { index ->
+            budget.observe(
+                outbound = strongSender,
+                receiver = null,
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = 5_000L + index * 1_000L
+            )
+        }
+        assertEquals(360, budget.shortEdge)
+
+        val insufficientHeadroom =
+            sender().copy(
+                availableOutgoingBitrateBps = 2_200_000.0
+            )
+        repeat(5) { index ->
+            budget.observe(
+                outbound = insufficientHeadroom,
+                receiver = receiver(),
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = 10_000L + index * 1_000L
+            )
+        }
+        assertEquals(360, budget.shortEdge)
+    }
+
     @Test fun networkDelayAloneCannotUseTheEmergencyCodecResolution() {
         val budget = MotionVideoBudget()
         repeat(20) { budget.observe(sender(queue = 160.0), receiver(), 30.0, true, 30, 1_000L + it * 1_000) }
