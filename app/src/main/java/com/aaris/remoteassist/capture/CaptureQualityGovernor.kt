@@ -43,12 +43,17 @@ class CaptureQualityGovernor(
     ): CaptureTier? {
         // RTCP loss/RTT and quality-limitation labels can outlive the last
         // moving frame. A quiet source cannot prove that lowering its pixels
-        // would relieve the current path. Require a populated outbound window
-        // before those signals may downshift a tier. Null preserves behavior
-        // for callers without RTP deltas; measured local pressure still acts.
+        // would relieve the current path, nor should stale remote-only values
+        // pin it to a blurry tier. Require a populated outbound window before
+        // those signals may downshift or block recovery. Null preserves the
+        // behavior of callers without RTP deltas; measured local pressure
+        // remains authoritative in every window.
         val networkPressureEligible =
             outboundFrameCount == null ||
                 outboundFrameCount >= MIN_NETWORK_EVIDENCE_FRAMES
+        val quietSourceWindow =
+            outboundFrameCount != null &&
+                !networkPressureEligible
         val normalizedReason =
             reason?.trim()?.lowercase()
         val normalizedRtt =
@@ -95,6 +100,22 @@ class CaptureQualityGovernor(
                 requestedFps = requestedFps
             )
 
+        // This is deliberately not a claim that the network is healthy. It is
+        // evidence that remote-only pressure cannot be attributed to the
+        // current (static) pixel workload. Slowly restore capture detail while
+        // idle; the first populated interval re-enables normal RTT/loss/CPU
+        // protection before it can trigger another tier decision.
+        val quietSourceRecoveryEvidence =
+            quietSourceWindow &&
+                !localPipelinePressure &&
+                when (normalizedReason) {
+                    null,
+                    "none",
+                    "bandwidth",
+                    "cpu" -> true
+                    else -> false
+                }
+
         val pressuredLoss =
             normalizedLoss
                 ?.let { it >= PRESSURE_PACKET_LOSS_RATIO }
@@ -125,7 +146,8 @@ class CaptureQualityGovernor(
                 hasTransportTelemetry &&
                 transportHealthy
         val healthyBandwidth =
-            bandwidthPressure &&
+            networkPressureEligible &&
+                bandwidthPressure &&
                 hasTransportTelemetry &&
                 transportHealthy
 
@@ -230,7 +252,9 @@ class CaptureQualityGovernor(
                 }
             }
 
-            explicitHealthy || inferredHealthy -> {
+            quietSourceRecoveryEvidence ||
+                explicitHealthy ||
+                inferredHealthy -> {
                 localPipelinePressureSamples = 0
                 resetPressureCounters()
                 bandwidthProbeSamples = 0
