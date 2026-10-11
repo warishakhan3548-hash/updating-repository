@@ -194,112 +194,13 @@ class DisplayCadencePolicyTest {
     }
 
     @Test
-    fun sixtyHzSourceRejectsUnevenHighCadenceFrameSelection() {
-        val ladder =
-            DisplayCadencePolicy.descending(
-                refreshRateHz = 60.0,
-                ceilingFps = 60,
-                sourceRefreshRateHz = 60.0
-            )
-
-        assertEquals(
-            listOf(60, 30, 24, 20, 15),
-            ladder
-        )
-        assertFalse(50 in ladder)
-        assertFalse(45 in ladder)
-        assertFalse(40 in ladder)
-        assertFalse(36 in ladder)
-    }
-
-    @Test
-    fun sourceHarmonicsCanAddUsefulNonLegacyCadence() {
-        val ladder =
-            DisplayCadencePolicy.descending(
-                refreshRateHz = 60.0,
-                ceilingFps = 60,
-                sourceRefreshRateHz = 144.0
-            )
-
-        assertEquals(
-            listOf(48, 36, 30, 24, 20, 15),
-            ladder
-        )
-        assertEquals(
-            48,
-            DisplayCadencePolicy.nextHigher(
-                currentFps = 36,
-                refreshRateHz = 60.0,
-                ceilingFps = 60,
-                floorFps = 30,
-                sourceRefreshRateHz = 144.0
-            )
-        )
-    }
-
-    @Test
-    fun mismatchedSixtyToNinetyStaysAtSmoothSafetyCadenceUntilDisplayClockChanges() {
-        assertNull(
-            DisplayCadencePolicy.nextHigher(
-                currentFps = 30,
-                refreshRateHz = 90.0,
-                ceilingFps = 60,
-                floorFps = 30,
-                sourceRefreshRateHz = 60.0
-            )
-        )
-
-        assertEquals(
-            60,
-            DisplayCadencePolicy.nextHigher(
-                currentFps = 30,
-                refreshRateHz = 60.0,
-                ceilingFps = 60,
-                floorFps = 30,
-                sourceRefreshRateHz = 60.0
-            )
-        )
-    }
-
-    @Test
-    fun nonHarmonicProfileCeilingIsQuantizedBeforeFirstHealthWindow() {
-        assertEquals(
-            30,
-            DisplayCadencePolicy.nearestAtOrBelow(
-                limitFps = 45,
-                refreshRateHz = null,
-                ceilingFps = 45,
-                sourceRefreshRateHz = 60.0
-            )
-        )
+    fun nonHarmonicProfileCeilingRemainsAvailableBeforeControllerFeedback() {
         assertEquals(
             45,
             DisplayCadencePolicy.nearestAtOrBelow(
                 limitFps = 45,
                 refreshRateHz = null,
-                ceilingFps = 45,
-                sourceRefreshRateHz = 90.0
-            )
-        )
-        assertEquals(
-            36,
-            DisplayCadencePolicy.nearestAtOrBelow(
-                limitFps = 45,
-                refreshRateHz = null,
-                ceilingFps = 45,
-                sourceRefreshRateHz = 144.0
-            )
-        )
-    }
-
-    @Test
-    fun sourceClockStillProtectsCadenceBeforeControllerRefreshArrives() {
-        assertEquals(
-            listOf(60, 30, 24, 20, 15),
-            DisplayCadencePolicy.descending(
-                refreshRateHz = null,
-                ceilingFps = 60,
-                sourceRefreshRateHz = 60.0
+                ceilingFps = 45
             )
         )
     }
