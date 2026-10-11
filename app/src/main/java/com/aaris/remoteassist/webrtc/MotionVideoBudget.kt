@@ -575,8 +575,16 @@ internal class MotionVideoBudget {
                     ?.let { it >= RTP_BURST_RETRANSMIT_RATIO } == true ||
                 nackRatePerSecond
                     ?.let { it >= RTP_BURST_NACK_RATE_PER_SECOND } == true
+        /*
+         * A spatial transition can itself force an H.264/VP8 key frame. Do not
+         * feed that expected transition burst straight back into another resize.
+         * Other queue/loss/decode alarms remain active during this guard.
+         */
+        val rtpBurstWindowEligible =
+            nowMs - changedAtMs >= RTP_BURST_POST_SPATIAL_GUARD_MS
         val rtpBurstPressure =
             motionEvidence &&
+                rtpBurstWindowEligible &&
                 (sender.hugeFrames ?: 0) > 0 &&
                 repairPressure
 
@@ -1105,6 +1113,7 @@ internal class MotionVideoBudget {
         const val RTP_BURST_RETRANSMIT_RATIO = 0.08
         const val RTP_BURST_NACK_RATE_PER_SECOND = 2.0
         const val RTP_BURST_FAST_SETTLE_MS = 1_000L
+        const val RTP_BURST_POST_SPATIAL_GUARD_MS = 3_000L
 
         /*
          * Rising media residence is predictive, not an emergency. Scale both
