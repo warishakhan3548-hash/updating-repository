@@ -4,6 +4,8 @@ package com.aaris.remoteassist.capture
 internal class CaptureRefreshPolicy {
     private var lastSampleAtMs: Long? = null
     private var lastRequestAtMs: Long? = null
+    // An idle heartbeat is not evidence that a post-touch screen update was sampled.
+    private var lastInteractionRequestAtMs: Long? = null
     private var interactionAppliedAtMs: Long? = null
     private var sampleGeneration = 0L
     private var lastTextureTimestampNs: Long? = null
@@ -87,7 +89,11 @@ internal class CaptureRefreshPolicy {
         }
         if (nowMs - appliedAt < INTERACTION_GRACE_MS) return false
 
-        val previousRequest = lastRequestAtMs
+        // The periodic idle heartbeat may fire between an applied gesture and
+        // this display-tick probe, while still sampling the OLD compositor
+        // texture. It must not cancel the gesture's one causal freshness pull.
+        // Only another explicit interaction pull can satisfy this guard.
+        val previousRequest = lastInteractionRequestAtMs
         if (previousRequest != null && previousRequest >= appliedAt) {
             interactionAppliedAtMs = null
             interactionSampleGeneration = null
@@ -95,6 +101,7 @@ internal class CaptureRefreshPolicy {
         }
 
         lastRequestAtMs = nowMs
+        lastInteractionRequestAtMs = nowMs
         interactionAppliedAtMs = null
         interactionSampleGeneration = null
         return true
