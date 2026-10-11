@@ -157,6 +157,7 @@ internal class MotionVideoBudget {
         allowResolutionRecovery: Boolean = true,
         sourceMaxGapMs: Double? = null,
         sourceMotionActive: Boolean = false,
+        interactionCaptureStarved: Boolean = false,
         canResizeProducerSurface: Boolean = false
     ): Boolean {
         val before = Triple(
@@ -315,20 +316,52 @@ internal class MotionVideoBudget {
                 MIN_PRODUCER_STALL_GAP_MS,
                 frameMs * PRODUCER_STALL_FRAME_MULTIPLIER
             )
+        /*
+         * PassiveMotionPriority normally proves source motion from >=8 fps
+         * natural producer cadence. That proof becomes circular when the
+         * MediaProjection producer is already cold-stalled at 2-6 fps: the
+         * starvation detector cannot enter because the signal it waits for is
+         * itself suppressed by starvation.
+         *
+         * Applied-input capture probes break that cycle. Repeated forced pulls
+         * mean no newer natural texture arrived by the next display opportunity.
+         * Combine that causal proof with at least a small amount of genuine
+         * producer activity so a completely static form (0-1 fps) still cannot
+         * masquerade as a resize-worthy capture failure.
+         */
+        val causalInteractionMotionEvidence =
+            interactionActive &&
+                interactionCaptureStarved &&
+                measuredSourceFps?.let {
+                    it >= MIN_CAUSAL_INTERACTION_SOURCE_FPS
+                } == true
+        val producerMotionEvidence =
+            sourceMotionActive ||
+                causalInteractionMotionEvidence
         val producerStarvationPressure =
             canResizeProducerSurface &&
-                sourceMotionActive &&
+                producerMotionEvidence &&
                 (
                     measuredSourceFps?.let {
-                        it >= MIN_PRODUCER_STARVATION_FPS &&
+                        it >= MIN_CAUSAL_INTERACTION_SOURCE_FPS &&
                             it < MIN_MOVING_SOURCE_FPS
                     } == true ||
                         measuredSourceMaxGapMs?.let {
                             it >= producerGapThresholdMs
                         } == true
                     )
+
+        /*
+         * Preserve the existing one-window emergency path only for ordinary
+         * natural-motion proof. Causal cold-start proof already requires
+         * repeated post-input misses, but it still waits for two complete
+         * WebRTC health windows before changing VirtualDisplay geometry. That
+         * prevents a short tap on a low-motion screen from paying a codec
+         * reconfiguration.
+         */
         val severeProducerStarvation =
             producerStarvationPressure &&
+                sourceMotionActive &&
                 (
                     measuredSourceFps?.let {
                         it in 0.0..SEVERE_PRODUCER_STARVATION_FPS
@@ -1034,6 +1067,13 @@ internal class MotionVideoBudget {
         // never qualifies, while the observed 2-6 fps collapse and >140 ms
         // producer gaps do.
         const val MIN_PRODUCER_STARVATION_FPS = 2.5
+        /*
+         * Cold interaction bootstrap is allowed slightly below the passive
+         * motion hold threshold because the independent post-input probe has
+         * already proven that fresh pixels were expected. Keep this above the
+         * common 0-1 fps static/blink region.
+         */
+        const val MIN_CAUSAL_INTERACTION_SOURCE_FPS = 1.5
         const val SEVERE_PRODUCER_STARVATION_FPS = 6.0
         const val MIN_PRODUCER_STALL_GAP_MS = 140.0
         const val SEVERE_PRODUCER_STALL_GAP_MS = 250.0
