@@ -60,10 +60,13 @@ internal class ScreenEncoderPerformance private constructor(
                 )
             }
 
+        // A concrete encoder identity must never share the startup/unknown
+        // cache entry. Otherwise a faster unrelated hardware component may
+        // lend its supported FPS to a software or vendor-fallback encoder.
         val scopeName =
-            exactImplementation
-                ?.implementationName
-                ?.lowercase()
+            exactImplementation?.implementationName?.lowercase()
+                ?: implementationName?.trim()?.lowercase()
+                    ?.takeIf(String::isNotBlank)
         val key =
             LimitKey(
                 width = safeWidth,
@@ -74,23 +77,31 @@ internal class ScreenEncoderPerformance private constructor(
         knownLimits[key]?.let { return it }
         if (unknownSizes.contains(key)) return null
 
+        val unknownComponentCeiling =
+            conservativeCeilingForUnrecognizedImplementation(
+                activeImplementation = implementationName,
+                advertisedHardwareImplementations =
+                    capabilities.map { it.implementationName }
+            )
         val measured =
-            if (exactImplementation != null) {
-                realtimeLimit(
-                    exactImplementation.video,
-                    safeWidth,
-                    safeHeight
-                )
-            } else {
-                capabilities
-                    .mapNotNull {
-                        realtimeLimit(
-                            it.video,
-                            safeWidth,
-                            safeHeight
-                        )
-                    }
-                    .maxOrNull()
+            when {
+                exactImplementation != null ->
+                    realtimeLimit(
+                        exactImplementation.video,
+                        safeWidth,
+                        safeHeight
+                    )
+                unknownComponentCeiling != null -> unknownComponentCeiling
+                else ->
+                    capabilities
+                        .mapNotNull {
+                            realtimeLimit(
+                                it.video,
+                                safeWidth,
+                                safeHeight
+                            )
+                        }
+                        .maxOrNull()
             }
 
         if (measured == null) {
@@ -154,6 +165,37 @@ internal class ScreenEncoderPerformance private constructor(
         private const val H264_MIME = "video/avc"
         private const val VP8_MIME = "video/x-vnd.on2.vp8"
         private const val MIN_REALTIME_FPS = 15
+
+        /*
+         * A reported active encoder that is absent from the hardware
+         * capability list may be a software fallback or an unrecognized vendor
+         * component. Its performance has not been validated. Start with a
+         * modest 30 fps ceiling rather than assigning another component's
+         * 45/60 fps performance guarantee. Ordinary live telemetry can still
+         * lower source load, and a later recognized codec identity gets its
+         * own measured capability immediately.
+         */
+        private const val UNKNOWN_COMPONENT_FPS_CEILING = 30
+
+        internal fun conservativeCeilingForUnrecognizedImplementation(
+            activeImplementation: String?,
+            advertisedHardwareImplementations: Collection<String>
+        ): Int? {
+            val active =
+                activeImplementation
+                    ?.trim()
+                    ?.takeIf(String::isNotBlank)
+                    ?: return null
+            return if (
+                advertisedHardwareImplementations.any {
+                    implementationMatches(it, active)
+                }
+            ) {
+                null
+            } else {
+                UNKNOWN_COMPONENT_FPS_CEILING
+            }
+        }
 
         /*
          * These are source ceilings, not a display pacing ladder. The renderer
