@@ -18,8 +18,9 @@ import java.util.LinkedHashSet;
 
 /**
  * A WebRTC-compatible decoder factory that preserves the stock hardware-first
- * + software-fallback behavior while enabling Android's official low-latency
- * MediaCodec mode on hardware decoders that explicitly advertise support.
+ * + software-fallback behavior while applying Android's realtime codec priority
+ * to hardware decoders and enabling the official low-latency MediaCodec mode
+ * when the selected decoder explicitly advertises support.
  *
  * <p>This class intentionally lives in org.webrtc because the pinned WebRTC
  * Android SDK keeps AndroidVideoDecoder and MediaCodecWrapper package-private.
@@ -207,9 +208,39 @@ public final class AarisLowLatencyVideoDecoderFactory implements VideoDecoderFac
   }
 
   /**
-   * Creates the exact MediaCodec requested by WebRTC. The low-latency bit is
-   * immutable for this decoder instance and is decided from that codec's
-   * advertised capability before AndroidVideoDecoder starts.
+   * Apply only public Android resource-planning hints at WebRTC's existing
+   * decoder configure seam.
+   *
+   * <p>Priority 0 is available from API 23 and tells MediaCodec that best-effort
+   * throughput is not sufficient for this realtime communication workload. The
+   * low-latency flag remains capability-gated because Android exposes it only
+   * for decoders that explicitly advertise FEATURE_LowLatency on API 30+.</p>
+   */
+  static void applyRealtimeHints(
+      MediaFormat format,
+      int flags,
+      boolean lowLatencySupported) {
+    if ((flags & MediaCodec.CONFIGURE_FLAG_ENCODE) != 0) {
+      return;
+    }
+
+    // minSdk is 26. Unlike KEY_LOW_LATENCY, KEY_PRIORITY applies to codec
+    // resource planning even on older controller phones.
+    format.setInteger(MediaFormat.KEY_PRIORITY, 0);
+
+    if (
+        lowLatencySupported &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+    ) {
+      LowLatencyCapability.Api30.enable(format);
+    }
+  }
+
+  /**
+   * Creates the exact MediaCodec requested by WebRTC. Realtime priority applies
+   * to every selected hardware decoder; the low-latency bit is immutable for
+   * this decoder instance and is decided from that codec's advertised
+   * capability before AndroidVideoDecoder starts.
    */
   private static final class LowLatencyMediaCodecWrapperFactory
       implements MediaCodecWrapperFactory {
@@ -254,19 +285,24 @@ public final class AarisLowLatencyVideoDecoderFactory implements VideoDecoderFac
         Surface surface,
         MediaCrypto crypto,
         int flags) {
-      if (
-          flags == 0 &&
-          lowLatencySupported &&
-          Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
-      ) {
-        LowLatencyCapability.Api30.enable(format);
+      applyRealtimeHints(
+          format,
+          flags,
+          lowLatencySupported);
+
+      if ((flags & MediaCodec.CONFIGURE_FLAG_ENCODE) == 0) {
         Logging.d(
             TAG,
-            "Android low-latency decode enabled for "
+            "Android realtime decode priority enabled for "
                 + codec.getName()
                 + " "
-                + mimeType);
+                + mimeType
+                + (lowLatencySupported
+                    && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                    ? " + low-latency"
+                    : ""));
       }
+
       codec.configure(format, surface, crypto, flags);
     }
 
