@@ -191,41 +191,6 @@ internal object DisplayCadencePolicy {
         ).firstOrNull { it <= limitFps }
             ?: minOf(limitFps.coerceAtLeast(1), HIGH_CADENCE_MIN_FPS - 1)
 
-    /**
-     * RenderSynchronizer is a display-vsync gate, not a producer FPS request.
-     *
-     * Keep its target at least as fast as every refresh mode the controller can
-     * enter during the session. The screen stream itself is still capped at
-     * PRODUCT_MAX_FPS, while EglRenderer keeps one latest-wins pending frame.
-     * This prevents a fixed 60 fps RenderSynchronizer from becoming a second,
-     * independent pacing clock on 90/120/144/165 Hz panels.
-     */
-    fun renderSynchronizerTargetFps(
-        activeRefreshRateHz: Double?,
-        maximumSupportedRefreshRateHz: Double? = null
-    ): Float {
-        val active =
-            activeRefreshRateHz
-                ?.takeIf {
-                    it.isFinite() &&
-                        it in MIN_REFRESH_HZ..MAX_REFRESH_HZ
-                }
-        val supported =
-            maximumSupportedRefreshRateHz
-                ?.takeIf {
-                    it.isFinite() &&
-                        it in MIN_REFRESH_HZ..MAX_REFRESH_HZ
-                }
-
-        return maxOf(
-            PRODUCT_MAX_FPS.toDouble(),
-            active ?: 0.0,
-            supported ?: 0.0
-        )
-            .coerceAtMost(MAX_REFRESH_HZ)
-            .toFloat()
-    }
-
     private fun harmonicPromotionCeiling(
         refreshHz: Int,
         ceilingFps: Int
