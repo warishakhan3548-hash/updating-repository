@@ -113,6 +113,67 @@ class PhotonFreshnessGovernorTest {
     }
 
     @Test
+    fun retainedGlassCannotAuthorizeRepeatedCadencePromotion() {
+        val governor = PhotonFreshnessGovernor()
+        val first = governor.observe(
+            outbound(), receiver().copy(presentationSampleSequence = 10),
+            60, false, 1_000
+        )
+        assertFalse(first.allowCadencePromotion)
+
+        val proven = governor.observe(
+            outbound(), receiver().copy(presentationSampleSequence = 11),
+            60, false, 1_500
+        )
+        assertTrue(proven.allowCadencePromotion)
+
+        // A new decoder/getStats() interval is not a new displayed frame
+        // window. Do not reuse the same healthy EGL window for another upshift.
+        val retained = receiver(sampleFresh = false).copy(
+            presentationSampleSequence = 11,
+            presentationSampleAgeMs = 450
+        )
+        val held = governor.observe(outbound(), retained, 60, false, 2_000)
+        assertEquals(2, held.cleanGlassWindows)
+        assertFalse(held.allowCadencePromotion)
+        assertFalse(held.allowResolutionRecovery)
+
+        // The next genuinely fresh window preserves the clean history and
+        // allows the existing cadence governor to evaluate a safe new probe.
+        val recovered = governor.observe(
+            outbound(), receiver().copy(presentationSampleSequence = 12),
+            60, false, 2_500
+        )
+        assertTrue(recovered.allowCadencePromotion)
+    }
+
+    @Test
+    fun retainedGlassCannotAuthorizeResolutionRecoveryAfterFourCleanWindows() {
+        val governor = PhotonFreshnessGovernor()
+        var fresh: PhotonPolicy? = null
+        repeat(4) { index ->
+            fresh = governor.observe(
+                outbound(),
+                receiver().copy(presentationSampleSequence = 20L + index),
+                60, false, 1_000L + index * 500L
+            )
+        }
+        assertTrue(checkNotNull(fresh).allowResolutionRecovery)
+
+        val held = governor.observe(
+            outbound(),
+            receiver(sampleFresh = false).copy(
+                presentationSampleSequence = 23,
+                presentationSampleAgeMs = 500
+            ),
+            60, false, 3_000
+        )
+        assertEquals(4, held.cleanGlassWindows)
+        assertFalse(held.allowCadencePromotion)
+        assertFalse(held.allowResolutionRecovery)
+    }
+
+    @Test
     fun slowCommandAckWithFastPostAckGlassDoesNotPunishVideo() {
         val g = PhotonFreshnessGovernor()
         val r = receiver(postAckMs = 20, ackMs = 320)
