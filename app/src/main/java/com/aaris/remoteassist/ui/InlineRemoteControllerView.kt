@@ -1542,17 +1542,35 @@ class InlineRemoteControllerView(
         if (!surface.isValid) return
 
         runCatching {
+            /*
+             * Android 16 adds an explicit interactive-UI contract: AT_LEAST
+             * asks SurfaceFlinger not to select a presentation clock below the
+             * requested rate. Remote control is scrolling/animation driven, so
+             * a stable >=60 Hz glass clock is preferable to matching a
+             * temporarily reduced network cadence. Older releases retain
+             * DEFAULT compatibility because AT_LEAST does not exist there.
+             */
+            val compatibility =
+                if (
+                    Build.VERSION.SDK_INT >=
+                    Build.VERSION_CODES.BAKLAVA
+                ) {
+                    Surface.FRAME_RATE_COMPATIBILITY_AT_LEAST
+                } else {
+                    Surface.FRAME_RATE_COMPATIBILITY_DEFAULT
+                }
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 surface.setFrameRate(
                     fps.toFloat(),
-                    Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
+                    compatibility,
                     Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS
                 )
             } else {
                 @Suppress("DEPRECATION")
                 surface.setFrameRate(
                     fps.toFloat(),
-                    Surface.FRAME_RATE_COMPATIBILITY_DEFAULT
+                    compatibility
                 )
             }
         }
