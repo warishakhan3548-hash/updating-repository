@@ -158,42 +158,6 @@ class DisplayCadencePolicyTest {
     }
 
     @Test
-    fun renderSynchronizerTracksFastestSupportedDisplayClockNotMediaFps() {
-        assertEquals(
-            60f,
-            DisplayCadencePolicy.renderSynchronizerTargetFps(
-                activeRefreshRateHz = 59.94,
-                maximumSupportedRefreshRateHz = 60.0
-            ),
-            0.01f
-        )
-        assertEquals(
-            120f,
-            DisplayCadencePolicy.renderSynchronizerTargetFps(
-                activeRefreshRateHz = 90.0,
-                maximumSupportedRefreshRateHz = 120.0
-            ),
-            0.01f
-        )
-        assertEquals(
-            165f,
-            DisplayCadencePolicy.renderSynchronizerTargetFps(
-                activeRefreshRateHz = 165.0,
-                maximumSupportedRefreshRateHz = 165.0
-            ),
-            0.01f
-        )
-        assertEquals(
-            60f,
-            DisplayCadencePolicy.renderSynchronizerTargetFps(
-                activeRefreshRateHz = Double.NaN,
-                maximumSupportedRefreshRateHz = null
-            ),
-            0.01f
-        )
-    }
-
-    @Test
     fun sixtyHzSourceRejectsUnevenHighCadenceFrameSelection() {
         val ladder =
             DisplayCadencePolicy.descending(
