@@ -197,6 +197,21 @@ internal class MotionVideoBudget {
         if (!movingDemandProven) return null
 
         /*
+         * availableOutgoingBitrate is a congestion-controller capacity estimate,
+         * not proof that this screen stream currently needs the full nominal
+         * resolution x cadence budget. Low-complexity UI can move at 60 fps while
+         * encoding to a small fraction of the estimated path capacity.
+         *
+         * Only spend cadence preemptively when recent RTP output is already using
+         * a material share of that capacity. If demand is cheap, preserve both
+         * temporal smoothness and pixels; the ordinary queue/loss/codec/glass
+         * pressure paths remain available if the estimate later proves wrong.
+         */
+        if (!bandwidthDemandUsesCapacity(sender, bandwidthEstimateBps)) {
+            return null
+        }
+
+        /*
          * This lane exists only before a real backlog forms. If codec,
          * pacer/network residence, loss/RTT or controller decode/glass already
          * shows material pressure, pixel relief is allowed to remain the faster
@@ -664,13 +679,19 @@ internal class MotionVideoBudget {
                         measuredSourceFps == null &&
                         sender.fps >= MIN_MOVING_SOURCE_FPS
                     )
+        val bandwidthDemandUsesCapacity =
+            bandwidthEstimateBps?.let { estimate ->
+                bandwidthDemandUsesCapacity(sender, estimate)
+            } == true
         val predictiveBandwidthPressure =
             bandwidthDemandProven &&
+                bandwidthDemandUsesCapacity &&
                 bandwidthHeadroomRatio?.let {
                     it < BWE_PRESSURE_HEADROOM_RATIO
                 } == true
         val severePredictiveBandwidthPressure =
             bandwidthDemandProven &&
+                bandwidthDemandUsesCapacity &&
                 bandwidthHeadroomRatio?.let {
                     it < BWE_SEVERE_HEADROOM_RATIO
                 } == true
@@ -1317,6 +1338,37 @@ internal class MotionVideoBudget {
     ): Boolean =
         SOFTWARE_ENCODER_MARKERS.any(implementation::contains)
 
+    /**
+     * Distinguish path capacity from actual screen-content demand.
+     *
+     * WebRTC's availableOutgoingBitrate is useful for predicting congestion, but
+     * comparing it only with a fixed pixels x FPS budget can overreact to cheap
+     * form/scroll/UI content. Require measured RTP output to already consume a
+     * material share of the estimate before a BWE-only prediction is allowed to
+     * reduce cadence or pixels. Reactive codec, queue, loss, RTT, decode and
+     * presentation pressure deliberately bypass this gate.
+     */
+    private fun bandwidthDemandUsesCapacity(
+        sender: VideoHealthWindow,
+        bandwidthEstimateBps: Double
+    ): Boolean {
+        if (
+            !bandwidthEstimateBps.isFinite() ||
+            bandwidthEstimateBps <= 0.0
+        ) {
+            return false
+        }
+
+        val sentBitrateBps =
+            sender.bitrateBps
+                .toDouble()
+                .takeIf { it.isFinite() && it > 0.0 }
+                ?: return false
+
+        return sentBitrateBps / bandwidthEstimateBps >=
+            BWE_PREDICTIVE_MIN_UTILIZATION_RATIO
+    }
+
     private fun Double?.valid(): Double? =
         this?.takeIf { it.isFinite() && it >= 0.0 }
 
@@ -1371,6 +1423,12 @@ internal class MotionVideoBudget {
         const val BWE_PREDICTIVE_SETTLE_MS = 1_000L
         const val BWE_PRESSURE_HEADROOM_RATIO = 1.10
         const val BWE_SEVERE_HEADROOM_RATIO = 0.60
+        /*
+         * Predictive relief must represent real load, not just a theoretical
+         * codec operating point. 60% leaves room for stats-window phase skew
+         * while filtering low-complexity UI that uses only a small part of BWE.
+         */
+        const val BWE_PREDICTIVE_MIN_UTILIZATION_RATIO = 0.60
 
         /*
          * Clarity guard: if high cadence is the only thing that no longer fits,
