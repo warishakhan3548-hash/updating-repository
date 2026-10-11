@@ -2,7 +2,7 @@ package com.aaris.remoteassist.webrtc
 
 import android.content.Context
 import org.webrtc.AarisLowLatencyVideoDecoderFactory
-import org.webrtc.DefaultVideoEncoderFactory
+import org.webrtc.AarisRealtimeVideoEncoderFactory
 import org.webrtc.HardwareVideoEncoderFactory
 import org.webrtc.HardwareVideoDecoderFactory
 import org.webrtc.EglBase
@@ -64,12 +64,13 @@ object WebRtcRuntime {
              * Prefer Android's hardware codec path for screen sharing, but do
              * not make hardware success a correctness requirement.
              *
-             * DefaultVideoEncoderFactory plus AarisLowLatencyVideoDecoderFactory
-             * preserve hardware-first decoding with software fallback. On
-             * Android 11+ the decoder factory enables MediaCodec's official
-             * low-latency mode only when the selected hardware codec explicitly
-             * advertises FEATURE_LowLatency; unsupported codecs and older
-             * devices keep WebRTC's normal behavior.
+             * AarisRealtimeVideoEncoderFactory preserves WebRTC's hardware-first
+             * encoder selection, vendor bitrate workarounds and software fallback,
+             * while marking selected H264/VP8 MediaCodec sessions as realtime and
+             * requesting one-frame encoder latency. AarisLowLatencyVideoDecoderFactory
+             * enables MediaCodec's official decoder low-latency mode only when the
+             * selected hardware codec advertises FEATURE_LowLatency; unsupported
+             * codecs keep WebRTC's normal behavior.
              *
              * The same EGL context is shared by capture, codecs and rendering
              * so texture-backed frames stay on the GPU path without adding a
@@ -80,7 +81,7 @@ object WebRtcRuntime {
              * is harmless on ARM and useful for x86/ChromeOS-class devices.
              */
             val encoderFactory =
-                DefaultVideoEncoderFactory(
+                AarisRealtimeVideoEncoderFactory(
                     eglBase.eglBaseContext,
                     true,
                     false
@@ -115,3 +116,4 @@ object WebRtcRuntime {
         return checkNotNull(factoryInternal)
     }
 }
+
