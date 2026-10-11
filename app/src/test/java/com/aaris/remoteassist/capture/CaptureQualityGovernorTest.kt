@@ -122,7 +122,6 @@ class CaptureQualityGovernorTest {
         )
     }
 
-
     @Test
     fun quietRtpWindowCannotRepeatStaleNetworkOrCpuDowngrades() {
         val governor =
@@ -195,7 +194,7 @@ class CaptureQualityGovernorTest {
     }
 
     @Test
-    fun quietHealthyTransportStillRecoversClarity() {
+    fun quietSourceRecoversClarityDespiteStaleRemotePressure() {
         val governor =
             CaptureQualityGovernor(
                 initialTier = CaptureTier.BALANCED,
@@ -205,19 +204,48 @@ class CaptureQualityGovernorTest {
         repeat(CaptureQualityGovernor.UPGRADE_SAMPLE_COUNT - 1) {
             assertNull(
                 governor.observeQualityLimitation(
-                    reason = "none",
-                    roundTripTimeMs = 120,
-                    packetLossRatio = 0.005,
-                    outboundFrameCount = 0
+                    reason = if (it % 2 == 0) "cpu" else "bandwidth",
+                    roundTripTimeMs = 950,
+                    packetLossRatio = 0.14,
+                    outboundFrameCount = it % 2
                 )
             )
         }
         assertEquals(
             CaptureTier.STANDARD,
             governor.observeQualityLimitation(
-                reason = "none",
-                roundTripTimeMs = 120,
-                packetLossRatio = 0.005,
+                reason = "cpu",
+                roundTripTimeMs = 950,
+                packetLossRatio = 0.14,
+                outboundFrameCount = 0
+            )
+        )
+    }
+
+    @Test
+    fun quietSourceStillHonorsMeasuredLocalPipelinePressure() {
+        val governor =
+            CaptureQualityGovernor(
+                initialTier = CaptureTier.STANDARD,
+                maxTier = CaptureTier.STANDARD
+            )
+
+        assertNull(
+            governor.observeQualityLimitation(
+                reason = "cpu",
+                encodeTimeMs = 40.0,
+                deliveredFps = 3.0,
+                requestedFps = 30,
+                outboundFrameCount = 0
+            )
+        )
+        assertEquals(
+            CaptureTier.BALANCED,
+            governor.observeQualityLimitation(
+                reason = "cpu",
+                encodeTimeMs = 40.0,
+                deliveredFps = 3.0,
+                requestedFps = 30,
                 outboundFrameCount = 0
             )
         )
