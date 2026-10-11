@@ -197,17 +197,23 @@ internal class MotionVideoBudget {
         if (!movingDemandProven) return null
 
         /*
-         * availableOutgoingBitrate is a congestion-controller capacity estimate,
-         * not proof that this screen stream currently needs the full nominal
-         * resolution x cadence budget. Low-complexity UI can move at 60 fps while
-         * encoding to a small fraction of the estimated path capacity.
-         *
-         * Only spend cadence preemptively when recent RTP output is already using
-         * a material share of that capacity. If demand is cheap, preserve both
-         * temporal smoothness and pixels; the ordinary queue/loss/codec/glass
-         * pressure paths remain available if the estimate later proves wrong.
+         * availableOutgoingBitrate is path capacity, while the completed RTP
+         * window is the best measurement of what THIS screen content actually
+         * costs. Forms/text can be cheap at 60 fps; games/video can be expensive
+         * at the same geometry. Prefer the measured utilization whenever it is
+         * present and fall back to the conservative nominal model only on OEM
+         * builds that omit usable byte deltas.
          */
-        if (!bandwidthDemandUsesCapacity(sender, bandwidthEstimateBps)) {
+        val observedBandwidthUtilization =
+            bandwidthUtilization(
+                sender = sender,
+                bandwidthEstimateBps = bandwidthEstimateBps
+            )
+        if (
+            observedBandwidthUtilization != null &&
+            observedBandwidthUtilization <
+                CLARITY_PRESERVING_MIN_UTILIZATION_RATIO
+        ) {
             return null
         }
 
@@ -262,10 +268,47 @@ internal class MotionVideoBudget {
             }
 
         /*
-         * Budget the geometry actually admitted to the encoder, not a
-         * speculative control-plane rung. This prevents a touch-down prediction
-         * from claiming that 360px is safe while MediaCodec is still consuming
-         * native 720/1080-wide frames.
+         * When real RTP demand is known, solve the temporal relief directly
+         * from measured bits/sec instead of a fixed resolution table. The
+         * target keeps a bounded capacity reserve for key-frame/UI bursts.
+         *
+         * Example: a cheap 60 fps form using 2.8 Mbps on a 5 Mbps path keeps
+         * 60 fps; a complex 60 fps scene using 4.5 Mbps gets a modest cadence
+         * trim while preserving pixels. If even the >=30 fps floor cannot be
+         * protected, fall through to spatial relief.
+         */
+        observedBandwidthUtilization?.let { utilization ->
+            val measuredSenderFps =
+                sender.fps
+                    .takeIf {
+                        it.isFinite() &&
+                            it >= MIN_MOVING_SOURCE_FPS
+                    }
+                    ?: return null
+            val sustainableFps =
+                (
+                    measuredSenderFps *
+                        CLARITY_PRESERVING_TARGET_UTILIZATION_RATIO /
+                        utilization
+                    )
+                    .toInt()
+
+            if (sustainableFps >= target) {
+                return null
+            }
+            if (sustainableFps < CLARITY_PRESERVING_FPS_FLOOR) {
+                return null
+            }
+            return sustainableFps.coerceIn(
+                CLARITY_PRESERVING_FPS_FLOOR,
+                target - 1
+            )
+        }
+
+        /*
+         * Legacy/fallback path for platforms where interval RTP bitrate is not
+         * available. Budget the geometry actually admitted to the encoder, not
+         * a speculative control-plane rung.
          */
         val profileShortEdge =
             minOf(
@@ -298,8 +341,6 @@ internal class MotionVideoBudget {
             floorDemandBps *
                 CLARITY_PRESERVING_BWE_HEADROOM_RATIO
         if (bandwidthEstimateBps < protectedFloorBps) {
-            // Cadence alone cannot preserve this geometry. Let spatial relief
-            // handle the genuinely constrained path.
             return null
         }
 
@@ -658,6 +699,13 @@ internal class MotionVideoBudget {
             bandwidthEstimateBps?.let { estimate ->
                 estimate / currentRungBitrateBps
             }
+        val observedBandwidthUtilization =
+            bandwidthEstimateBps?.let { estimate ->
+                bandwidthUtilization(
+                    sender = sender,
+                    bandwidthEstimateBps = estimate
+                )
+            }
 
         /*
          * A bitrate estimate is a path ceiling, not a measurement of current
@@ -679,22 +727,30 @@ internal class MotionVideoBudget {
                         measuredSourceFps == null &&
                         sender.fps >= MIN_MOVING_SOURCE_FPS
                     )
-        val bandwidthCapacityInUse =
-            bandwidthEstimateBps?.let { estimate ->
-                bandwidthDemandUsesCapacity(sender, estimate)
-            } == true
+        /*
+         * If byte deltas exist, let actual RTP utilization own predictive BWE
+         * relief. This prevents a fixed 720/540 bitrate table from blurring a
+         * low-entropy UI that is comfortably below path capacity. The nominal
+         * model remains only as a compatibility fallback when stats are absent.
+         */
         val predictiveBandwidthPressure =
             bandwidthDemandProven &&
-                bandwidthCapacityInUse &&
-                bandwidthHeadroomRatio?.let {
-                    it < BWE_PRESSURE_HEADROOM_RATIO
-                } == true
+                (
+                    observedBandwidthUtilization?.let {
+                        it >= BWE_PREDICTIVE_PRESSURE_UTILIZATION_RATIO
+                    } ?: bandwidthHeadroomRatio?.let {
+                        it < BWE_PRESSURE_HEADROOM_RATIO
+                    } == true
+                    )
         val severePredictiveBandwidthPressure =
             bandwidthDemandProven &&
-                bandwidthCapacityInUse &&
-                bandwidthHeadroomRatio?.let {
-                    it < BWE_SEVERE_HEADROOM_RATIO
-                } == true
+                (
+                    observedBandwidthUtilization?.let {
+                        it >= BWE_PREDICTIVE_SEVERE_UTILIZATION_RATIO
+                    } ?: bandwidthHeadroomRatio?.let {
+                        it < BWE_SEVERE_HEADROOM_RATIO
+                    } == true
+                    )
 
         /*
          * libwebrtc often labels a stream "bandwidth" while its rate estimator
@@ -824,6 +880,48 @@ internal class MotionVideoBudget {
                 else -> shortEdge
             }
 
+        /*
+         * A speculative motion warm-start is only a control-plane prediction:
+         * the encoder is still receiving the pre-motion/native geometry. Never
+         * let the generic recovery ladder turn a healthy native stream into a
+         * real 540/360 resize.
+         *
+         * One completed moving window can safely cancel that prediction when
+         * native delivery is on deadline and measured RTP demand still leaves
+         * capacity headroom. This performs no source upshift—the source is
+         * already there—so it avoids both unnecessary blur and a MediaCodec
+         * reconfiguration.
+         */
+        val warmStartNativeProven =
+            warmStartResizePending &&
+                !pressured &&
+                sourceProvesMotion &&
+                sender.fps >= goal * WARM_START_VALIDATION_DELIVERY_RATIO &&
+                encodeMs?.let {
+                    it < frameMs * WARM_START_VALIDATION_CODEC_BUDGET_RATIO
+                } == true &&
+                queueMs?.let {
+                    it < WARM_START_VALIDATION_MAX_QUEUE_MS
+                } == true &&
+                outbound.roundTripTimeMs?.let {
+                    it in 0..WARM_START_VALIDATION_MAX_RTT_MS
+                } == true &&
+                (outbound.packetLossRatio ?: 0.0) <
+                    WARM_START_VALIDATION_MAX_LOSS_RATIO &&
+                observedBandwidthUtilization?.let {
+                    it <= WARM_START_VALIDATION_MAX_UTILIZATION_RATIO
+                } == true
+
+        if (warmStartNativeProven) {
+            shortEdge = preMotionShortEdge
+            warmStartResizePending = false
+            pressureSamples = 0
+            healthySamples = 0
+            fastRecoverySamples = 0
+            resetResidenceGrowth()
+            return true
+        }
+
         if (pressured) {
             healthySamples = 0
             fastRecoverySamples = 0
@@ -938,8 +1036,24 @@ internal class MotionVideoBudget {
                     shortEdge < 540 -> 540
                     else -> 720
                 }
+            val profileShortEdge =
+                minOf(
+                    profile.captureWidthPx,
+                    profile.captureHeightPx
+                )
+            val currentRecoveryShortEdge =
+                minOf(
+                    profileShortEdge,
+                    committedSourceShortEdge
+                )
             val nextRecoveryBitrateBps =
-                nominalMotionBitrateBps(
+                projectedRecoveryBitrateBps(
+                    sender = sender,
+                    currentShortEdge = currentRecoveryShortEdge,
+                    nextShortEdge = nextRecoveryRung,
+                    targetFps = goal,
+                    maxBitrateBps = profile.maxVideoBitrateBps
+                ) ?: nominalMotionBitrateBps(
                     nextRecoveryRung,
                     goal
                 )
@@ -981,9 +1095,19 @@ internal class MotionVideoBudget {
                 } else {
                     FAST_CLARITY_RECOVERY_BWE_HEADROOM_RATIO
                 }
+            /*
+             * warmStartResizePending means the source is still native and no
+             * spatial downgrade has actually happened. Recovery must never
+             * "recover" that speculative lower control rung by committing a
+             * real resize. Either pressure validates the downgrade or the
+             * native-proof path above cancels it.
+             */
+            val resolutionRecoveryAllowed =
+                allowResolutionRecovery &&
+                    !warmStartResizePending
             val fastRecoveryEvidence =
                 healthy &&
-                    allowResolutionRecovery &&
+                    resolutionRecoveryAllowed &&
                     bandwidthEstimateBps?.let {
                         it >= nextRecoveryBitrateBps * fastHeadroomRatio
                     } == true &&
@@ -1018,7 +1142,7 @@ internal class MotionVideoBudget {
             // A cadence trial must measure one variable at a time. Pressure
             // relief stays enabled, but do not also enlarge trial frames.
             healthySamples =
-                if (healthy && allowResolutionRecovery) {
+                if (healthy && resolutionRecoveryAllowed) {
                     healthySamples + 1
                 } else {
                     0
@@ -1339,34 +1463,89 @@ internal class MotionVideoBudget {
         SOFTWARE_ENCODER_MARKERS.any(implementation::contains)
 
     /**
-     * Distinguish path capacity from actual screen-content demand.
+     * Actual encoder/RTP demand relative to GCC/TWCC path capacity.
      *
-     * WebRTC's availableOutgoingBitrate is useful for predicting congestion, but
-     * comparing it only with a fixed pixels x FPS budget can overreact to cheap
-     * form/scroll/UI content. Require measured RTP output to already consume a
-     * material share of the estimate before a BWE-only prediction is allowed to
-     * reduce cadence or pixels. Reactive codec, queue, loss, RTT, decode and
-     * presentation pressure deliberately bypass this gate.
+     * A fixed resolution table cannot describe screen entropy: 720p text and
+     * 720p gameplay can differ by several Mbps. Interval byte deltas therefore
+     * own predictive decisions whenever they are available.
      */
-    private fun bandwidthDemandUsesCapacity(
+    private fun bandwidthUtilization(
         sender: VideoHealthWindow,
         bandwidthEstimateBps: Double
-    ): Boolean {
+    ): Double? {
         if (
             !bandwidthEstimateBps.isFinite() ||
             bandwidthEstimateBps <= 0.0
         ) {
-            return false
+            return null
         }
 
         val sentBitrateBps =
             sender.bitrateBps
                 .toDouble()
                 .takeIf { it.isFinite() && it > 0.0 }
-                ?: return true
+                ?: return null
 
-        return sentBitrateBps / bandwidthEstimateBps >=
-            BWE_PREDICTIVE_MIN_UTILIZATION_RATIO
+        return (sentBitrateBps / bandwidthEstimateBps)
+            .takeIf { it.isFinite() && it >= 0.0 }
+    }
+
+    /**
+     * Estimate one spatial recovery step from the content that is actually on
+     * screen. Normalize the measured RTP rate to the requested cadence, scale
+     * by pixel area, and add a codec/content-change safety margin. The existing
+     * multi-window end-to-end recovery gates and GCC/TWCC remain authoritative.
+     *
+     * This deliberately replaces no emergency ceiling: low rungs still use the
+     * conservative nominal table for maxBitrateBps. It only prevents a cheap
+     * form/text screen from staying blurry because a fixed "720p needs X Mbps"
+     * assumption is larger than its real encoded demand.
+     */
+    private fun projectedRecoveryBitrateBps(
+        sender: VideoHealthWindow,
+        currentShortEdge: Int,
+        nextShortEdge: Int,
+        targetFps: Int,
+        maxBitrateBps: Int
+    ): Double? {
+        if (
+            currentShortEdge <= 0 ||
+            nextShortEdge <= currentShortEdge ||
+            maxBitrateBps <= 0
+        ) {
+            return null
+        }
+
+        val sentBitrateBps =
+            sender.bitrateBps
+                .toDouble()
+                .takeIf { it.isFinite() && it > 0.0 }
+                ?: return null
+        val measuredFps =
+            sender.fps
+                .takeIf {
+                    it.isFinite() &&
+                        it >= MIN_MOVING_SOURCE_FPS
+                }
+                ?: return null
+        val cadenceScale =
+            targetFps
+                .coerceIn(MIN_PREDICTIVE_FPS, MAX_MOTION_TARGET_FPS)
+                .toDouble() /
+                measuredFps
+        val spatialScale =
+            nextShortEdge.toDouble() /
+                currentShortEdge.toDouble()
+        val projected =
+            sentBitrateBps *
+                cadenceScale *
+                spatialScale *
+                spatialScale *
+                RECOVERY_CONTENT_PROJECTION_MARGIN
+
+        return projected
+            .coerceAtMost(maxBitrateBps.toDouble())
+            .takeIf { it.isFinite() && it > 0.0 }
     }
 
     private fun Double?.valid(): Double? =
@@ -1424,11 +1603,13 @@ internal class MotionVideoBudget {
         const val BWE_PRESSURE_HEADROOM_RATIO = 1.10
         const val BWE_SEVERE_HEADROOM_RATIO = 0.60
         /*
-         * Predictive relief must represent real load, not just a theoretical
-         * codec operating point. 60% leaves room for stats-window phase skew
-         * while filtering low-complexity UI that uses only a small part of BWE.
+         * Predictive BWE relief is driven by measured RTP utilization whenever
+         * stats are available. Around 85% path use starts early relief; only a
+         * stream at/above the estimate qualifies as severe prediction. Reactive
+         * queue/loss/decode alarms remain independent and can act sooner.
          */
-        const val BWE_PREDICTIVE_MIN_UTILIZATION_RATIO = 0.60
+        const val BWE_PREDICTIVE_PRESSURE_UTILIZATION_RATIO = 0.85
+        const val BWE_PREDICTIVE_SEVERE_UTILIZATION_RATIO = 1.00
 
         /*
          * Clarity guard: if high cadence is the only thing that no longer fits,
@@ -1437,6 +1618,8 @@ internal class MotionVideoBudget {
          * VideoCadenceGovernor before it acts.
          */
         const val CLARITY_PRESERVING_FPS_FLOOR = 30
+        const val CLARITY_PRESERVING_MIN_UTILIZATION_RATIO = 0.82
+        const val CLARITY_PRESERVING_TARGET_UTILIZATION_RATIO = 0.78
         const val CLARITY_PRESERVING_BWE_HEADROOM_RATIO = 1.10
         const val CLARITY_PRESERVING_CODEC_BUDGET_RATIO = 0.80
         const val CLARITY_PRESERVING_MAX_QUEUE_MS = 35.0
@@ -1445,6 +1628,18 @@ internal class MotionVideoBudget {
         const val CLARITY_PRESERVING_MAX_JITTER_MS = 60.0
         const val CLARITY_PRESERVING_MAX_RENDER_GAP_MS = 100
         const val BWE_RECOVERY_HEADROOM_RATIO = 1.20
+        const val RECOVERY_CONTENT_PROJECTION_MARGIN = 1.15
+
+        /*
+         * A clean completed moving window may cancel an uncommitted warm-start
+         * prediction without resizing the already-native source.
+         */
+        const val WARM_START_VALIDATION_DELIVERY_RATIO = 0.90
+        const val WARM_START_VALIDATION_CODEC_BUDGET_RATIO = 0.50
+        const val WARM_START_VALIDATION_MAX_QUEUE_MS = 20.0
+        const val WARM_START_VALIDATION_MAX_RTT_MS = 300
+        const val WARM_START_VALIDATION_MAX_LOSS_RATIO = 0.025
+        const val WARM_START_VALIDATION_MAX_UTILIZATION_RATIO = 0.75
 
         /*
          * Fast clarity recovery is a measured capacity probe, not a forced
