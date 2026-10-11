@@ -32,59 +32,29 @@ internal object DisplayCadencePolicy {
     fun descending(
         refreshRateHz: Double?,
         ceilingFps: Int = PRODUCT_MAX_FPS,
-        floorFps: Int = 1,
-        sourceRefreshRateHz: Double? = null
+        floorFps: Int = 1
     ): List<Int> {
         val floor = floorFps.coerceAtLeast(1)
         val ceiling = ceilingFps.coerceAtLeast(floor)
         val refresh = normalizedRefresh(refreshRateHz)
-        val sourceRefresh = normalizedRefresh(sourceRefreshRateHz)
-        if (refresh == null && sourceRefresh == null) {
-            return legacyDescending
+            ?: return legacyDescending
                 .filter { it in floor..ceiling }
                 .ifEmpty { listOf(ceiling) }
-        }
 
         val rates = linkedSetOf<Int>()
+
+        if (ceiling >= PRODUCT_MAX_FPS && PRODUCT_MAX_FPS >= floor) {
+            rates += PRODUCT_MAX_FPS
+        }
+
         val firstHigh = maxOf(HIGH_CADENCE_MIN_FPS, floor)
-
-        /*
-         * MediaProjection is paced by the host display clock, while
-         * VideoSource.adaptOutputFormat() is our pre-encode temporal actuator.
-         * A target such as 45 fps on a 60 Hz producer necessarily creates an
-         * uneven 3-of-4 selection pattern even when encoder/network/controller
-         * are perfect. That periodic long interval is perceived as judder.
-         *
-         * Once the host source clock is known, keep high-cadence rungs on an
-         * integer divisor of that clock. The controller clock still applies the
-         * existing short-repeat filter, so a rung must be cheap on BOTH sides.
-         * <=30 fps remains the pressure safety ladder and is intentionally left
-         * untouched. Unknown source cadence preserves the legacy behavior.
-         */
-        fun admitHigh(fps: Int): Boolean =
-            fps in firstHigh..ceiling &&
-                (refresh == null || shortRepeatCycle(refresh, fps)) &&
-                sourceClockCompatible(sourceRefresh, fps)
-
         if (ceiling >= firstHigh) {
             legacyDescending
                 .asSequence()
-                .filter(::admitHigh)
+                .filter { it in firstHigh..ceiling }
+                .filter { it != PRODUCT_MAX_FPS }
+                .filter { shortRepeatCycle(refresh, it) }
                 .forEach(rates::add)
-
-            /*
-             * Some useful source harmonics are not in the historical ladder
-             * (for example 48 fps from a 144 Hz producer). Add only exact source
-             * divisors that also have a short controller repeat cycle.
-             */
-            sourceRefresh
-                ?.let { source ->
-                    (minOf(PRODUCT_MAX_FPS, ceiling, source) downTo firstHigh)
-                        .asSequence()
-                        .filter { source % it == 0 }
-                        .filter(::admitHigh)
-                        .forEach(rates::add)
-                }
         }
 
         lowCadenceDescending
@@ -101,22 +71,19 @@ internal object DisplayCadencePolicy {
         currentFps: Int,
         refreshRateHz: Double?,
         floorFps: Int = 1,
-        ceilingFps: Int = PRODUCT_MAX_FPS,
-        sourceRefreshRateHz: Double? = null
+        ceilingFps: Int = PRODUCT_MAX_FPS
     ): Int? =
         descending(
             refreshRateHz = refreshRateHz,
             ceilingFps = maxOf(ceilingFps, currentFps),
-            floorFps = floorFps,
-            sourceRefreshRateHz = sourceRefreshRateHz
+            floorFps = floorFps
         ).firstOrNull { it < currentFps }
 
     fun nextHigher(
         currentFps: Int,
         refreshRateHz: Double?,
         ceilingFps: Int = PRODUCT_MAX_FPS,
-        floorFps: Int = 1,
-        sourceRefreshRateHz: Double? = null
+        floorFps: Int = 1
     ): Int? {
         /*
          * Promotion and relief have different visual failure modes.
@@ -153,8 +120,7 @@ internal object DisplayCadencePolicy {
             descending(
                 refreshRateHz = refreshRateHz,
                 ceilingFps = boundedCeiling,
-                floorFps = floorFps,
-                sourceRefreshRateHz = sourceRefreshRateHz
+                floorFps = floorFps
             ).toMutableSet()
 
         /*
@@ -162,11 +128,9 @@ internal object DisplayCadencePolicy {
          * part of the historical pressure ladder. Add only the single proven
          * harmonic ceiling for promotion; do not expand the relief ladder.
          */
-        val sourceRefresh = normalizedRefresh(sourceRefreshRateHz)
         harmonicCeiling
             ?.takeIf {
-                it in maxOf(currentFps + 1, floorFps)..boundedCeiling &&
-                    sourceClockCompatible(sourceRefresh, it)
+                it in maxOf(currentFps + 1, floorFps)..boundedCeiling
             }
             ?.let(candidates::add)
 
@@ -180,14 +144,12 @@ internal object DisplayCadencePolicy {
         limitFps: Int,
         refreshRateHz: Double?,
         ceilingFps: Int = PRODUCT_MAX_FPS,
-        floorFps: Int = 1,
-        sourceRefreshRateHz: Double? = null
+        floorFps: Int = 1
     ): Int =
         descending(
             refreshRateHz = refreshRateHz,
             ceilingFps = maxOf(ceilingFps, limitFps),
-            floorFps = floorFps,
-            sourceRefreshRateHz = sourceRefreshRateHz
+            floorFps = floorFps
         ).firstOrNull { it <= limitFps }
             ?: minOf(limitFps.coerceAtLeast(1), HIGH_CADENCE_MIN_FPS - 1)
 
@@ -256,15 +218,6 @@ internal object DisplayCadencePolicy {
         return kotlin.math.round(value).toInt().coerceAtLeast(1)
     }
 
-    private fun sourceClockCompatible(
-        sourceRefreshHz: Int?,
-        fps: Int
-    ): Boolean {
-        if (sourceRefreshHz == null || fps <= LOW_CADENCE_MAX_FPS) return true
-        if (fps <= 0 || fps > sourceRefreshHz) return false
-        return sourceRefreshHz % fps == 0
-    }
-
     private fun shortRepeatCycle(refreshHz: Int, fps: Int): Boolean {
         if (fps <= 0 || fps > refreshHz) return false
         val divisor = greatestCommonDivisor(refreshHz, fps)
@@ -284,8 +237,7 @@ internal object DisplayCadencePolicy {
     }
 
     private const val PRODUCT_MAX_FPS = 60
-    private const val LOW_CADENCE_MAX_FPS = 30
-    private const val HIGH_CADENCE_MIN_FPS = LOW_CADENCE_MAX_FPS + 1
+    private const val HIGH_CADENCE_MIN_FPS = 31
     private const val MAX_HIGH_CADENCE_REPEAT_VSYNCS = 6
     private const val MIN_REFRESH_HZ = 30.0
     private const val MAX_REFRESH_HZ = 240.0
