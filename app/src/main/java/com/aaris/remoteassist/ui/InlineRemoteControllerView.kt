@@ -48,7 +48,6 @@ import org.webrtc.EglBase
 import org.webrtc.EglRenderer
 import org.webrtc.EglThread
 import org.webrtc.GlRectDrawer
-import org.webrtc.RenderSynchronizer
 import org.webrtc.VideoFrame
 import org.webrtc.VideoSink
 import org.webrtc.VideoTrack
@@ -1296,72 +1295,41 @@ class InlineRemoteControllerView(
         }
     }
 
-    private fun renderSynchronizerTargetFps(): Float {
-        /*
-         * Surface frame-rate votes and adaptive-refresh policy may move the
-         * controller between supported modes after this renderer is created.
-         * Build the immutable RenderSynchronizer against the fastest advertised
-         * mode so every real display refresh remains an eligible latest-frame
-         * presentation opportunity for the lifetime of this EGL thread.
-         */
-        @Suppress("DEPRECATION")
-        val display =
-            surfaceView.display
-                ?: activity.windowManager.defaultDisplay
-
-        val activeRefreshRateHz =
-            runCatching { display.refreshRate.toDouble() }
-                .getOrNull()
-        val maximumSupportedRefreshRateHz =
-            runCatching {
-                display.supportedModes
-                    .maxOfOrNull { it.refreshRate.toDouble() }
-            }.getOrNull()
-
-        return DisplayCadencePolicy.renderSynchronizerTargetFps(
-            activeRefreshRateHz = activeRefreshRateHz,
-            maximumSupportedRefreshRateHz =
-                maximumSupportedRefreshRateHz
-        )
-    }
-
     private fun ensureRenderer(): Boolean {
         if (eglRenderer != null) return true
 
         return runCatching {
             val renderer = EglRenderer("AarisInlineRemote")
             /*
-             * Pinned WebRTC M150 already ships a Choreographer-backed
-             * RenderSynchronizer. Use it only as a vsync admission gate, not as
-             * a second 60 fps media pacer.
+             * Keep the remote-control glass path independent from the Android
+             * main looper. SurfaceView/SurfaceFlinger already owns physical
+             * display composition; adding WebRTC's Choreographer-backed
+             * RenderSynchronizer makes every swap depend on main-thread frame
+             * callbacks as well. Touch dispatch, layout or UI animation can then
+             * delay the render window even while decode and the EGL thread are
+             * healthy, turning ordinary UI jank into visible remote-video
+             * judder.
              *
-             * A fixed 60 fps render target on a 90/120/144 Hz controller can
-             * fight the sender's display-aware cadence and create its own
-             * open/closed render-window beat. Target the fastest refresh mode
-             * this display can enter instead. The stream itself remains capped
-             * at 60 fps, and overwritePendingFrames=true below keeps only the
-             * freshest pending frame, so this adds no decoded-frame queue and
-             * does not increase encoded work.
+             * Use WebRTC's normal SurfaceView-style EGL thread instead. The
+             * EglRenderer still keeps a one-frame latest-wins pending slot,
+             * presentation timestamps remain disabled, and Surface.setFrameRate
+             * keeps the existing best-effort display-mode hint. No extra frame
+             * queue or media clock is introduced.
              */
-            val renderSynchronizer =
-                RenderSynchronizer(renderSynchronizerTargetFps())
             val renderThread =
                 EglThread.create(
                     null,
                     WebRtcRuntime.eglBase(activity)
                         .eglBaseContext,
-                    EglBase.CONFIG_PLAIN,
-                    renderSynchronizer
+                    EglBase.CONFIG_PLAIN
                 )
             renderEglThread = renderThread
             applyRenderThreadPriority(renderThread)
             /*
              * Remote-control rendering remains freshness-first, not
-             * presentation-timestamp/A/V-sync-first. RenderSynchronizer aligns
-             * the swap opportunity to display refresh; it does not hold media
-             * by RTP timestamp. Keep presentation timestamps disabled and keep
-             * overwritePendingFrames enabled so both decoded-frame admission and
-             * deferred swap admission are latest-wins rather than FIFO.
+             * presentation-timestamp/A/V-sync-first. Keep presentation
+             * timestamps disabled and overwritePendingFrames enabled so decoded
+             * frame admission is latest-wins rather than FIFO.
              */
             renderer.init(
                 renderThread,
