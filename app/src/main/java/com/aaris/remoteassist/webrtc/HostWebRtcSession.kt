@@ -1567,6 +1567,11 @@ class HostWebRtcSession(
             if (motionActive) return@post
 
             val sender = snapshot.recent
+            // Remote loss/RTT may repeat while the screen emits almost nothing.
+            // Only a populated outbound window may block clarity recovery.
+            val networkPressureEligible =
+                (sender?.frames ?: 0) >=
+                    CaptureQualityGovernor.MIN_NETWORK_EVIDENCE_FRAMES
             val effectiveRequestedFps = effectiveCaptureProfile(profile).fps
             val localPipelinePressure =
                 sender?.let {
@@ -1577,13 +1582,15 @@ class HostWebRtcSession(
                         requestedFps = effectiveRequestedFps
                     )
                 } ?: false
-            val pressured =
+            val remotePressure =
                 snapshot.qualityLimitationReason == "cpu" ||
                     (snapshot.packetLossRatio ?: 0.0) >=
                         CaptureQualityGovernor.PRESSURE_PACKET_LOSS_RATIO ||
                     (snapshot.roundTripTimeMs ?: 0) >=
-                        CaptureQualityGovernor.PRESSURE_RTT_MS ||
-                    localPipelinePressure
+                        CaptureQualityGovernor.PRESSURE_RTT_MS
+            val pressured =
+                localPipelinePressure ||
+                    (networkPressureEligible && remotePressure)
 
             // Cadence is the cheaper freshness lever. Reduce resolution only
             // after cadence relief has had a bounded opportunity to drain the
@@ -1603,7 +1610,8 @@ class HostWebRtcSession(
                     encodeTimeMs = sender?.processingMs,
                     sendQueueMs = sender?.sendQueueMs,
                     deliveredFps = sender?.fps,
-                    requestedFps = effectiveRequestedFps
+                    requestedFps = effectiveRequestedFps,
+                    outboundFrameCount = sender?.frames
                 )
                 ?.let(::applyCaptureTier)
         }

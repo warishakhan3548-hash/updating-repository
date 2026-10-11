@@ -7,7 +7,7 @@ import org.junit.Test
 
 class InteractiveVideoPolicyTest {
     @Test
-    fun idleStrongTiersPermitNativeMotionAdaptationBeforeMotionIsDetected() {
+    fun idleStrongTiersPreserveDetailUntilMotionIsDetected() {
         listOf(
             CaptureTier.STANDARD,
             CaptureTier.HIGH
@@ -17,8 +17,8 @@ class InteractiveVideoPolicyTest {
                 interactionActive = false
             )
 
-            assertFalse(policy.preserveResolution)
-            assertTrue(policy.motionPriority)
+            assertTrue(policy.preserveResolution)
+            assertFalse(policy.motionPriority)
         }
     }
 
@@ -55,7 +55,7 @@ class InteractiveVideoPolicyTest {
     }
 
     @Test
-    fun idleConstrainedTiersKeepMotionAdaptationEnabled() {
+    fun idleConstrainedTiersPreserveDetailUntilMotionIsDetected() {
         listOf(
             CaptureTier.LOW,
             CaptureTier.BALANCED
@@ -65,8 +65,8 @@ class InteractiveVideoPolicyTest {
                 interactionActive = false
             )
 
-            assertFalse(policy.preserveResolution)
-            assertTrue(policy.motionPriority)
+            assertTrue(policy.preserveResolution)
+            assertFalse(policy.motionPriority)
         }
     }
 
