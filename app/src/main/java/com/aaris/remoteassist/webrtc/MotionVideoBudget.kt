@@ -28,7 +28,6 @@ internal class MotionVideoBudget {
     private var lastMeasuredSenderCodec: String? = null
     private var pressureSamples = 0
     private var healthySamples = 0
-                fastRecoverySamples = 0
     private var fastRecoverySamples = 0
     private var lastImplementation: String? = null
     private var lastBandwidthPressureAtMs = Long.MIN_VALUE / 2
@@ -268,7 +267,7 @@ internal class MotionVideoBudget {
                 changedAtMs = nowMs
                 pressureSamples = 0
                 healthySamples = 0
-            fastRecoverySamples = 0
+                fastRecoverySamples = 0
                 resetResidenceGrowth()
                 return true
             }
@@ -886,7 +885,7 @@ internal class MotionVideoBudget {
                 committedSourceShortEdge = shortEdge
                 changedAtMs = nowMs
                 healthySamples = 0
-            fastRecoverySamples = 0
+                fastRecoverySamples = 0
                 resetResidenceGrowth()
             }
         }
