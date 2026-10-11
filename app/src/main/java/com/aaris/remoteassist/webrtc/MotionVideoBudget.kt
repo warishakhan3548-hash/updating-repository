@@ -679,19 +679,19 @@ internal class MotionVideoBudget {
                         measuredSourceFps == null &&
                         sender.fps >= MIN_MOVING_SOURCE_FPS
                     )
-        val bandwidthDemandUsesCapacity =
+        val bandwidthCapacityInUse =
             bandwidthEstimateBps?.let { estimate ->
                 bandwidthDemandUsesCapacity(sender, estimate)
             } == true
         val predictiveBandwidthPressure =
             bandwidthDemandProven &&
-                bandwidthDemandUsesCapacity &&
+                bandwidthCapacityInUse &&
                 bandwidthHeadroomRatio?.let {
                     it < BWE_PRESSURE_HEADROOM_RATIO
                 } == true
         val severePredictiveBandwidthPressure =
             bandwidthDemandProven &&
-                bandwidthDemandUsesCapacity &&
+                bandwidthCapacityInUse &&
                 bandwidthHeadroomRatio?.let {
                     it < BWE_SEVERE_HEADROOM_RATIO
                 } == true
