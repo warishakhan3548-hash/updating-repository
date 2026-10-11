@@ -137,6 +137,173 @@ class BweDemandAwareClarityTest {
     }
 
     @Test
+    fun moderateRealDemandDoesNotBlurBecauseNominalTableIsHigher() {
+        val budget = nativeBudget()
+        val healthyUi =
+            sender(
+                fps = 30,
+                bitrateBps = 1_400_000,
+                availableOutgoingBitrateBps = 2_000_000.0
+            )
+
+        // 70% measured path use leaves substantial real headroom even though
+        // the old fixed 720p@30 model expected ~3.2 Mbps and would predict a
+        // false shortage. Keep native pixels and let GCC own the actual rate.
+        repeat(4) { index ->
+            assertFalse(
+                budget.observe(
+                    outbound = healthyUi,
+                    receiver = receiver(30),
+                    sourceFps = 30.0,
+                    motionActive = true,
+                    targetFps = 30,
+                    nowMs = 4_000L + index * 1_000L,
+                    interactionActive = true
+                )
+            )
+        }
+
+        assertEquals(720, budget.shortEdge)
+    }
+
+    @Test
+    fun highCadenceReliefUsesMeasuredDemandInsteadOfNominalBitrateTable() {
+        val budget = nativeBudget()
+        val complexUi =
+            sender(
+                fps = 60,
+                bitrateBps = 4_500_000,
+                availableOutgoingBitrateBps = 5_000_000.0
+            )
+
+        // 90% utilization needs headroom, but measured demand says a modest
+        // 60 -> ~52 fps trim is enough. The fixed nominal table would cut much
+        // harder even though the same pixels can remain readable.
+        assertEquals(
+            52,
+            budget.clarityPreservingCadenceCeiling(
+                profile = profile,
+                outbound = complexUi,
+                receiver = receiver(60),
+                sourceFps = 60.0,
+                motionActive = true,
+                targetFps = 60,
+                interactionActive = true
+            )
+        )
+        assertEquals(720, budget.shortEdge)
+    }
+
+    @Test
+    fun healthyNativeMovingWindowCancelsSpeculativeWarmStartWithoutResize() {
+        val budget = MotionVideoBudget()
+        assertTrue(budget.primeForMotion(profile, 0L))
+        assertEquals(360, budget.shortEdge)
+        assertEquals(profile, budget.apply(profile, true))
+
+        val provenNative =
+            sender(
+                fps = 30,
+                bitrateBps = 900_000,
+                availableOutgoingBitrateBps = 4_000_000.0
+            )
+
+        assertTrue(
+            budget.observe(
+                outbound = provenNative,
+                receiver = receiver(30),
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = 1_000L,
+                interactionActive = true,
+                allowResolutionRecovery = false
+            )
+        )
+
+        // The source was already native; validation must clear only the
+        // speculative control rung, never pay a 720 -> 540 -> 720 resize cycle.
+        assertEquals(720, budget.shortEdge)
+        assertEquals(profile, budget.apply(profile, true))
+    }
+
+    @Test
+    fun cheapContentRecoversReadabilityFromCommittedDowngradeUsingRealDemand() {
+        val budget = MotionVideoBudget()
+        val collapse =
+            sender(
+                fps = 6,
+                bitrateBps = 450_000,
+                availableOutgoingBitrateBps = 600_000.0
+            ).copy(
+                codecImplementation = "libvpx",
+                recent =
+                    sender(
+                        fps = 6,
+                        bitrateBps = 450_000,
+                        availableOutgoingBitrateBps = 600_000.0
+                    ).recent!!.copy(
+                        processingMs = 53.0,
+                        sendQueueMs = 585.0
+                    )
+            )
+
+        assertTrue(
+            budget.observe(
+                collapse,
+                null,
+                30.0,
+                true,
+                30,
+                1_000L
+            )
+        )
+        assertEquals(540, budget.shortEdge)
+        assertTrue(
+            budget.observe(
+                collapse,
+                null,
+                30.0,
+                true,
+                30,
+                4_000L
+            )
+        )
+        assertEquals(360, budget.shortEdge)
+
+        val recoveredCheapUi =
+            sender(
+                fps = 30,
+                bitrateBps = 300_000,
+                availableOutgoingBitrateBps = 1_200_000.0
+            )
+
+        repeat(2) { index ->
+            assertFalse(
+                budget.observe(
+                    recoveredCheapUi,
+                    receiver(30),
+                    30.0,
+                    true,
+                    30,
+                    5_000L + index * 1_000L
+                )
+            )
+        }
+        assertTrue(
+            budget.observe(
+                recoveredCheapUi,
+                receiver(30),
+                30.0,
+                true,
+                30,
+                7_000L
+            )
+        )
+        assertEquals(540, budget.shortEdge)
+    }
+
+    @Test
     fun materialPathUtilizationStillPreemptsQueueGrowth() {
         val budget = MotionVideoBudget()
         assertTrue(budget.primeForMotion(profile, 0L))
@@ -145,7 +312,7 @@ class BweDemandAwareClarityTest {
         val saturated =
             sender(
                 fps = 60,
-                bitrateBps = 520_000,
+                bitrateBps = 630_000,
                 availableOutgoingBitrateBps = 700_000.0
             )
 
