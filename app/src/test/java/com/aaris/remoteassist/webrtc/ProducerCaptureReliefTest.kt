@@ -157,6 +157,7 @@ class ProducerCaptureReliefTest {
                 interactionActive = true,
                 sourceMaxGapMs = 700.0,
                 sourceMotionActive = false,
+                interactionCaptureStarved = true,
                 canResizeProducerSurface = true
             )
         )
@@ -165,6 +166,67 @@ class ProducerCaptureReliefTest {
         // therefore must not turn the speculative budget into a source resize.
         assertEquals(
             1080,
+            minOf(
+                budget.apply(profile, motionActive = true).captureWidthPx,
+                budget.apply(profile, motionActive = true).captureHeightPx
+            )
+        )
+    }
+
+    @Test
+    fun causalInteractionMissesCanBootstrapColdProducerRelief() {
+        val budget = MotionVideoBudget()
+        budget.primeForMotion(
+            profile = profile,
+            nowMs = 0L,
+            warmStartEvidence = null,
+            targetFps = 30
+        )
+
+        // A cold 2 fps producer never reaches PassiveMotionPriority's 8 fps
+        // entry threshold. Repeated post-input capture misses supply the
+        // independent causal proof, but one health window still cannot resize.
+        assertFalse(
+            budget.observe(
+                outbound = outbound(fps = 2),
+                receiver = null,
+                sourceFps = 2.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = 1_000L,
+                interactionActive = true,
+                sourceMaxGapMs = 500.0,
+                sourceMotionActive = false,
+                interactionCaptureStarved = true,
+                canResizeProducerSurface = true
+            )
+        )
+        assertEquals(
+            1080,
+            minOf(
+                budget.apply(profile, motionActive = true).captureWidthPx,
+                budget.apply(profile, motionActive = true).captureHeightPx
+            )
+        )
+
+        // Two complete pressure windows commit one producer-side relief step.
+        assertTrue(
+            budget.observe(
+                outbound = outbound(fps = 2),
+                receiver = null,
+                sourceFps = 2.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = 1_500L,
+                interactionActive = true,
+                sourceMaxGapMs = 500.0,
+                sourceMotionActive = false,
+                interactionCaptureStarved = true,
+                canResizeProducerSurface = true
+            )
+        )
+        assertEquals(
+            360,
             minOf(
                 budget.apply(profile, motionActive = true).captureWidthPx,
                 budget.apply(profile, motionActive = true).captureHeightPx
