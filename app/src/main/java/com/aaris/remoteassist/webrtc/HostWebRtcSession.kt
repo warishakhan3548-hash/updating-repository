@@ -199,8 +199,13 @@ class HostWebRtcSession(
     private val interactionRefreshProbeScheduled = AtomicBoolean(false)
     private val interactionRefreshProbe = Runnable {
         interactionRefreshProbeScheduled.set(false)
-        if (closed.get() || !interactionActive) return@Runnable
+        if (closed.get()) return@Runnable
 
+        /*
+         * Always complete the causal refresh once an applied command armed it.
+         * A quick tap may end interaction mode before this one-display-tick
+         * deadline, but the resulting screen change still needs fresh pixels.
+         */
         val forcedRefresh =
             capture.requestInteractionRefresh()
         val observedAtMs =
@@ -209,14 +214,15 @@ class HostWebRtcSession(
         /*
          * requestInteractionRefresh() is causal: it returns true only when an
          * Accessibility command was applied, one display opportunity elapsed,
-         * and no newer natural MediaProjection sample arrived. Fold repeated
-         * misses directly on this serial policy lane into the short-lived scalar
-         * that can unlock producer-side pixel relief for a cold capture path.
+         * and no newer natural MediaProjection sample arrived. Only the
+         * longer-lived starvation pressure is interaction-scoped.
          */
-        interactionCaptureFreshness.observe(
-            forcedRefresh = forcedRefresh,
-            nowMs = observedAtMs
-        )
+        if (interactionActive) {
+            interactionCaptureFreshness.observe(
+                forcedRefresh = forcedRefresh,
+                nowMs = observedAtMs
+            )
+        }
     }
 
     private var startupControlRecoveryAttempts = 0
