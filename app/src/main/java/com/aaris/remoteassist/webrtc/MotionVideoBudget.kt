@@ -819,15 +819,21 @@ internal class MotionVideoBudget {
                     } == true &&
                     (outbound.packetLossRatio ?: 0.0) <
                         FAST_CLARITY_RECOVERY_MAX_LOSS_RATIO &&
-                    queueMs < FAST_CLARITY_RECOVERY_MAX_QUEUE_MS &&
-                    encodeMs < frameMs *
-                        FAST_CLARITY_RECOVERY_CODEC_BUDGET_RATIO &&
+                    queueMs?.let {
+                        it < FAST_CLARITY_RECOVERY_MAX_QUEUE_MS
+                    } == true &&
+                    encodeMs?.let {
+                        it < frameMs *
+                            FAST_CLARITY_RECOVERY_CODEC_BUDGET_RATIO
+                    } == true &&
                     received != null &&
-                    decodeMs != null &&
-                    decodeMs < frameMs *
-                        FAST_CLARITY_RECOVERY_CODEC_BUDGET_RATIO &&
-                    jitterMs != null &&
-                    jitterMs < FAST_CLARITY_RECOVERY_MAX_JITTER_MS &&
+                    decodeMs?.let {
+                        it < frameMs *
+                            FAST_CLARITY_RECOVERY_CODEC_BUDGET_RATIO
+                    } == true &&
+                    jitterMs?.let {
+                        it < FAST_CLARITY_RECOVERY_MAX_JITTER_MS
+                    } == true &&
                     received.presentedFps?.let {
                         it >= goal * FAST_CLARITY_RECOVERY_DELIVERY_RATIO
                     } == true &&
