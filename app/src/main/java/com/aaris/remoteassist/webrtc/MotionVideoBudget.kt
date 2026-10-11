@@ -338,14 +338,26 @@ internal class MotionVideoBudget {
         val producerMotionEvidence =
             sourceMotionActive ||
                 causalInteractionMotionEvidence
+        val lowCadenceProducerStarvation =
+            measuredSourceFps?.let { sourceFps ->
+                sourceFps < MIN_MOVING_SOURCE_FPS &&
+                    (
+                        (
+                            sourceMotionActive &&
+                                sourceFps >= MIN_PRODUCER_STARVATION_FPS
+                            ) ||
+                            (
+                                causalInteractionMotionEvidence &&
+                                    sourceFps >=
+                                    MIN_CAUSAL_INTERACTION_SOURCE_FPS
+                                )
+                        )
+            } == true
         val producerStarvationPressure =
             canResizeProducerSurface &&
                 producerMotionEvidence &&
                 (
-                    measuredSourceFps?.let {
-                        it >= MIN_CAUSAL_INTERACTION_SOURCE_FPS &&
-                            it < MIN_MOVING_SOURCE_FPS
-                    } == true ||
+                    lowCadenceProducerStarvation ||
                         measuredSourceMaxGapMs?.let {
                             it >= producerGapThresholdMs
                         } == true
