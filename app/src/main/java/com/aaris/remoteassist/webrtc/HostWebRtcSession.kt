@@ -212,7 +212,12 @@ class HostWebRtcSession(
              * reaches PassiveMotionPriority's normal >=8 fps entry threshold.
              */
             policyHandler.post {
-                if (!closed.get()) {
+                /*
+                 * A delayed main-thread result from the previous gesture must
+                 * not repopulate freshness debt after the policy lane already
+                 * ended that interaction.
+                 */
+                if (!closed.get() && interactionActive) {
                     interactionCaptureFreshness.observe(
                         forcedRefresh = forcedRefresh,
                         nowMs = observedAtMs
