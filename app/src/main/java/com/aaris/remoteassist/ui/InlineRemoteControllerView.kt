@@ -32,6 +32,7 @@ import com.aaris.remoteassist.webrtc.ControllerWebRtcSession
 import com.aaris.remoteassist.webrtc.FallbackDeltaFrame
 import com.aaris.remoteassist.webrtc.FallbackDeltaPatch
 import com.aaris.remoteassist.webrtc.FallbackVideoFrame
+import com.aaris.remoteassist.webrtc.PassiveMotionPriority
 import com.aaris.remoteassist.webrtc.RemoteGeometry
 import com.aaris.remoteassist.webrtc.PresentationCadenceTracker
 import com.aaris.remoteassist.webrtc.RealtimeMediaPolicy
@@ -102,6 +103,8 @@ class InlineRemoteControllerView(
     @Volatile
     private var eglRenderer: EglRenderer? = null
     private var renderEglThread: EglThread? = null
+    private var renderTouchPriorityActive = false
+    private var renderPassivePriorityActive = false
     private var renderInteractionPriorityActive = false
     private var rendererSurfaceAttached = false
     private var remoteTrack: VideoTrack? = null
@@ -128,6 +131,20 @@ class InlineRemoteControllerView(
         ArrayList<LocalTouchPoint>(MAX_LOCAL_GESTURE_POINTS)
     private val gestureStreamPacer = GestureStreamPacer()
     private val presentationCadence = PresentationCadenceTracker()
+    /*
+     * The host already keeps capture scheduling elevated while natural screen
+     * motion continues after finger-up (fling/video/game animation). Mirror that
+     * policy at the final glass stage: real EGL swaps are authoritative evidence
+     * that the controller still has moving pixels to present.
+     *
+     * This does not synthesize InteractionState, request more frames or add a
+     * decoded-frame queue. It only keeps the existing EglRenderer thread at
+     * display priority while measured presentation remains active.
+     */
+    private val passiveRenderMotion =
+        PassiveMotionPriority(
+            tailMs = PASSIVE_RENDER_PRIORITY_TAIL_MS
+        )
     private val lastPresentationHeartbeatAtMs =
         AtomicLong(Long.MIN_VALUE / 2)
     private val surfaceFrameRateHints = SurfaceFrameRateHintGovernor()
@@ -216,6 +233,14 @@ class InlineRemoteControllerView(
         if (attached) {
             endRemoteMotion()
         }
+    }
+
+    private val passiveRenderPriorityExpiry = Runnable {
+        val now = android.os.SystemClock.elapsedRealtime()
+        setRenderPassivePriority(
+            attached &&
+                passiveRenderMotion.isActive(now)
+        )
     }
 
     private val renderSink = VideoSink { frame ->
@@ -400,6 +425,7 @@ class InlineRemoteControllerView(
                         renderedFrameSeen.set(false)
                         primaryConfirmation.reset()
                         presentationCadence.reset()
+                        resetPassiveRenderPriority()
                         lastPresentationHeartbeatAtMs.set(Long.MIN_VALUE / 2)
                         clearSurfaceFrameRateHintIfNeeded()
                         frameWidth = 0
@@ -444,6 +470,7 @@ class InlineRemoteControllerView(
                         lastPresentedFrameAtMs = 0L
                         renderedFrameSeen.set(false)
                         presentationCadence.reset()
+                        resetPassiveRenderPriority()
                         lastPresentationHeartbeatAtMs.set(Long.MIN_VALUE / 2)
                         primaryConfirmation.reset()
                         clearSurfaceFrameRateHintIfNeeded()
@@ -526,6 +553,7 @@ class InlineRemoteControllerView(
     fun hide() {
         if (!attached) return
         mainHandler.removeCallbacks(interactionIdle)
+        resetPassiveRenderPriority()
         endRemoteMotion()
         attached = false
         mediaWatchdogArmed = false
@@ -1425,6 +1453,32 @@ class InlineRemoteControllerView(
                                     presentedAtMs = presentedAtMs
                                 )
                             ) {
+                                /*
+                                 * Keep the render scheduler hot for actual
+                                 * post-touch motion. Host capture has a matching
+                                 * natural-motion tail, so dropping EGL back to
+                                 * default priority at finger-up can otherwise
+                                 * turn a healthy 45/60 fps fling into controller-
+                                 * side micro-stutter.
+                                 */
+                                passiveRenderMotion.observe(
+                                    window = null,
+                                    nowMs = presentedAtMs,
+                                    sourceFps = window.fps
+                                )
+                                val passiveRenderActive =
+                                    passiveRenderMotion.isActive(presentedAtMs)
+                                setRenderPassivePriority(passiveRenderActive)
+                                mainHandler.removeCallbacks(
+                                    passiveRenderPriorityExpiry
+                                )
+                                if (passiveRenderActive) {
+                                    mainHandler.postDelayed(
+                                        passiveRenderPriorityExpiry,
+                                        PASSIVE_RENDER_PRIORITY_TAIL_MS + 1L
+                                    )
+                                }
+
                                 surfaceFrameRateHints
                                     .observe(window, presentedAtMs)
                                     ?.let(::applySurfaceFrameRateHint)
@@ -2597,6 +2651,27 @@ class InlineRemoteControllerView(
      * work, and are removed as soon as the interaction tail expires.
      */
     private fun setRenderInteractionPriority(active: Boolean) {
+        if (renderTouchPriorityActive == active) return
+        renderTouchPriorityActive = active
+        updateRenderPriority()
+    }
+
+    private fun setRenderPassivePriority(active: Boolean) {
+        if (renderPassivePriorityActive == active) return
+        renderPassivePriorityActive = active
+        updateRenderPriority()
+    }
+
+    private fun resetPassiveRenderPriority() {
+        mainHandler.removeCallbacks(passiveRenderPriorityExpiry)
+        passiveRenderMotion.reset()
+        setRenderPassivePriority(false)
+    }
+
+    private fun updateRenderPriority() {
+        val active =
+            renderTouchPriorityActive ||
+                renderPassivePriorityActive
         if (renderInteractionPriorityActive == active) return
         renderInteractionPriorityActive = active
         applyRenderThreadPriority()
@@ -2940,6 +3015,10 @@ class InlineRemoteControllerView(
         private const val HANDLE_PEEK_DP = 8
         private const val HANDLE_PEEK_ALPHA = 0.38f
         private const val REMOTE_MOTION_TAIL_MS = 1_500L
+        // Match the host's PassiveMotionPriority tail so the final EGL stage
+        // does not lose scheduler priority while a fling/video animation is
+        // still producing fresh remote-screen frames.
+        private const val PASSIVE_RENDER_PRIORITY_TAIL_MS = 3_000L
         private const val PRESENTATION_HEARTBEAT_INTERVAL_MS = 500L
 
         private const val MIN_STREAM_SEGMENT_MS = 16
