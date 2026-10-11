@@ -28,6 +28,8 @@ internal class MotionVideoBudget {
     private var lastMeasuredSenderCodec: String? = null
     private var pressureSamples = 0
     private var healthySamples = 0
+                fastRecoverySamples = 0
+    private var fastRecoverySamples = 0
     private var lastImplementation: String? = null
     private var lastBandwidthPressureAtMs = Long.MIN_VALUE / 2
 
@@ -113,6 +115,7 @@ internal class MotionVideoBudget {
         if (enteringMotion) {
             pressureSamples = 0
             healthySamples = 0
+            fastRecoverySamples = 0
             resetResidenceGrowth()
             preMotionShortEdge = shortEdge
             warmStartResizePending = false
@@ -179,6 +182,7 @@ internal class MotionVideoBudget {
             }
             pressureSamples = 0
             healthySamples = 0
+            fastRecoverySamples = 0
             resetResidenceGrowth()
             if (nowMs - lastMotionAtMs >= IDLE_RESTORE_MS) {
                 lastBandwidthPressureAtMs = Long.MIN_VALUE / 2
@@ -204,13 +208,18 @@ internal class MotionVideoBudget {
         ) {
             pressureSamples = 0
             healthySamples = 0
+            fastRecoverySamples = 0
             resetResidenceGrowth()
             lastMeasuredSenderAtMs = Long.MIN_VALUE / 2
         }
         if (sender == null) {
             // Short getStats probes do not have a complete sender interval.
             // Ignore them instead of erasing validated congestion evidence.
-            // Expire that evidence on the next complete sample after a long gap.
+            // Fast clarity recovery is deliberately stricter: a missing full
+            // sender window breaks the consecutive proof needed for an upshift.
+            fastRecoverySamples = 0
+            // Expire ordinary pressure evidence on the next complete sample
+            // after a long gap.
             return before != Triple(
             shortEdge,
             holdingResolution,
@@ -220,6 +229,7 @@ internal class MotionVideoBudget {
         if (nowMs - lastMeasuredSenderAtMs !in 0L..MAX_SENDER_SAMPLE_GAP_MS) {
             pressureSamples = 0
             healthySamples = 0
+            fastRecoverySamples = 0
             resetResidenceGrowth()
         }
         lastMeasuredSenderAtMs = nowMs
@@ -245,6 +255,7 @@ internal class MotionVideoBudget {
             changedAtMs = nowMs
             pressureSamples = 0
             healthySamples = 0
+            fastRecoverySamples = 0
             resetResidenceGrowth()
             return true
         }
@@ -257,6 +268,7 @@ internal class MotionVideoBudget {
                 changedAtMs = nowMs
                 pressureSamples = 0
                 healthySamples = 0
+            fastRecoverySamples = 0
                 resetResidenceGrowth()
                 return true
             }
@@ -642,6 +654,7 @@ internal class MotionVideoBudget {
 
         if (pressured) {
             healthySamples = 0
+            fastRecoverySamples = 0
             pressureSamples++
             val severe = (queueMs ?: 0.0) >= 150.0 ||
                 (sender.frames >= 2 && sender.fps <= 10.0 && encodePressure) ||
@@ -753,10 +766,15 @@ internal class MotionVideoBudget {
                     shortEdge < 540 -> 540
                     else -> 720
                 }
+            val nextRecoveryBitrateBps =
+                nominalMotionBitrateBps(
+                    nextRecoveryRung,
+                    goal
+                )
             val recoveryBandwidthHealthy =
                 bandwidthEstimateBps?.let { estimate ->
                     estimate >=
-                        nominalMotionBitrateBps(nextRecoveryRung, goal) *
+                        nextRecoveryBitrateBps *
                         BWE_RECOVERY_HEADROOM_RATIO
                 } ?: true
             val healthy =
@@ -768,14 +786,107 @@ internal class MotionVideoBudget {
                     receiverHealthy &&
                     recoveryBandwidthHealthy &&
                     (outbound.packetLossRatio ?: 0.0) < 0.025
+
+            /*
+             * The conservative recovery path intentionally avoids oscillation,
+             * but twelve clean ~1 s windows for every upshift can keep a
+             * controller visibly blurry for 12-36 seconds after a transient
+             * Wi-Fi/cellular dip has already cleared.
+             *
+             * Add a faster one-rung capacity probe only when ALL layers prove
+             * headroom at once: WebRTC BWE, sender queue/encode, RTT/loss,
+             * receiver decode/jitter and real controller presentation. Missing
+             * BWE or missing glass proof can never use this path. Native 720 is
+             * deliberately harder than readability recovery to 360/540.
+             *
+             * This never forces bandwidth. GCC/TWCC remains authoritative; we
+             * merely stop holding an obsolete low-resolution operating point
+             * after its own estimate and end-to-end telemetry say more fits.
+             */
+            val fastHeadroomRatio =
+                if (nextRecoveryRung >= NATIVE_WARM_START_SHORT_EDGE) {
+                    FAST_NATIVE_RECOVERY_BWE_HEADROOM_RATIO
+                } else {
+                    FAST_CLARITY_RECOVERY_BWE_HEADROOM_RATIO
+                }
+            val fastRecoveryEvidence =
+                healthy &&
+                    allowResolutionRecovery &&
+                    bandwidthEstimateBps?.let {
+                        it >= nextRecoveryBitrateBps * fastHeadroomRatio
+                    } == true &&
+                    outbound.roundTripTimeMs?.let {
+                        it in 0..FAST_CLARITY_RECOVERY_MAX_RTT_MS
+                    } == true &&
+                    (outbound.packetLossRatio ?: 0.0) <
+                        FAST_CLARITY_RECOVERY_MAX_LOSS_RATIO &&
+                    queueMs < FAST_CLARITY_RECOVERY_MAX_QUEUE_MS &&
+                    encodeMs < frameMs *
+                        FAST_CLARITY_RECOVERY_CODEC_BUDGET_RATIO &&
+                    received != null &&
+                    decodeMs != null &&
+                    decodeMs < frameMs *
+                        FAST_CLARITY_RECOVERY_CODEC_BUDGET_RATIO &&
+                    jitterMs != null &&
+                    jitterMs < FAST_CLARITY_RECOVERY_MAX_JITTER_MS &&
+                    received.presentedFps?.let {
+                        it >= goal * FAST_CLARITY_RECOVERY_DELIVERY_RATIO
+                    } == true &&
+                    (received.maxRenderGapMs ?: Int.MAX_VALUE) <
+                        FAST_CLARITY_RECOVERY_MAX_RENDER_GAP_MS &&
+                    nowMs - lastBandwidthPressureAtMs >=
+                        FAST_CLARITY_RECOVERY_PRESSURE_COOLDOWN_MS
+
             // A cadence trial must measure one variable at a time. Pressure
             // relief stays enabled, but do not also enlarge trial frames.
-            healthySamples = if (healthy && allowResolutionRecovery) healthySamples + 1 else 0
-            if (healthySamples >= 12 && nowMs - changedAtMs >= 12_000L && shortEdge < 720) {
-                shortEdge = when { shortEdge < 360 -> 360; shortEdge < 540 -> 540; else -> 720 }
+            healthySamples =
+                if (healthy && allowResolutionRecovery) {
+                    healthySamples + 1
+                } else {
+                    0
+                }
+            fastRecoverySamples =
+                if (fastRecoveryEvidence) {
+                    fastRecoverySamples + 1
+                } else {
+                    0
+                }
+
+            val nativeRecovery =
+                nextRecoveryRung >= NATIVE_WARM_START_SHORT_EDGE
+            val fastSamplesRequired =
+                if (nativeRecovery) {
+                    FAST_NATIVE_RECOVERY_SAMPLE_COUNT
+                } else {
+                    FAST_CLARITY_RECOVERY_SAMPLE_COUNT
+                }
+            val fastSettleMs =
+                if (nativeRecovery) {
+                    FAST_NATIVE_RECOVERY_SETTLE_MS
+                } else {
+                    FAST_CLARITY_RECOVERY_SETTLE_MS
+                }
+            val fastRecoveryReady =
+                fastRecoverySamples >= fastSamplesRequired &&
+                    nowMs - changedAtMs >= fastSettleMs
+            val conservativeRecoveryReady =
+                healthySamples >= CONSERVATIVE_RECOVERY_SAMPLE_COUNT &&
+                    nowMs - changedAtMs >= CONSERVATIVE_RECOVERY_SETTLE_MS
+
+            if (
+                shortEdge < NATIVE_WARM_START_SHORT_EDGE &&
+                (fastRecoveryReady || conservativeRecoveryReady)
+            ) {
+                shortEdge =
+                    when {
+                        shortEdge < 360 -> 360
+                        shortEdge < 540 -> 540
+                        else -> NATIVE_WARM_START_SHORT_EDGE
+                    }
                 committedSourceShortEdge = shortEdge
                 changedAtMs = nowMs
                 healthySamples = 0
+            fastRecoverySamples = 0
                 resetResidenceGrowth()
             }
         }
@@ -1104,6 +1215,30 @@ internal class MotionVideoBudget {
         const val BWE_PRESSURE_HEADROOM_RATIO = 1.10
         const val BWE_SEVERE_HEADROOM_RATIO = 0.60
         const val BWE_RECOVERY_HEADROOM_RATIO = 1.20
+
+        /*
+         * Fast clarity recovery is a measured capacity probe, not a forced
+         * bitrate floor. 360/540 may return after three consecutive clean
+         * end-to-end windows with >=30% BWE headroom. Native 720 requires five
+         * windows and >=45% headroom. Unknown/incomplete telemetry falls back
+         * to the original conservative twelve-window recovery.
+         */
+        const val FAST_CLARITY_RECOVERY_BWE_HEADROOM_RATIO = 1.30
+        const val FAST_NATIVE_RECOVERY_BWE_HEADROOM_RATIO = 1.45
+        const val FAST_CLARITY_RECOVERY_SAMPLE_COUNT = 3
+        const val FAST_NATIVE_RECOVERY_SAMPLE_COUNT = 5
+        const val FAST_CLARITY_RECOVERY_SETTLE_MS = 3_000L
+        const val FAST_NATIVE_RECOVERY_SETTLE_MS = 5_000L
+        const val FAST_CLARITY_RECOVERY_PRESSURE_COOLDOWN_MS = 2_500L
+        const val FAST_CLARITY_RECOVERY_MAX_RTT_MS = 250
+        const val FAST_CLARITY_RECOVERY_MAX_LOSS_RATIO = 0.02
+        const val FAST_CLARITY_RECOVERY_MAX_QUEUE_MS = 15.0
+        const val FAST_CLARITY_RECOVERY_CODEC_BUDGET_RATIO = 0.45
+        const val FAST_CLARITY_RECOVERY_MAX_JITTER_MS = 30.0
+        const val FAST_CLARITY_RECOVERY_DELIVERY_RATIO = 0.90
+        const val FAST_CLARITY_RECOVERY_MAX_RENDER_GAP_MS = 80
+        const val CONSERVATIVE_RECOVERY_SAMPLE_COUNT = 12
+        const val CONSERVATIVE_RECOVERY_SETTLE_MS = 12_000L
 
         /*
          * Match PhotonFreshnessGovernor's material-repair thresholds. A huge
