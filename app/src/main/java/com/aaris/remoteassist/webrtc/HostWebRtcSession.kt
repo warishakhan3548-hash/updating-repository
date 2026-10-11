@@ -13,6 +13,7 @@ import com.aaris.remoteassist.accessibility.AssistAccessibilityService
 import com.aaris.remoteassist.capture.CaptureProfile
 import com.aaris.remoteassist.capture.CaptureQualityGovernor
 import com.aaris.remoteassist.capture.CaptureTier
+import com.aaris.remoteassist.capture.InteractionCaptureFreshnessTracker
 import com.aaris.remoteassist.capture.InteractionRefreshTiming
 import com.aaris.remoteassist.capture.ProjectionGrant
 import com.aaris.remoteassist.capture.ScreenCaptureTrack
@@ -136,6 +137,8 @@ class HostWebRtcSession(
             initialCap = minOf(profile.motionFps, 30)
         )
     private val passiveMotionPriority = PassiveMotionPriority()
+    private val interactionCaptureFreshness =
+        InteractionCaptureFreshnessTracker()
     private val motionVideoBudget = MotionVideoBudget()
     private val receiverFeedback = ReceiverVideoFeedback()
     private val photonGovernor = PhotonFreshnessGovernor()
@@ -193,7 +196,29 @@ class HostWebRtcSession(
     private val interactionRefreshProbe = Runnable {
         interactionRefreshProbeScheduled.set(false)
         if (!closed.get()) {
-            capture.requestInteractionRefresh()
+            val forcedRefresh =
+                capture.requestInteractionRefresh()
+            val observedAtMs =
+                android.os.SystemClock.elapsedRealtime()
+
+            /*
+             * requestInteractionRefresh() is causal: it returns true only when
+             * an Accessibility command was applied, one display opportunity
+             * elapsed, and no newer natural MediaProjection sample arrived.
+             *
+             * Keep this signal off the main/capture lanes. The policy thread
+             * folds repeated misses into a short-lived scalar that can unlock
+             * producer-side pixel relief when a cold 2-6 fps capture path never
+             * reaches PassiveMotionPriority's normal >=8 fps entry threshold.
+             */
+            policyHandler.post {
+                if (!closed.get()) {
+                    interactionCaptureFreshness.observe(
+                        forcedRefresh = forcedRefresh,
+                        nowMs = observedAtMs
+                    )
+                }
+            }
         }
     }
 
@@ -1180,6 +1205,8 @@ class HostWebRtcSession(
                     photonPolicy.allowResolutionRecovery,
                 sourceMaxGapMs = sourceMaxGapMs,
                 sourceMotionActive = sourceMotionActive,
+                interactionCaptureStarved =
+                    interactionCaptureFreshness.isStarved(now),
                 canResizeProducerSurface =
                     Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
             )
@@ -1555,6 +1582,9 @@ class HostWebRtcSession(
     private fun updateInteractionPriority(active: Boolean) {
         policyHandler.removeCallbacks(interactionPriorityTimeout)
         fallbackStreamer.setInteractionActive(active)
+        if (!active) {
+            interactionCaptureFreshness.reset()
+        }
 
         if (interactionActive != active) {
             val wasFreshnessActive = freshnessPriorityActive()
