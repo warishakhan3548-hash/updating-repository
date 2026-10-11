@@ -1363,7 +1363,7 @@ internal class MotionVideoBudget {
             sender.bitrateBps
                 .toDouble()
                 .takeIf { it.isFinite() && it > 0.0 }
-                ?: return false
+                ?: return true
 
         return sentBitrateBps / bandwidthEstimateBps >=
             BWE_PREDICTIVE_MIN_UTILIZATION_RATIO
