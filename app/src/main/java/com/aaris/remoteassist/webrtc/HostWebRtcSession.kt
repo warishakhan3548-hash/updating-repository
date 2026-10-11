@@ -1776,20 +1776,10 @@ class HostWebRtcSession(
         }
     }
 
-    @Suppress("DEPRECATION")
-    private fun interactionRefreshDelayMs(): Long {
-        val refreshRate =
-            runCatching {
-                displayManager
-                    .getDisplay(Display.DEFAULT_DISPLAY)
-                    ?.mode
-                    ?.refreshRate
-            }.getOrNull()
-
-        return InteractionRefreshTiming.oneDisplayTickMs(
-            refreshRate
+    private fun interactionRefreshDelayMs(): Long =
+        InteractionRefreshTiming.oneDisplayTickMs(
+            sourceDisplayRefreshRateHz()?.toFloat()
         )
-    }
 
     /**
      * MediaProjection follows the host's physical presentation clock. The
