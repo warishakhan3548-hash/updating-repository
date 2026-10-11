@@ -546,7 +546,45 @@ internal class MotionVideoBudget {
                     (queueMs ?: 0.0) >= SEVERE_NETWORK_QUEUE_MS ||
                         sender.fps < goal * 0.45
                 )
-        if (bandwidthFreshnessPressure || predictiveBandwidthPressure) {
+
+        /*
+         * Average bitrate/loss can look healthy while one oversized screen
+         * update creates a short packet train that is repaired by RTX. WebRTC's
+         * hugeFramesSent marks frames >=2.5x target size, while RTX/NACK/PLI/FIR
+         * proves that the burst actually stressed delivery. Treat only the
+         * corroborated combination as pixel pressure: a clean slide/key frame
+         * remains legal and never downshifts quality by itself.
+         *
+         * This closes the gap between the admission-only recovery signal in
+         * PhotonFreshnessGovernor and MotionVideoBudget's reactive queue alarms.
+         * The cheaper spatial actuator moves first; native GCC/TWCC/RTX remains
+         * authoritative and no packet/frame queue is added here.
+         */
+        val retransmitRatio = sender.retransmitRatio.valid()
+        val nackRatePerSecond =
+            sender.nacks
+                ?.takeIf { it >= 0 && sender.intervalMs > 0 }
+                ?.let {
+                    it * 1_000.0 /
+                        sender.intervalMs.toDouble()
+                }
+        val repairPressure =
+            sender.plis?.let { it > 0 } == true ||
+                sender.firs?.let { it > 0 } == true ||
+                retransmitRatio
+                    ?.let { it >= RTP_BURST_RETRANSMIT_RATIO } == true ||
+                nackRatePerSecond
+                    ?.let { it >= RTP_BURST_NACK_RATE_PER_SECOND } == true
+        val rtpBurstPressure =
+            motionEvidence &&
+                (sender.hugeFrames ?: 0) > 0 &&
+                repairPressure
+
+        if (
+            bandwidthFreshnessPressure ||
+            predictiveBandwidthPressure ||
+            rtpBurstPressure
+        ) {
             lastBandwidthPressureAtMs = nowMs
         }
         val pressured =
@@ -556,6 +594,7 @@ internal class MotionVideoBudget {
                 presentationPressure ||
                 bandwidthUnderDelivery ||
                 predictiveBandwidthPressure ||
+                rtpBurstPressure ||
                 predictiveResidencePressure ||
                 pipelineDeadlinePressure ||
                 producerStarvationPressure ||
@@ -577,6 +616,7 @@ internal class MotionVideoBudget {
                             decodePressure ||
                             bandwidthFreshnessPressure ||
                             predictiveBandwidthPressure ||
+                            rtpBurstPressure ||
                             predictiveResidencePressure ||
                             pipelineDeadlinePressure ||
                             (
@@ -654,6 +694,8 @@ internal class MotionVideoBudget {
                     PRODUCER_STARVATION_FAST_SETTLE_MS
                 predictiveBandwidthPressure ->
                     BWE_PREDICTIVE_SETTLE_MS
+                rtpBurstPressure ->
+                    RTP_BURST_FAST_SETTLE_MS
                 predictiveResidencePressure ->
                     RESIDENCE_GROWTH_FAST_SETTLE_MS
                 highCadencePipelinePressure ->
@@ -1054,6 +1096,15 @@ internal class MotionVideoBudget {
         const val BWE_PRESSURE_HEADROOM_RATIO = 1.10
         const val BWE_SEVERE_HEADROOM_RATIO = 0.60
         const val BWE_RECOVERY_HEADROOM_RATIO = 1.20
+
+        /*
+         * Match PhotonFreshnessGovernor's material-repair thresholds. A huge
+         * frame is only actionable when transport feedback independently proves
+         * that recovery work was active in the same completed stats window.
+         */
+        const val RTP_BURST_RETRANSMIT_RATIO = 0.08
+        const val RTP_BURST_NACK_RATE_PER_SECOND = 2.0
+        const val RTP_BURST_FAST_SETTLE_MS = 1_000L
 
         /*
          * Rising media residence is predictive, not an emergency. Scale both
