@@ -218,6 +218,10 @@ class InlineRemoteControllerView(
     }
 
     private val renderSink = VideoSink { frame ->
+        // Native decoder delivery must enqueue the texture to EGL before any
+        // geometry/status work. No intermediate frame queue or copy is added.
+        eglRenderer?.onFrame(frame)
+
         lastRawFrameAtMs = android.os.SystemClock.elapsedRealtime()
         val rotatedWidth = frame.rotatedWidth
         val rotatedHeight = frame.rotatedHeight
@@ -258,7 +262,6 @@ class InlineRemoteControllerView(
             }
         }
 
-        eglRenderer?.onFrame(frame)
     }
 
     private val mediaWatchdog: Runnable =
