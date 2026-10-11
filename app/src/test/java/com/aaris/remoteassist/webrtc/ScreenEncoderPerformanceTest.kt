@@ -55,6 +55,56 @@ class ScreenEncoderPerformanceTest {
     }
 
     @Test
+    fun knownActiveEncoderNeverBorrowsAnotherComponentThroughput() {
+        assertNull(
+            ScreenEncoderPerformance.conservativeCeilingForUnrecognizedImplementation(
+                activeImplementation = " C2.QTI.AVC.ENCODER ",
+                advertisedHardwareImplementations =
+                    listOf("c2.qti.avc.encoder", "c2.mtk.avc.encoder")
+            )
+        )
+        assertEquals(
+            30,
+            ScreenEncoderPerformance.conservativeCeilingForUnrecognizedImplementation(
+                activeImplementation = "c2.android.avc.encoder",
+                advertisedHardwareImplementations =
+                    listOf("c2.qti.avc.encoder", "c2.mtk.avc.encoder")
+            )
+        )
+        assertEquals(
+            30,
+            ScreenEncoderPerformance.conservativeCeilingForUnrecognizedImplementation(
+                activeImplementation = "unlisted.vendor.avc.encoder",
+                advertisedHardwareImplementations =
+                    listOf("c2.qti.avc.encoder")
+            )
+        )
+    }
+
+    @Test
+    fun unknownEncoderOnlyUsesFallbackWhenIdentityWasObserved() {
+        assertNull(
+            ScreenEncoderPerformance.conservativeCeilingForUnrecognizedImplementation(
+                activeImplementation = null,
+                advertisedHardwareImplementations = listOf("c2.qti.avc.encoder")
+            )
+        )
+        assertNull(
+            ScreenEncoderPerformance.conservativeCeilingForUnrecognizedImplementation(
+                activeImplementation = "   ",
+                advertisedHardwareImplementations = emptyList()
+            )
+        )
+        assertEquals(
+            30,
+            ScreenEncoderPerformance.conservativeCeilingForUnrecognizedImplementation(
+                activeImplementation = "libvpx",
+                advertisedHardwareImplementations = emptyList()
+            )
+        )
+    }
+
+    @Test
     fun malformedOrMissingCodecRateDoesNotInventACeiling() {
         assertNull(
             ScreenEncoderPerformance.cadenceAtOrBelow(null)
