@@ -550,14 +550,38 @@ class MotionVideoBudgetTest {
         assertEquals(360, missingBandwidth.shortEdge)
     }
 
-    @Test fun activeInteractionCanHoldResolutionRecoveryUntilGestureSettles() {
+    @Test fun activeInteractionCanHoldCommittedResolutionRecoveryUntilGestureSettles() {
         val budget = MotionVideoBudget()
-        assertTrue(budget.primeForMotion(profile, 0L))
+        val collapse = sender(6, 53.0, 585.0, "libvpx")
+
+        // Create a REAL committed 360px operating point. A speculative
+        // touch-down budget is not a downgrade and must never enter recovery.
+        assertTrue(
+            budget.observe(
+                outbound = collapse,
+                receiver = null,
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = 1_000L
+            )
+        )
+        assertEquals(540, budget.shortEdge)
+        assertTrue(
+            budget.observe(
+                outbound = collapse,
+                receiver = null,
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = 4_000L
+            )
+        )
         assertEquals(360, budget.shortEdge)
 
         val healthy =
             sender().copy(
-                availableOutgoingBitrateBps = 2_400_000.0
+                availableOutgoingBitrateBps = 5_000_000.0
             )
 
         repeat(20) { index ->
@@ -588,7 +612,6 @@ class MotionVideoBudgetTest {
         }
         assertEquals(540, budget.shortEdge)
     }
-
     @Test fun recordedSoftwareCollapseGetsPixelAndUrgentCadenceRelief() {
         val budget = MotionVideoBudget()
         val cadence = VideoCadenceGovernor(60, 30)
@@ -1191,8 +1214,13 @@ class MotionVideoBudgetTest {
 
     @Test fun resolutionRecoveryRequiresBandwidthForTheNextRung() {
         val budget = MotionVideoBudget()
-        assertTrue(budget.primeForMotion(profile, 0L))
+        val collapse = sender(6, 53.0, 585.0, "libvpx")
+
+        // Recovery is meaningful only after a spatial change was committed.
+        budget.observe(collapse, null, 30.0, true, 30, 1_000L)
+        budget.observe(collapse, null, 30.0, true, 30, 4_000L)
         assertEquals(360, budget.shortEdge)
+        assertEquals(360, budget.apply(profile, true).captureWidthPx)
 
         val onlyEnoughForCurrentRung =
             sender().copy(
@@ -1226,7 +1254,6 @@ class MotionVideoBudgetTest {
         }
         assertEquals(540, budget.shortEdge)
     }
-
     @Test fun strongEndToEndHeadroomRecoversClarityWithoutTwelveSecondBlur() {
         val budget = MotionVideoBudget()
         val collapse = sender(6, 53.0, 585.0, "libvpx")
