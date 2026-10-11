@@ -110,6 +110,57 @@ class MotionVideoBudgetTest {
                 interactionActive = true
             )
         )
+
+        // The resize can itself generate a key/huge frame. Burst-only evidence
+        // must not immediately cascade into another codec reconfiguration.
+        assertFalse(
+            budget.observe(
+                repairedBurst,
+                receiver(),
+                30.0,
+                true,
+                30,
+                5_500L,
+                interactionActive = true
+            )
+        )
+        assertFalse(
+            budget.observe(
+                repairedBurst,
+                receiver(),
+                30.0,
+                true,
+                30,
+                6_000L,
+                interactionActive = true
+            )
+        )
+        assertEquals(540, budget.shortEdge)
+
+        // Persisting repair pressure after the spatial guard is real evidence.
+        assertFalse(
+            budget.observe(
+                repairedBurst,
+                receiver(),
+                30.0,
+                true,
+                30,
+                8_000L,
+                interactionActive = true
+            )
+        )
+        assertTrue(
+            budget.observe(
+                repairedBurst,
+                receiver(),
+                30.0,
+                true,
+                30,
+                9_000L,
+                interactionActive = true
+            )
+        )
+        assertEquals(360, budget.shortEdge)
     }
 
     @Test fun retainedGlassHitchCannotBecomeASecondResolutionPressureVote() {
