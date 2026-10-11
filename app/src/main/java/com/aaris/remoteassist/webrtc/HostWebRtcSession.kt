@@ -1127,8 +1127,6 @@ class HostWebRtcSession(
                 capture.sampleSourceCadence(now)
             val sourceFps = sourceCadence?.fps
             val sourceMaxGapMs = sourceCadence?.maxGapMs
-            val sourceRefreshRateHz =
-                sourceDisplayRefreshRateHz()
             val motionChanged =
                 passiveMotionPriority.observe(
                     window = snapshot.recent,
@@ -1254,8 +1252,7 @@ class HostWebRtcSession(
                         maximumFps = profileMaximumFps,
                         allowHighCadenceProbe =
                             motionActive &&
-                                photonPolicy.allowCadencePromotion,
-                        sourceRefreshRateHz = sourceRefreshRateHz
+                                photonPolicy.allowCadencePromotion
                     )
                 }
             val interactionProbeChanged =
@@ -1787,37 +1784,6 @@ class HostWebRtcSession(
         )
     }
 
-    /**
-     * MediaProjection follows the host's physical presentation clock. The
-     * ScreenCapturerAndroid fps argument does not retime that producer, so this
-     * clock is required when selecting high-cadence frame-adaptation rungs.
-     */
-    @Suppress("DEPRECATION")
-    private fun sourceDisplayRefreshRateHz(): Double? {
-        val display =
-            runCatching {
-                displayManager
-                    .getDisplay(Display.DEFAULT_DISPLAY)
-            }.getOrNull() ?: return null
-
-        val effective =
-            runCatching { display.refreshRate.toDouble() }
-                .getOrNull()
-        if (
-            effective != null &&
-            effective.isFinite() &&
-            effective in 30.0..240.0
-        ) {
-            return effective
-        }
-
-        return runCatching {
-            display.mode.refreshRate.toDouble()
-        }.getOrNull()?.takeIf {
-            it.isFinite() && it in 30.0..240.0
-        }
-    }
-
     private fun encoderFpsLimit(
         widthPx: Int,
         heightPx: Int
@@ -1865,7 +1831,16 @@ class HostWebRtcSession(
                 spatial.captureWidthPx,
                 spatial.captureHeightPx
             )
-        val unalignedTargetFps =
+        /*
+         * MediaProjection is content-driven and may emit a variable cadence.
+         * The host display refresh rate is therefore a capability ceiling, not
+         * an exact producer clock. Keep the source target selected by the
+         * profile/device/encoder governors and let measured producer FPS plus
+         * end-to-end presentation feedback prove whether a high-cadence rung is
+         * sustainable. This avoids collapsing a valid 45/50 fps operating point
+         * to 30 fps solely because a 60 Hz panel is not an integer multiple.
+         */
+        val targetFps =
             RealtimeMediaPolicy.effectiveSourceFps(
                 idleFps = target.fps,
                 motionFps = target.motionFps,
@@ -1877,30 +1852,6 @@ class HostWebRtcSession(
                     ),
                 freshnessActive = freshnessActive
             )
-
-        /*
-         * CaptureProfile can contain a non-harmonic ambient ceiling (STANDARD
-         * historically uses 45 fps). That target bypasses the cadence governor
-         * when the governor's cap is still 60, so filtering only governor rungs
-         * is not sufficient: a 60 Hz MediaProjection would still enter the
-         * session at 45 fps and exhibit an uneven 3-of-4 frame pattern.
-         *
-         * Quantize every high-cadence source target against the host display
-         * clock before it reaches VideoSource. <=30 fps is the recovery ladder
-         * and stays untouched. Missing clock data preserves the old target.
-         */
-        val targetFps =
-            if (unalignedTargetFps > 30) {
-                DisplayCadencePolicy.nearestAtOrBelow(
-                    limitFps = unalignedTargetFps,
-                    refreshRateHz = null,
-                    ceilingFps = unalignedTargetFps,
-                    floorFps = 1,
-                    sourceRefreshRateHz = sourceDisplayRefreshRateHz()
-                )
-            } else {
-                unalignedTargetFps
-            }
 
         return if (targetFps == spatial.fps) {
             spatial
