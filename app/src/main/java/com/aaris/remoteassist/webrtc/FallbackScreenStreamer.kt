@@ -131,7 +131,10 @@ class FallbackScreenStreamer(
         // This synchronous GPU readback is on the capture callback.
         // Reduce only recovery pixels when repeated measured copies are slow.
         val copyCostMs =
-            (System.nanoTime() - copyStartedNs).coerceAtLeast(0L) / 1_000_000L
+            ceilReadbackCostMs(
+                (System.nanoTime() - copyStartedNs)
+                    .coerceAtLeast(0L)
+            )
         val changedReadbackTier = readbackBudget.observe(
             copyCostMs,
             monotonicNowMs()
