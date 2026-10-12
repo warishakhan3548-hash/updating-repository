@@ -32,6 +32,14 @@ class VideoCadenceGovernor(
     private var clarityBandwidthVoteCap = 0
     private var clarityBandwidthVoteTarget = 0
     /*
+     * BWE-only source-harmonic cliffs need their own bounded deferral counter.
+     * Do not share this with ordinary overload pressure: the regular governor
+     * correctly clears ordinary pressure on a queue-clean BWE-only interval,
+     * which would otherwise erase this proof every window and strand 360p@60
+     * forever on a link that cannot sustain it.
+     */
+    private var claritySpatialDeferrals = 0
+    /*
      * A known source clock may have no smooth high-cadence relief rung.
      * Example: a 60 Hz MediaProjection can emit 60 or 30 evenly, but not 50/45
      * without deterministic long producer intervals. Before crossing that
@@ -67,6 +75,7 @@ class VideoCadenceGovernor(
 
         if (nowMs < 0L || requestedFps <= CLARITY_BANDWIDTH_MIN_FPS) {
             resetClarityBandwidthVotes()
+            claritySpatialDeferrals = 0
             return false
         }
 
@@ -82,22 +91,39 @@ class VideoCadenceGovernor(
                 requestedFps = requestedFps
             ) ?: run {
                 resetClarityBandwidthVotes()
+                claritySpatialDeferrals = 0
                 return false
             }
 
         /*
          * A BWE-only prediction is deliberately not allowed to turn a smooth
          * 60 Hz source directly into a 30 fps stream merely because 52/50/45
-         * are non-harmonic producer rates. In that topology the next cheaper
-         * smooth actuator is measured spatial/bitrate relief, bounded by the
-         * existing 360px readability floor. The host will continue through the
-         * normal MotionVideoBudget lane for this same telemetry window.
+         * are non-harmonic producer rates. Give measured spatial/bitrate relief
+         * enough completed windows to commit 720 -> 540 -> 360 first.
+         *
+         * This opportunity is BOUNDED. If MotionVideoBudget makes a real pixel
+         * move, onSpatialBudgetTransition() resets this counter and the new rung
+         * gets its own measured chance. If no pixel move is possible (notably
+         * once the readable 360px floor is already committed), the counter
+         * expires and the normal two-window BWE cadence vote is allowed to take
+         * the deterministic 30 fps escape. That prevents both blur and a
+         * permanent 360p@60 bitrate squeeze.
          */
-        if (shouldSpendSpatialBeforeCadenceCliff(current, target)) {
+        val spatialFirst =
+            shouldSpendSpatialBeforeCadenceCliff(current, target)
+        if (
+            spatialFirst &&
+            claritySpatialDeferrals < BWE_SPATIAL_FIRST_DEFERRALS
+        ) {
+            claritySpatialDeferrals += 1
             resetClarityBandwidthVotes()
-            cadenceCliffDeferrals = 0
-            lastDecision = "clarity-bwe-spatial-first@$current"
+            lastDecision =
+                "clarity-bwe-spatial-first@$current(" +
+                    "$claritySpatialDeferrals/$BWE_SPATIAL_FIRST_DEFERRALS)"
             return false
+        }
+        if (!spatialFirst) {
+            claritySpatialDeferrals = 0
         }
 
         if (
@@ -130,6 +156,7 @@ class VideoCadenceGovernor(
         interactiveHeadroom = 0
         interactiveFloorHeadroom = 0
         cadenceCliffDeferrals = 0
+        claritySpatialDeferrals = 0
         highCadencePressureGate.reset()
         lastDecision = "clarity-bwe-relief->$target"
         resetClarityBandwidthVotes()
@@ -164,7 +191,8 @@ class VideoCadenceGovernor(
                 ceilingFps = ceilingFps,
                 requestedFps = requestedFps
             ) ?: return false
-        return shouldSpendSpatialBeforeCadenceCliff(current, target)
+        return shouldSpendSpatialBeforeCadenceCliff(current, target) &&
+            claritySpatialDeferrals < BWE_SPATIAL_FIRST_DEFERRALS
     }
 
     private fun clarityBandwidthTarget(
@@ -242,6 +270,7 @@ class VideoCadenceGovernor(
         interactiveHeadroom = 0
         interactiveFloorHeadroom = 0
         cadenceCliffDeferrals = 0
+        claritySpatialDeferrals = 0
         lastSenderIdentity = null
         lastSenderFps = null
         lastSenderAtMs = Long.MIN_VALUE / 2
@@ -1274,6 +1303,7 @@ class VideoCadenceGovernor(
             "overloadAgo=${ageMs(lastOverloadAtMs)} " +
             "floorProof=$interactiveFloorHeadroom/$INTERACTION_FLOOR_SAMPLES " +
             "spatialFirst=$cadenceCliffDeferrals " +
+            "claritySpatial=$claritySpatialDeferrals/$BWE_SPATIAL_FIRST_DEFERRALS " +
             "clarityBwe=$clarityBandwidthSummary " +
             highCadenceProbe.debugSummary(nowMs)
     }
@@ -1330,6 +1360,7 @@ class VideoCadenceGovernor(
         const val CLARITY_BANDWIDTH_MIN_FPS = 30
         const val CLARITY_BANDWIDTH_SAMPLES_TO_REDUCE = 2
         const val CLARITY_BANDWIDTH_CHANGE_INTERVAL_MS = 900L
+        const val BWE_SPATIAL_FIRST_DEFERRALS = 2
         const val INTERACTION_RESCUE_FLOOR_FPS = 24
         const val INTERACTION_FLOOR_CODEC_BUDGET_RATIO = 0.85
         const val INTERACTION_FLOOR_MAX_QUEUE_MS = 25.0

@@ -119,8 +119,10 @@ class AdaptiveScreenSmoothnessTest {
         )
         assertTrue(governor.mayReduceMotionResolution(60))
 
-        // The cadence vote itself is suppressed, so repeated BWE-only samples
-        // cannot silently turn a smooth 60 Hz source into 30 fps.
+        // Two completed BWE windows are reserved for measured spatial relief.
+        // The third starts (but cannot yet commit) the normal two-window cadence
+        // vote. This is long enough for MotionVideoBudget's own confirmation
+        // rule without allowing a permanent 360p@60 bitrate squeeze.
         repeat(3) { index ->
             assertFalse(
                 governor.observeClarityBandwidthCeiling(
@@ -133,9 +135,63 @@ class AdaptiveScreenSmoothnessTest {
             )
         }
         assertEquals(60, governor.cap)
+        assertFalse(
+            governor.prefersSpatialReliefForClarityBandwidth(
+                ceilingFps = 52,
+                requestedFps = 60,
+                displayRefreshRateHz = 60.0,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+
+        // If no real spatial transition happened (for example because the
+        // stream is already at the 360px floor), the fourth stable BWE window
+        // must unlock the deterministic 30 fps fallback.
         assertTrue(
-            governor.debugSummary(3_000L)
-                .contains("clarity-bwe-spatial-first@60")
+            governor.observeClarityBandwidthCeiling(
+                ceilingFps = 52,
+                requestedFps = 60,
+                nowMs = 4_000L,
+                displayRefreshRateHz = 60.0,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertEquals(30, governor.cap)
+
+        // A real spatial move resets the bounded opportunity for the new pixel
+        // rung instead of carrying stale BWE votes across encoder geometry.
+        val afterSpatialMove =
+            VideoCadenceGovernor(
+                maxFps = 60,
+                initialCap = 60
+            )
+        repeat(2) { index ->
+            assertFalse(
+                afterSpatialMove.observeClarityBandwidthCeiling(
+                    ceilingFps = 52,
+                    requestedFps = 60,
+                    nowMs = 1_000L + index * 1_000L,
+                    displayRefreshRateHz = 60.0,
+                    sourceRefreshRateHz = 60.0
+                )
+            )
+        }
+        assertFalse(
+            afterSpatialMove.prefersSpatialReliefForClarityBandwidth(
+                ceilingFps = 52,
+                requestedFps = 60,
+                displayRefreshRateHz = 60.0,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        afterSpatialMove.onSpatialBudgetTransition(2_100L)
+        assertTrue(
+            afterSpatialMove.prefersSpatialReliefForClarityBandwidth(
+                ceilingFps = 52,
+                requestedFps = 60,
+                displayRefreshRateHz = 60.0,
+                sourceRefreshRateHz = 60.0
+            )
         )
 
         // A 120 Hz producer has an exact 40 fps rung, so temporal-first remains
