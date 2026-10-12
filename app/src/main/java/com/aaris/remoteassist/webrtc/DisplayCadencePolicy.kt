@@ -109,6 +109,94 @@ internal object DisplayCadencePolicy {
         return rates.sortedDescending()
     }
 
+    /**
+     * Pressure relief has a different job from steady-state admission.
+     *
+     * Healthy capture/promotion remains source-harmonic so an unconstrained
+     * stream never creates avoidable producer cadence jitter. Once measured
+     * pressure says the current high cadence is too expensive, however, jumping
+     * straight from 60 -> 30 can be a larger visual discontinuity than using a
+     * bounded intermediate cadence.
+     *
+     * Admit only rungs whose repeat pattern is short on every clock we know.
+     * This keeps ordinary relief such as 60 -> 50/45/40/36 on a 60 Hz pair,
+     * 60 -> 45 on a 60 Hz source / 90 Hz controller, and 48 -> 36 on a
+     * 144 Hz source / 60 Hz controller. Long-beat rates remain rejected.
+     *
+     * Exact source/controller divisors that are absent from the historical
+     * ladder are also eligible (for example 48 fps on a 96 Hz controller)
+     * when the other known clock has a short repeat cycle. <=30 fps remains the
+     * existing emergency/recovery ladder.
+     */
+    fun pressureReliefDescending(
+        refreshRateHz: Double?,
+        ceilingFps: Int = PRODUCT_MAX_FPS,
+        floorFps: Int = 1,
+        sourceRefreshRateHz: Double? = null
+    ): List<Int> {
+        val floor = floorFps.coerceAtLeast(1)
+        val ceiling = ceilingFps.coerceAtLeast(floor)
+        val refresh = normalizedRefresh(refreshRateHz)
+        val sourceRefresh = normalizedRefresh(sourceRefreshRateHz)
+
+        if (refresh == null && sourceRefresh == null) {
+            return legacyDescending
+                .filter { it in floor..ceiling }
+                .ifEmpty { listOf(ceiling) }
+        }
+
+        val rates = linkedSetOf<Int>()
+        val firstHigh = maxOf(HIGH_CADENCE_MIN_FPS, floor)
+
+        fun clockCompatible(clockHz: Int?, fps: Int): Boolean =
+            clockHz == null ||
+                fps <= LOW_CADENCE_MAX_FPS ||
+                shortRepeatCycle(clockHz, fps)
+
+        fun admitHigh(fps: Int): Boolean =
+            fps in firstHigh..ceiling &&
+                clockCompatible(sourceRefresh, fps) &&
+                clockCompatible(refresh, fps)
+
+        if (ceiling >= firstHigh) {
+            legacyDescending
+                .asSequence()
+                .filter(::admitHigh)
+                .forEach(rates::add)
+
+            /*
+             * Keep useful exact harmonics even when they are not in the legacy
+             * pressure ladder. The second known clock must still accept the rung
+             * with a short repeat cycle, so this cannot introduce long beats.
+             */
+            sourceRefresh
+                ?.let { source ->
+                    (minOf(PRODUCT_MAX_FPS, ceiling, source) downTo firstHigh)
+                        .asSequence()
+                        .filter { source % it == 0 }
+                        .filter(::admitHigh)
+                        .forEach(rates::add)
+                }
+            refresh
+                ?.let { display ->
+                    (minOf(PRODUCT_MAX_FPS, ceiling, display) downTo firstHigh)
+                        .asSequence()
+                        .filter { display % it == 0 }
+                        .filter(::admitHigh)
+                        .forEach(rates::add)
+                }
+        }
+
+        lowCadenceDescending
+            .filterTo(rates) { it in floor..ceiling }
+
+        if (rates.isEmpty()) {
+            rates += ceiling
+        }
+
+        return rates.sortedDescending()
+    }
+
     fun nextLower(
         currentFps: Int,
         refreshRateHz: Double?,
@@ -116,7 +204,7 @@ internal object DisplayCadencePolicy {
         ceilingFps: Int = PRODUCT_MAX_FPS,
         sourceRefreshRateHz: Double? = null
     ): Int? =
-        descending(
+        pressureReliefDescending(
             refreshRateHz = refreshRateHz,
             ceilingFps = maxOf(ceilingFps, currentFps),
             floorFps = floorFps,
@@ -189,6 +277,26 @@ internal object DisplayCadencePolicy {
             .filter { it > currentFps && it <= boundedCeiling }
             .minOrNull()
     }
+
+    /**
+     * Resolve an already-proven downward ceiling without needlessly halving
+     * cadence when a bounded short-cycle rung can satisfy the same pressure.
+     * Unlike nearestAtOrBelow(), this is never used for startup or promotion.
+     */
+    fun nearestPressureReliefAtOrBelow(
+        limitFps: Int,
+        refreshRateHz: Double?,
+        ceilingFps: Int = PRODUCT_MAX_FPS,
+        floorFps: Int = 1,
+        sourceRefreshRateHz: Double? = null
+    ): Int =
+        pressureReliefDescending(
+            refreshRateHz = refreshRateHz,
+            ceilingFps = maxOf(ceilingFps, limitFps),
+            floorFps = floorFps,
+            sourceRefreshRateHz = sourceRefreshRateHz
+        ).firstOrNull { it <= limitFps }
+            ?: minOf(limitFps.coerceAtLeast(1), HIGH_CADENCE_MIN_FPS - 1)
 
     fun nearestAtOrBelow(
         limitFps: Int,
