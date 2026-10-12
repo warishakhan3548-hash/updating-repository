@@ -96,8 +96,8 @@ internal object DisplayCadencePolicy {
          *
          * The older short-repeat controller filter is retained only while source
          * clock evidence is unavailable. <=30 fps remains the pressure/recovery
-         * safety band and now uses exact producer divisors when a practical ladder is
- * available.
+         * safety band and now uses exact producer divisors when a practical
+         * ladder is available.
          */
         fun admitHigh(fps: Int): Boolean =
             fps in firstHigh..ceiling &&
