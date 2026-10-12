@@ -364,6 +364,7 @@ class VideoCadenceGovernor(
     fun ensureInteractionFloor(
         minimumFps: Int,
         nowMs: Long,
+        maximumFps: Int = maxFps,
         displayRefreshRateHz: Double? = null,
         sourceRefreshRateHz: Double? = null
     ): Boolean {
@@ -374,13 +375,21 @@ class VideoCadenceGovernor(
         // A finger-down event cannot invalidate measured overload. Otherwise
         // each new gesture reopens the very queue the pressure path just drained.
         if (nowMs - lastOverloadAtMs < QUIET_PROBE_COOLDOWN_MS) return false
-        val requestedCeiling =
-            minOf(maxFps, minimumFps.coerceAtLeast(1))
+        val boundedMaximum =
+            minOf(maxFps, maximumFps.coerceAtLeast(1))
+        val requestedFloor =
+            minOf(boundedMaximum, minimumFps.coerceAtLeast(1))
         val target =
-            DisplayCadencePolicy.nearestAtOrBelow(
-                limitFps = requestedCeiling,
+            DisplayCadencePolicy.nextHigher(
+                currentFps = requestedFloor - 1,
                 refreshRateHz = lastDisplayRefreshRateHz,
-                ceilingFps = requestedCeiling,
+                ceilingFps = boundedMaximum,
+                floorFps = requestedFloor,
+                sourceRefreshRateHz = lastSourceRefreshRateHz
+            ) ?: DisplayCadencePolicy.nearestAtOrBelow(
+                limitFps = requestedFloor,
+                refreshRateHz = lastDisplayRefreshRateHz,
+                ceilingFps = requestedFloor,
                 floorFps = 1,
                 sourceRefreshRateHz = lastSourceRefreshRateHz
             )
