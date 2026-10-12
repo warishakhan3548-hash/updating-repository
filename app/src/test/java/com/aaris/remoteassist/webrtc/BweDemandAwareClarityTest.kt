@@ -363,8 +363,9 @@ class BweDemandAwareClarityTest {
             )
 
         // 630/700 = 90% utilization. Preserve a 22% burst reserve:
-        // floor(30 * 0.78 / 0.90) = 26. The cadence governor will quantize this
-        // onto the existing low-cadence ladder (24 fps).
+        // floor(30 * 0.78 / 0.90) = 26. The cadence governor then quantizes
+        // that raw ceiling onto the producer-paced low-cadence ladder (20 fps
+        // for a 60 Hz MediaProjection; 24 remains valid on a 120 Hz producer).
         assertEquals(
             26,
             budget.clarityPreservingCadenceCeiling(

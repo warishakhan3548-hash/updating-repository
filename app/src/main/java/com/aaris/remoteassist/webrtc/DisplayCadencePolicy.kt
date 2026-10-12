@@ -21,16 +21,45 @@ package com.aaris.remoteassist.webrtc
  *
  * 60 fps remains the product ceiling even on unusual high-refresh panels.
  *
- * <=30 fps is the pressure/recovery safety ladder, where freshness and encoder
- * headroom matter more than perfect phase matching.
+ * <=30 fps remains the pressure/recovery safety band. When the source clock is
+ * known, exact producer divisors are preferred there too so congestion relief
+ * does not trade blur for deterministic frame-spacing judder.
  *
  * Missing/invalid display capability preserves the previous ladder exactly.
  */
 internal object DisplayCadencePolicy {
     private val legacyDescending =
         listOf(60, 58, 55, 50, 45, 40, 36, 33, 30, 24, 20, 15)
-    private val lowCadenceDescending =
+    private val fallbackLowCadenceDescending =
         listOf(30, 24, 20, 15)
+
+    /**
+     * Low-bandwidth cadence must not reintroduce the producer-beat problem that
+     * the high-cadence ladder already avoids. VideoSource can only select whole
+     * MediaProjection ticks, so 24 fps sampled from a 60 Hz producer alternates
+     * two- and three-tick frame gaps even when the network/codec are healthy.
+     *
+     * Prefer exact producer divisors between 15 and 30 fps when the clock offers
+     * a useful recovery ladder. Rare refresh rates with no practical divisor
+     * above the emergency floor keep the proven legacy 30/24/20/15 ladder rather
+     * than taking a destructive one-step fall to 15 fps.
+     */
+    private fun lowCadenceDescending(sourceRefreshHz: Int?): List<Int> {
+        if (sourceRefreshHz == null) return fallbackLowCadenceDescending
+
+        val exact =
+            (LOW_CADENCE_MAX_FPS downTo MIN_LOW_CADENCE_FPS)
+                .filter { sourceRefreshHz % it == 0 }
+
+        return if (
+            exact.firstOrNull()?.let { it >= MIN_PRACTICAL_LOW_CADENCE_FPS } ==
+                true
+        ) {
+            exact
+        } else {
+            fallbackLowCadenceDescending
+        }
+    }
 
     fun descending(
         refreshRateHz: Double?,
@@ -67,7 +96,8 @@ internal object DisplayCadencePolicy {
          *
          * The older short-repeat controller filter is retained only while source
          * clock evidence is unavailable. <=30 fps remains the pressure/recovery
-         * safety ladder and is intentionally left untouched.
+         * safety band and now uses exact producer divisors when a practical
+         * ladder is available.
          */
         fun admitHigh(fps: Int): Boolean =
             fps in firstHigh..ceiling &&
@@ -99,7 +129,7 @@ internal object DisplayCadencePolicy {
                 }
         }
 
-        lowCadenceDescending
+        lowCadenceDescending(sourceRefresh)
             .filterTo(rates) { it in floor..ceiling }
 
         if (rates.isEmpty()) {
@@ -129,7 +159,8 @@ internal object DisplayCadencePolicy {
      *
      * If source-clock evidence is unavailable, retain the historical controller
      * short-repeat ladder as a compatibility fallback. <=30 fps remains the
-     * existing emergency/recovery ladder.
+     * existing emergency/recovery policy, with producer-harmonic low rungs
+     * when the source clock exposes enough practical choices.
      */
     fun pressureReliefDescending(
         refreshRateHz: Double?,
@@ -193,7 +224,7 @@ internal object DisplayCadencePolicy {
             }
         }
 
-        lowCadenceDescending
+        lowCadenceDescending(sourceRefresh)
             .filterTo(rates) { it in floor..ceiling }
 
         if (rates.isEmpty()) {
@@ -319,6 +350,36 @@ internal object DisplayCadencePolicy {
         ).firstOrNull { it <= limitFps }
             ?: minOf(limitFps.coerceAtLeast(1), HIGH_CADENCE_MIN_FPS - 1)
 
+    /**
+     * Smallest pacing-safe cadence that meets a requested floor, or null when
+     * the active profile ceiling leaves no such rung.
+     *
+     * Enumerate from the full safe ladder instead of raising floorFps to the
+     * requested minimum: descending() deliberately preserves a compatibility
+     * fallback when its filtered set is empty, and that fallback must never be
+     * mistaken for source-harmonic proof.
+     */
+    fun nearestAtOrAbove(
+        limitFps: Int,
+        refreshRateHz: Double?,
+        ceilingFps: Int = PRODUCT_MAX_FPS,
+        sourceRefreshRateHz: Double? = null
+    ): Int? {
+        val ceiling = ceilingFps.coerceAtLeast(1)
+        val requested = limitFps.coerceAtLeast(1)
+        if (requested > ceiling) return null
+
+        return descending(
+            refreshRateHz = refreshRateHz,
+            ceilingFps = ceiling,
+            floorFps = 1,
+            sourceRefreshRateHz = sourceRefreshRateHz
+        )
+            .asSequence()
+            .filter { it >= requested }
+            .minOrNull()
+    }
+
     private fun harmonicPromotionCeiling(
         refreshHz: Int,
         ceilingFps: Int
@@ -402,6 +463,8 @@ internal object DisplayCadencePolicy {
 
     private const val PRODUCT_MAX_FPS = 60
     private const val LOW_CADENCE_MAX_FPS = 30
+    private const val MIN_LOW_CADENCE_FPS = 15
+    private const val MIN_PRACTICAL_LOW_CADENCE_FPS = 20
     private const val HIGH_CADENCE_MIN_FPS = LOW_CADENCE_MAX_FPS + 1
     private const val MAX_HIGH_CADENCE_REPEAT_VSYNCS = 6
     private const val MIN_REFRESH_HZ = 30.0

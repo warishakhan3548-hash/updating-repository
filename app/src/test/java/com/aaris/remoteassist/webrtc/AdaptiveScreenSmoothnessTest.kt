@@ -129,12 +129,13 @@ class AdaptiveScreenSmoothnessTest {
                 sourceRefreshRateHz = 60.0
             )
         )
-        // <=30 uses the established safety ladder. A 26 fps measured ceiling
-        // therefore resolves to 24 rather than inventing a new pacing rate.
-        assertEquals(24, governor.cap)
+        // At the readable 360p floor, temporal relief still preserves source
+        // pacing. A 60 Hz producer cannot emit 24 fps on uniform capture ticks,
+        // so a 26 fps BWE ceiling resolves to the exact 20 fps divisor.
+        assertEquals(20, governor.cap)
         assertTrue(
             governor.debugSummary(2_000L)
-                .contains("clarity-bwe-relief->24")
+                .contains("clarity-bwe-relief->20")
         )
     }
 
@@ -350,6 +351,78 @@ class AdaptiveScreenSmoothnessTest {
                 minimumFps = 24,
                 nowMs = 1_001L
             )
+        )
+    }
+
+    @Test
+    fun normalInteractionFloorDoesNotUndercutThirtyFpsWhenSafeRungExists() {
+        val sixtyHz = VideoCadenceGovernor(maxFps = 60, initialCap = 15)
+        assertTrue(
+            sixtyHz.ensureInteractionFloor(
+                minimumFps = 30,
+                nowMs = 1_000L,
+                maximumFps = 60,
+                displayRefreshRateHz = 90.0,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertEquals(30, sixtyHz.cap)
+
+        val oneFortyFourHz = VideoCadenceGovernor(maxFps = 60, initialCap = 15)
+        assertTrue(
+            oneFortyFourHz.ensureInteractionFloor(
+                minimumFps = 30,
+                nowMs = 1_000L,
+                maximumFps = 60,
+                displayRefreshRateHz = 60.0,
+                sourceRefreshRateHz = 144.0
+            )
+        )
+        assertEquals(36, oneFortyFourHz.cap)
+    }
+
+    @Test
+    fun sixtyHzOverloadRecoveryUsesPacingSafeTwentyFpsRung() {
+        val governor = VideoCadenceGovernor(maxFps = 30, initialCap = 15)
+        val clean =
+            outbound(
+                fps = 15,
+                processingMs = 20.0,
+                queueMs = 0.0
+            ).copy(
+                roundTripTimeMs = 14,
+                packetLossRatio = 0.0,
+                codecImplementation = "c2.mtk.avc.encoder"
+            )
+
+        assertFalse(
+            governor.tryProbeDuringInteraction(
+                outbound = clean,
+                receiver = null,
+                producerFps = 60.0,
+                interactionActive = true,
+                nowMs = 1_000L,
+                maximumFps = 30,
+                displayRefreshRateHz = 60.0,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertTrue(
+            governor.tryProbeDuringInteraction(
+                outbound = clean,
+                receiver = null,
+                producerFps = 60.0,
+                interactionActive = true,
+                nowMs = 1_500L,
+                maximumFps = 30,
+                displayRefreshRateHz = 60.0,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertEquals(20, governor.cap)
+        assertTrue(
+            governor.debugSummary(1_500L)
+                .contains("interaction-clean-rescue->20")
         )
     }
 

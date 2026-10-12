@@ -167,7 +167,7 @@ class DisplayCadencePolicyTest {
             )
 
         assertEquals(
-            listOf(60, 30, 24, 20, 15),
+            listOf(60, 30, 20, 15),
             ladder
         )
         assertFalse(50 in ladder)
@@ -186,7 +186,7 @@ class DisplayCadencePolicyTest {
             )
 
         assertEquals(
-            listOf(48, 36, 30, 24, 20, 15),
+            listOf(48, 36, 24, 18, 16),
             ladder
         )
         assertEquals(
@@ -235,7 +235,7 @@ class DisplayCadencePolicyTest {
         )
 
         assertEquals(
-            listOf(45, 30, 24, 20, 15),
+            listOf(45, 30, 18, 15),
             DisplayCadencePolicy.descending(
                 refreshRateHz = 90.0,
                 ceilingFps = 60,
@@ -258,7 +258,7 @@ class DisplayCadencePolicyTest {
         )
 
         assertEquals(
-            listOf(60, 30, 24, 20, 15),
+            listOf(60, 30, 20, 15),
             DisplayCadencePolicy.descending(
                 refreshRateHz = 90.0,
                 ceilingFps = 60,
@@ -333,7 +333,7 @@ class DisplayCadencePolicyTest {
     @Test
     fun pressureReliefKeepsKnownSixtyHzSourceHarmonic() {
         assertEquals(
-            listOf(60, 30, 24, 20, 15),
+            listOf(60, 30, 20, 15),
             DisplayCadencePolicy.pressureReliefDescending(
                 refreshRateHz = 60.0,
                 ceilingFps = 60,
@@ -363,7 +363,7 @@ class DisplayCadencePolicyTest {
         // Steady-state admission stays strict: pressure relief must not leak into
         // startup/promotion and create avoidable producer cadence jitter.
         assertEquals(
-            listOf(60, 30, 24, 20, 15),
+            listOf(60, 30, 20, 15),
             DisplayCadencePolicy.descending(
                 refreshRateHz = 60.0,
                 ceilingFps = 60,
@@ -375,7 +375,7 @@ class DisplayCadencePolicyTest {
     @Test
     fun mixedRefreshControllerDoesNotPhaseLockKnownSourcePressureRelief() {
         assertEquals(
-            listOf(60, 30, 24, 20, 15),
+            listOf(60, 30, 20, 15),
             DisplayCadencePolicy.pressureReliefDescending(
                 refreshRateHz = 90.0,
                 ceilingFps = 60,
@@ -405,7 +405,7 @@ class DisplayCadencePolicyTest {
             )
         )
         assertEquals(
-            listOf(60, 30, 24, 20, 15),
+            listOf(60, 30, 20, 15),
             DisplayCadencePolicy.pressureReliefDescending(
                 refreshRateHz = 165.0,
                 ceilingFps = 60,
@@ -447,9 +447,91 @@ class DisplayCadencePolicyTest {
     }
 
     @Test
+    fun lowBandwidthRungsStayOnExactProducerTicksWhenPractical() {
+        assertEquals(
+            listOf(30, 20, 15),
+            DisplayCadencePolicy.descending(
+                refreshRateHz = 60.0,
+                ceilingFps = 30,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertEquals(
+            20,
+            DisplayCadencePolicy.nearestPressureReliefAtOrBelow(
+                limitFps = 26,
+                refreshRateHz = 60.0,
+                ceilingFps = 30,
+                floorFps = 15,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+
+        // 120 Hz can emit every historical low rung on whole producer ticks.
+        assertEquals(
+            listOf(30, 24, 20, 15),
+            DisplayCadencePolicy.descending(
+                refreshRateHz = 120.0,
+                ceilingFps = 30,
+                sourceRefreshRateHz = 120.0
+            )
+        )
+
+        // 90 Hz has a useful exact 18 fps rung; do not synthesize 24/20 fps
+        // cadence beating while the link is already under pressure.
+        assertEquals(
+            listOf(30, 18, 15),
+            DisplayCadencePolicy.descending(
+                refreshRateHz = 90.0,
+                ceilingFps = 30,
+                sourceRefreshRateHz = 90.0
+            )
+        )
+    }
+
+    @Test
+    fun interactionFloorChoosesSmallestSafeRungAtOrAboveRequest() {
+        assertEquals(
+            30,
+            DisplayCadencePolicy.nearestAtOrAbove(
+                limitFps = 24,
+                refreshRateHz = 90.0,
+                ceilingFps = 30,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertEquals(
+            36,
+            DisplayCadencePolicy.nearestAtOrAbove(
+                limitFps = 30,
+                refreshRateHz = 60.0,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 144.0
+            )
+        )
+        assertNull(
+            DisplayCadencePolicy.nearestAtOrAbove(
+                limitFps = 30,
+                refreshRateHz = 60.0,
+                ceilingFps = 30,
+                sourceRefreshRateHz = 144.0
+            )
+        )
+        assertEquals(
+            24,
+            DisplayCadencePolicy.nearestAtOrBelow(
+                limitFps = 30,
+                refreshRateHz = 60.0,
+                ceilingFps = 30,
+                sourceRefreshRateHz = 144.0
+            )
+        )
+    }
+
+    @Test
     fun sourceClockStillProtectsCadenceBeforeControllerRefreshArrives() {
         assertEquals(
-            listOf(60, 30, 24, 20, 15),
+            listOf(60, 30, 20, 15),
             DisplayCadencePolicy.descending(
                 refreshRateHz = null,
                 ceilingFps = 60,
