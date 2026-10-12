@@ -424,7 +424,7 @@ class DisplayCadencePolicyTest {
         assertEquals(
             48,
             DisplayCadencePolicy.nextLower(
-                currentFps = 60,
+                currentFps = 50,
                 refreshRateHz = 96.0,
                 ceilingFps = 60,
                 sourceRefreshRateHz = 60.0
