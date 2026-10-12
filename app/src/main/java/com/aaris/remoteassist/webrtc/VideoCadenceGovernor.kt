@@ -58,8 +58,11 @@ class VideoCadenceGovernor(
      *
      * Two consecutive windows must resolve to the same display-compatible
      * target. That filters BWE noise without waiting for sender queues to grow.
-     * This method can only move cadence downward to >=30 fps; it never changes
-     * resolution, raises FPS, or forces a transmit bitrate.
+     * Above the readable pixel floor this path still bottoms out at 30 fps.
+     * When MotionVideoBudget proves the source is already at the terminal 360px
+     * rung, the same measured-BWE vote may also choose 24/20/15 fps so GCC can
+     * spend more bits per retained frame instead of softening text. It never
+     * changes resolution, raises FPS, or forces a transmit bitrate.
      */
     fun observeClarityBandwidthCeiling(
         ceilingFps: Int?,
@@ -473,9 +476,17 @@ class VideoCadenceGovernor(
                         } != false
                 } ?: true
 
+            val bandwidthHealthy =
+                projectedBandwidthSupportsCadence(
+                    outbound = outbound,
+                    sender = sender,
+                    targetFps = interactionFloorTarget,
+                    headroomRatio =
+                        INTERACTION_RECOVERY_BWE_HEADROOM_RATIO
+                )
             val floorHealthy =
                 producerHealthy && senderHealthy && qualityHealthy &&
-                    networkHealthy && receiverHealthy
+                    networkHealthy && receiverHealthy && bandwidthHealthy
             interactiveFloorHeadroom =
                 if (floorHealthy) {
                     (interactiveFloorHeadroom + 1)
@@ -554,9 +565,17 @@ class VideoCadenceGovernor(
                     } != false
             } ?: true
 
+        val bandwidthHealthy =
+            projectedBandwidthSupportsCadence(
+                outbound = outbound,
+                sender = sender,
+                targetFps = ceiling,
+                headroomRatio =
+                    INTERACTION_RECOVERY_BWE_HEADROOM_RATIO
+            )
         val sampleHealthy =
             producerHealthy && senderHealthy && qualityHealthy &&
-                networkHealthy && receiverHealthy
+                networkHealthy && receiverHealthy && bandwidthHealthy
         interactiveHeadroom =
             if (sampleHealthy) {
                 (interactiveHeadroom + 1).coerceAtMost(INTERACTION_PROBE_SAMPLES)
@@ -579,6 +598,47 @@ class VideoCadenceGovernor(
         interactiveFloorHeadroom = 0
         lastDecision = "interaction-headroom->$ceiling"
         return true
+    }
+
+    /**
+     * Predict whether the current encoded content can afford a cadence probe.
+     *
+     * A clean 24 fps stream may clear WebRTC's bandwidth label simply because
+     * the lower cadence now fits. Blindly probing 30 fps at that moment creates
+     * a readability oscillation: 24 -> 30 saturates BWE, QP rises, then the
+     * clarity governor returns to 24. Scale the measured RTP demand by the
+     * proposed cadence and require modest estimator headroom before probing.
+     *
+     * Missing stats preserve the previous behavior; this is only an additional
+     * veto when both actual stream bitrate and WebRTC BWE are available.
+     */
+    private fun projectedBandwidthSupportsCadence(
+        outbound: VideoHealthSnapshot,
+        sender: VideoHealthWindow?,
+        targetFps: Int,
+        headroomRatio: Double
+    ): Boolean {
+        val window = sender ?: return true
+        val bandwidth =
+            outbound.availableOutgoingBitrateBps
+                ?.takeIf { it.isFinite() && it > 0.0 }
+                ?: return true
+        val sentBitrate =
+            window.bitrateBps
+                .toDouble()
+                .takeIf { it.isFinite() && it > 0.0 }
+                ?: return true
+        val measuredFps =
+            window.fps
+                .takeIf { it.isFinite() && it > 0.0 }
+                ?: return true
+        val requested =
+            targetFps.coerceAtLeast(1).toDouble()
+        if (requested <= measuredFps) return true
+
+        val projectedBitrate =
+            sentBitrate * requested / measuredFps
+        return bandwidth >= projectedBitrate * headroomRatio
     }
 
     /**
@@ -1357,7 +1417,7 @@ class VideoCadenceGovernor(
         const val MIN_DISPLAY_REFRESH_HZ = 30.0
         const val MAX_DISPLAY_REFRESH_HZ = 240.0
         const val MOTION_RECOVERY_FPS_CEILING = 30
-        const val CLARITY_BANDWIDTH_MIN_FPS = 30
+        const val CLARITY_BANDWIDTH_MIN_FPS = 15
         const val CLARITY_BANDWIDTH_SAMPLES_TO_REDUCE = 2
         const val CLARITY_BANDWIDTH_CHANGE_INTERVAL_MS = 900L
         const val BWE_SPATIAL_FIRST_DEFERRALS = 2
@@ -1381,6 +1441,7 @@ class VideoCadenceGovernor(
         const val INTERACTION_PROBE_MAX_RTT_MS = 250
         const val INTERACTION_PROBE_MAX_LOSS = 0.04
         const val INTERACTION_PROBE_MAX_PRESENTATION_AGE_MS = 1_500
+        const val INTERACTION_RECOVERY_BWE_HEADROOM_RATIO = 1.15
         const val MIN_INTERACTION_PROBE_FRAMES = 8
         const val MIN_INTERACTION_PROBE_RECEIVER_FRAMES = 5
         const val INTERACTION_PROBE_SAMPLES = 2
