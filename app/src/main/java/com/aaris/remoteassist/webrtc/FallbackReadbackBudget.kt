@@ -54,18 +54,26 @@ internal class FallbackReadbackBudget {
         val sourceShort = minOf(sourceWidthPx, sourceHeightPx)
         if (sourceShort <= 0) return pressureSide
 
+        val readabilityFloor =
+            CaptureVideoContract.MIN_FALLBACK_READABLE_SHORT_SIDE_PX
         val readableLong =
-            if (
-                sourceShort <
-                    CaptureVideoContract.MIN_FALLBACK_READABLE_SHORT_SIDE_PX
-            ) {
-                // The producer itself is already below the contract; do not
-                // invent an upscale. Preserve its native long side.
+            if (sourceShort <= readabilityFloor) {
+                /*
+                 * The producer is already at/below the contract. Do not
+                 * downscale it (and never invent an upscale).
+                 */
                 sourceLong
             } else {
+                /*
+                 * CpuFrameCopy rounds scaled dimensions DOWN to an even value.
+                 * Budget one pre-rounding pixel above the 360px contract so an
+                 * odd source geometry cannot turn a mathematically exact 360.0
+                 * into 359 -> 358 after integer/even rounding.
+                 */
+                val preEvenShort = readabilityFloor + 1
                 ceil(
                     sourceLong.toDouble() *
-                        CaptureVideoContract.MIN_FALLBACK_READABLE_SHORT_SIDE_PX /
+                        preEvenShort.toDouble() /
                         sourceShort.toDouble()
                 ).toInt()
             }
