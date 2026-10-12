@@ -1,5 +1,8 @@
 package com.aaris.remoteassist.webrtc
 
+import com.aaris.remoteassist.capture.CaptureVideoContract
+import kotlin.math.ceil
+
 /**
  * Keeps compatibility-video GPU readback from monopolizing the primary RTP
  * capture callback when a device's texture-to-I420 conversion is expensive.
@@ -16,16 +19,82 @@ internal class FallbackReadbackBudget {
     private var lastSampleAtMs = -1L
     private var lastTransitionAtMs = Long.MIN_VALUE / 2
 
-    /** Returns an even, bounded long-side limit for CpuFrameCopy.capture(). */
-    fun maxSidePx(baseSidePx: Int): Int {
+    @Volatile
+    private var lastCopyCostMs = 0L
+
+    /**
+     * Returns the fallback readback long-side envelope without ever violating
+     * the product's 360 px short-edge readability floor.
+     *
+     * The pressure ladder is intentionally allowed to reduce only excess pixels.
+     * Once the readable floor is reached, minimumIntervalMs() spends fallback
+     * cadence instead. This prevents recovery work from solving capture-thread
+     * pressure by making the emergency image unreadable.
+     */
+    fun maxSidePx(
+        baseSidePx: Int,
+        sourceWidthPx: Int,
+        sourceHeightPx: Int
+    ): Int {
         val base = baseSidePx.coerceAtLeast(2)
         val percent = when (pressureLevel) {
             1 -> 75L
             2 -> 50L
             else -> 100L
         }
-        return ((base.toLong() * percent / 100L).toInt() / 2 * 2)
-            .coerceAtLeast(2)
+        val pressureSide =
+            ((base.toLong() * percent / 100L).toInt() / 2 * 2)
+                .coerceAtLeast(2)
+
+        if (sourceWidthPx <= 0 || sourceHeightPx <= 0) {
+            return pressureSide
+        }
+
+        val sourceLong = maxOf(sourceWidthPx, sourceHeightPx)
+        val sourceShort = minOf(sourceWidthPx, sourceHeightPx)
+        if (sourceShort <= 0) return pressureSide
+
+        val readableLong =
+            if (
+                sourceShort <
+                    CaptureVideoContract.MIN_FALLBACK_READABLE_SHORT_SIDE_PX
+            ) {
+                // The producer itself is already below the contract; do not
+                // invent an upscale. Preserve its native long side.
+                sourceLong
+            } else {
+                ceil(
+                    sourceLong.toDouble() *
+                        CaptureVideoContract.MIN_FALLBACK_READABLE_SHORT_SIDE_PX /
+                        sourceShort.toDouble()
+                ).toInt()
+            }
+                .let { if (it % 2 == 0) it else it + 1 }
+                .coerceAtMost(sourceLong)
+
+        return maxOf(pressureSide, readableLong)
+    }
+
+    /**
+     * Fast temporal safety valve for synchronous GPU -> I420 readback.
+     *
+     * SurfaceTextureHelper permits only one texture frame in flight. A fallback
+     * copy that consumes a full 60 Hz frame period can therefore withhold the
+     * next primary capture frame even though RTP received the current frame
+     * first. React after the FIRST measured over-budget copy by spacing future
+     * fallback samples far enough that recovery readback cannot monopolize the
+     * producer callback. Pixel downshift still requires two votes.
+     *
+     * Returning zero means no extra readback-derived cadence floor.
+     */
+    fun minimumIntervalMs(): Long {
+        val costMs = lastCopyCostMs
+        if (costMs < OVERLOAD_COPY_MS) return 0L
+        return (costMs * READBACK_INTERVAL_MULTIPLIER)
+            .coerceIn(
+                MIN_PRESSURED_INTERVAL_MS,
+                MAX_PRESSURED_INTERVAL_MS
+            )
     }
 
     /**
@@ -36,6 +105,7 @@ internal class FallbackReadbackBudget {
     @Synchronized
     fun observe(copyCostMs: Long, nowMs: Long): Int? {
         if (copyCostMs < 0L || nowMs < 0L) return null
+        lastCopyCostMs = copyCostMs
         if (lastSampleAtMs >= 0L &&
             nowMs - lastSampleAtMs !in 0L..MAX_EVIDENCE_GAP_MS
         ) {
@@ -86,11 +156,26 @@ internal class FallbackReadbackBudget {
         healthyVotes = 0
         lastSampleAtMs = -1L
         lastTransitionAtMs = Long.MIN_VALUE / 2
+        lastCopyCostMs = 0L
     }
 
     private companion object {
-        const val OVERLOAD_COPY_MS = 30L
-        const val HEALTHY_COPY_MS = 16L
+        /*
+         * A synchronous copy at or above one 60 Hz frame period is already
+         * capable of withholding a producer frame. The old 30 ms threshold
+         * left a 17..29 ms blind band that could visibly hitch 60 fps capture.
+         */
+        const val OVERLOAD_COPY_MS = 17L
+        const val HEALTHY_COPY_MS = 8L
+
+        /*
+         * Keep measured fallback readback below roughly 25% capture-thread duty
+         * cycle while it is expensive. This is a recovery lane, so protecting
+         * primary RTP freshness takes precedence over fallback FPS.
+         */
+        const val READBACK_INTERVAL_MULTIPLIER = 4L
+        const val MIN_PRESSURED_INTERVAL_MS = 68L
+        const val MAX_PRESSURED_INTERVAL_MS = 300L
         const val OVERLOAD_VOTES = 2
         const val RECOVERY_VOTES = 10
         const val MAX_LEVEL = 2
