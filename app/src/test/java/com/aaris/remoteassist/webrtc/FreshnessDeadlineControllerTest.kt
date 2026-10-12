@@ -79,6 +79,23 @@ class FreshnessDeadlineControllerTest {
     }
 
     @Test
+    fun predictiveTargetDelayDoesNotMasqueradeAsActualBacklog() {
+        val a =
+            FreshnessDeadlineController.assess(
+                targetFps = 60,
+                sender = sender(queueMs = 15.0),
+                receiver =
+                    receiver(playoutMs = 10.0)
+                        .copy(jitterTargetMs = 90.0)
+            )
+
+        assertTrue(a.complete)
+        assertEquals(25.0, a.controllableDebtMs ?: -1.0, 0.001)
+        assertEquals(FreshnessDeadlineController.State.CLEAN, a.state)
+        assertFalse(a.pressure)
+    }
+
+    @Test
     fun largeControllableDebtBecomesUrgentBeforeSevere() {
         val a = FreshnessDeadlineController.assess(
             targetFps = 60,
