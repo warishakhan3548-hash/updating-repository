@@ -102,6 +102,43 @@ class AdaptiveScreenSmoothnessTest {
     }
 
     @Test
+    fun terminalReadabilityBandwidthVoteCanStepBelowThirty() {
+        val governor =
+            VideoCadenceGovernor(
+                maxFps = 60,
+                initialCap = 30
+            )
+
+        assertFalse(
+            governor.observeClarityBandwidthCeiling(
+                ceilingFps = 26,
+                requestedFps = 30,
+                nowMs = 1_000L,
+                displayRefreshRateHz = 60.0,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertEquals(30, governor.cap)
+
+        assertTrue(
+            governor.observeClarityBandwidthCeiling(
+                ceilingFps = 26,
+                requestedFps = 30,
+                nowMs = 2_000L,
+                displayRefreshRateHz = 60.0,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        // <=30 uses the established safety ladder. A 26 fps measured ceiling
+        // therefore resolves to 24 rather than inventing a new pacing rate.
+        assertEquals(24, governor.cap)
+        assertTrue(
+            governor.debugSummary(2_000L)
+                .contains("clarity-bwe-relief->24")
+        )
+    }
+
+    @Test
     fun sixtyHzBwePredictionPrefersReadablePixelsBeforeThirtyFpsCliff() {
         val governor =
             VideoCadenceGovernor(
@@ -374,6 +411,72 @@ class AdaptiveScreenSmoothnessTest {
             governor.debugSummary(2_000L)
                 .contains("interaction-clean-rescue->24")
         )
+    }
+
+    @Test
+    fun lowBweReadabilityStateDoesNotBlindlyProbeTwentyFourBackToThirty() {
+        val governor =
+            VideoCadenceGovernor(
+                maxFps = 60,
+                initialCap = 24
+            )
+        val constrained =
+            outbound(
+                fps = 24,
+                processingMs = 4.0,
+                queueMs = 0.0
+            ).copy(
+                roundTripTimeMs = 40,
+                packetLossRatio = 0.0,
+                qualityLimitationReason = "none",
+                availableOutgoingBitrateBps = 650_000.0,
+                recent =
+                    outbound(
+                        fps = 24,
+                        processingMs = 4.0,
+                        queueMs = 0.0
+                    ).recent!!.copy(
+                        bitrateBps = 600_000
+                    )
+            )
+
+        repeat(4) { index ->
+            assertFalse(
+                governor.tryProbeDuringInteraction(
+                    outbound = constrained,
+                    receiver = null,
+                    producerFps = 60.0,
+                    interactionActive = true,
+                    nowMs = 2_000L + index * 1_000L
+                )
+            )
+        }
+        assertEquals(24, governor.cap)
+
+        // Same content on a path with real projected headroom may probe 30.
+        val recovered =
+            constrained.copy(
+                availableOutgoingBitrateBps = 1_500_000.0
+            )
+        assertFalse(
+            governor.tryProbeDuringInteraction(
+                outbound = recovered,
+                receiver = null,
+                producerFps = 60.0,
+                interactionActive = true,
+                nowMs = 6_000L
+            )
+        )
+        assertTrue(
+            governor.tryProbeDuringInteraction(
+                outbound = recovered,
+                receiver = null,
+                producerFps = 60.0,
+                interactionActive = true,
+                nowMs = 7_000L
+            )
+        )
+        assertEquals(30, governor.cap)
     }
 
     @Test
