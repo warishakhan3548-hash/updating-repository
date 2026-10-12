@@ -383,6 +383,46 @@ class BweDemandAwareClarityTest {
             360,
             minOf(applied.captureWidthPx, applied.captureHeightPx)
         )
+
+        val saturatedAtTwentyFour =
+            sender(
+                fps = 24,
+                bitrateBps = 630_000,
+                availableOutgoingBitrateBps = 700_000.0
+            )
+        assertEquals(
+            20,
+            budget.clarityPreservingCadenceCeiling(
+                profile = profile,
+                outbound = saturatedAtTwentyFour,
+                receiver = receiver(24),
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 24,
+                interactionActive = true
+            )
+        )
+
+        val readableAtTwenty =
+            sender(
+                fps = 20,
+                bitrateBps = 600_000,
+                availableOutgoingBitrateBps = 700_000.0
+            )
+        // 360p@20 has a ~600 kbps nominal envelope. With 700 kbps available,
+        // the existing 10% readability headroom is satisfied, so do not
+        // sacrifice another step to 15 fps.
+        assertNull(
+            budget.clarityPreservingCadenceCeiling(
+                profile = profile,
+                outbound = readableAtTwenty,
+                receiver = receiver(20),
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 20,
+                interactionActive = true
+            )
+        )
     }
 
     @Test
