@@ -221,11 +221,10 @@ class DisplayCadencePolicyTest {
                 sourceRefreshRateHz = 120.0
             )
         )
-        // Downward pressure uses the bounded fine-relief ladder. A 48 fps
-        // source selection repeats every five ticks on a 120 Hz producer and
-        // avoids an unnecessary 60 -> 40 discontinuity.
+        // Pressure relief stays on exact producer harmonics. 40 fps is an
+        // exact 120/3 cadence, so every admitted source interval is uniform.
         assertEquals(
-            48,
+            40,
             DisplayCadencePolicy.nextLower(
                 currentFps = 60,
                 refreshRateHz = 60.0,
@@ -332,9 +331,9 @@ class DisplayCadencePolicyTest {
     }
 
     @Test
-    fun pressureReliefAvoidsSixtyToThirtyCliffOnSixtyHzPair() {
+    fun pressureReliefKeepsKnownSixtyHzSourceHarmonic() {
         assertEquals(
-            listOf(60, 50, 48, 45, 40, 36, 30, 24, 20, 15),
+            listOf(60, 30, 24, 20, 15),
             DisplayCadencePolicy.pressureReliefDescending(
                 refreshRateHz = 60.0,
                 ceilingFps = 60,
@@ -342,7 +341,7 @@ class DisplayCadencePolicyTest {
             )
         )
         assertEquals(
-            50,
+            30,
             DisplayCadencePolicy.nextLower(
                 currentFps = 60,
                 refreshRateHz = 60.0,
@@ -351,7 +350,7 @@ class DisplayCadencePolicyTest {
             )
         )
         assertEquals(
-            45,
+            30,
             DisplayCadencePolicy.nearestPressureReliefAtOrBelow(
                 limitFps = 47,
                 refreshRateHz = 60.0,
@@ -374,9 +373,9 @@ class DisplayCadencePolicyTest {
     }
 
     @Test
-    fun mixedRefreshControllerDoesNotOverConstrainPressureRelief() {
+    fun mixedRefreshControllerDoesNotPhaseLockKnownSourcePressureRelief() {
         assertEquals(
-            listOf(60, 50, 48, 45, 40, 36, 30, 24, 20, 15),
+            listOf(60, 30, 24, 20, 15),
             DisplayCadencePolicy.pressureReliefDescending(
                 refreshRateHz = 90.0,
                 ceilingFps = 60,
@@ -384,7 +383,7 @@ class DisplayCadencePolicyTest {
             )
         )
         assertEquals(
-            50,
+            30,
             DisplayCadencePolicy.nextLower(
                 currentFps = 60,
                 refreshRateHz = 90.0,
@@ -395,9 +394,9 @@ class DisplayCadencePolicyTest {
     }
 
     @Test
-    fun oneSixtyFiveHzControllerCannotCollapseKnownSixtyHzSource() {
+    fun oneSixtyFiveHzControllerKeepsKnownSixtyHzSourceEvenlyPaced() {
         assertEquals(
-            50,
+            30,
             DisplayCadencePolicy.nextLower(
                 currentFps = 60,
                 refreshRateHz = 165.0,
@@ -406,7 +405,7 @@ class DisplayCadencePolicyTest {
             )
         )
         assertEquals(
-            listOf(60, 50, 48, 45, 40, 36, 30, 24, 20, 15),
+            listOf(60, 30, 24, 20, 15),
             DisplayCadencePolicy.pressureReliefDescending(
                 refreshRateHz = 165.0,
                 ceilingFps = 60,
@@ -416,8 +415,8 @@ class DisplayCadencePolicyTest {
     }
 
     @Test
-    fun shortRepeatSourceRungCanFillLegacyLadderGap() {
-        assertTrue(
+    fun knownSourceRejectsNonHarmonicPressureRungs() {
+        assertFalse(
             48 in DisplayCadencePolicy.pressureReliefDescending(
                 refreshRateHz = 60.0,
                 ceilingFps = 60,
@@ -425,7 +424,7 @@ class DisplayCadencePolicyTest {
             )
         )
         assertEquals(
-            48,
+            30,
             DisplayCadencePolicy.nextLower(
                 currentFps = 50,
                 refreshRateHz = 60.0,
@@ -436,9 +435,9 @@ class DisplayCadencePolicyTest {
     }
 
     @Test
-    fun oneTwentyHzSourceGetsFortyEightBeforeFortyUnderPressure() {
+    fun oneTwentyHzSourceUsesExactFortyFpsPressureRung() {
         assertEquals(
-            listOf(60, 48, 40, 30, 24, 20, 15),
+            listOf(60, 40, 30, 24, 20, 15),
             DisplayCadencePolicy.pressureReliefDescending(
                 refreshRateHz = 90.0,
                 ceilingFps = 60,

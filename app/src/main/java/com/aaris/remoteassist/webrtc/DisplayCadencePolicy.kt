@@ -113,22 +113,22 @@ internal object DisplayCadencePolicy {
      * Pressure relief has a different job from steady-state admission.
      *
      * Healthy capture/promotion remains source-harmonic so an unconstrained
-     * stream never creates avoidable producer cadence jitter. Once measured
-     * pressure says the current high cadence is too expensive, however, jumping
-     * straight from 60 -> 30 can be a larger visual discontinuity than using a
-     * bounded intermediate cadence.
+     * stream never creates avoidable producer cadence jitter. Pressure relief
+     * must preserve that invariant too: a nominally high intermediate rate is
+     * not a win when MediaProjection can only realize it by periodically
+     * skipping producer ticks. For example, 50 fps sampled from a 60 Hz source
+     * necessarily creates a 33.3 ms visual interval every six source ticks.
      *
-     * Once the source clock is known, it owns temporal quality: admit relief
-     * rungs with a short producer repeat cycle and use the controller clock only
-     * as a presentation-capacity ceiling. Source and controller displays are
-     * independent clocks across a network, so requiring both to share a short
-     * nominal cycle recreates the mixed-refresh collapse fixed by the steady
-     * policy (for example a 60 Hz source on a 165 Hz controller).
+     * Once the source clock is known, admit only exact source harmonics above
+     * 30 fps and use the controller clock only as a presentation-capacity
+     * ceiling. Source and controller displays are independent clocks across a
+     * network, so the controller must never become a phase-lock requirement.
+     * This keeps 60 Hz source -> 90/165 Hz controller at 60 fps when healthy,
+     * while confirmed pressure falls to the next cadence the producer can emit
+     * evenly.
      *
-     * If source-clock evidence is unavailable, fall back to the controller's
-     * historical short-repeat ladder. With a known source, safe short-cycle
-     * rates that were absent from that historical list (for example 48/60 or
-     * 54/90) are allowed to fill the pressure ladder. <=30 fps remains the
+     * If source-clock evidence is unavailable, retain the historical controller
+     * short-repeat ladder as a compatibility fallback. <=30 fps remains the
      * existing emergency/recovery ladder.
      */
     fun pressureReliefDescending(
@@ -154,7 +154,7 @@ internal object DisplayCadencePolicy {
         fun sourcePressureCompatible(fps: Int): Boolean =
             sourceRefresh == null ||
                 fps <= LOW_CADENCE_MAX_FPS ||
-                shortRepeatCycle(sourceRefresh, fps)
+                sourceClockCompatible(sourceRefresh, fps)
 
         fun admitHigh(fps: Int): Boolean =
             fps in firstHigh..ceiling &&
@@ -168,11 +168,12 @@ internal object DisplayCadencePolicy {
         if (ceiling >= firstHigh) {
             if (sourceRefresh != null) {
                 /*
-                 * Pressure is already proven, so use every high cadence whose
-                 * producer repeat cycle is bounded. This fills safe historical
-                 * gaps such as 48/60 and 54/90 without allowing arbitrary 58/60
-                 * or 55/60 long-beat trims. The controller remains a capacity
-                 * ceiling only; it is not phase-locked to the remote producer.
+                 * Pressure is already proven, but frame pacing remains a hard
+                 * invariant. Enumerate only exact producer divisors above 30 fps.
+                 * This avoids periodic source-frame skips such as 50/60 or 48/60
+                 * that raise average FPS while injecting deterministic long gaps.
+                 * The controller remains a capacity ceiling only; it is not
+                 * phase-locked to the remote producer.
                  */
                 (minOf(PRODUCT_MAX_FPS, ceiling, sourceRefresh) downTo firstHigh)
                     .asSequence()

@@ -981,14 +981,17 @@ class VideoCadenceGovernor(
 
             val ceiling = minOf(cap, requestedFps)
             /*
-             * Ordinary pressure takes one bounded short-cycle rung. Steady-state
-             * promotion remains source-harmonic, while measured pressure may use
-             * an intermediate cadence with a short producer repeat cycle.
-             * The remote display is only a capacity ceiling because its clock is
-             * not phase-locked to the host across the network. This avoids a
-             * needless 60 -> 30 cliff while still rejecting long producer beats.
-             * Severe queue/jitter/presentation pressure and CPU limitation may
-             * still jump directly to the <=30 fps freshness ladder.
+             * Ordinary pressure takes one bounded cadence rung. Once the host
+             * source clock is known, pressure relief preserves the same exact
+             * source-harmonic invariant as steady-state admission; a higher
+             * nominal rate is not useful if producing it requires deterministic
+             * source-frame skips. The remote display remains only a capacity
+             * ceiling because its clock is not phase-locked to the host.
+             *
+             * Before source-clock evidence arrives, the legacy bounded
+             * short-repeat ladder remains the compatibility fallback. Severe
+             * queue/jitter/presentation pressure and CPU limitation may still
+             * jump directly to the <=30 fps freshness ladder.
              */
             val needsStrongRelief = severePressure || cpuPressure
             val cadenceSteps =
