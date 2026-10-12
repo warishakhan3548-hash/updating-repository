@@ -177,7 +177,7 @@ class DisplayCadencePolicyTest {
     }
 
     @Test
-    fun dualClockPolicyRejectsControllerPulldownEvenWhenSourceCadenceIsExact() {
+    fun sourceClockOwnsCaptureCadenceWhenDisplayClockDiffers() {
         val ladder =
             DisplayCadencePolicy.descending(
                 refreshRateHz = 60.0,
@@ -186,12 +186,23 @@ class DisplayCadencePolicyTest {
             )
 
         assertEquals(
-            listOf(30, 24, 20, 15),
+            listOf(48, 36, 30, 24, 20, 15),
             ladder
         )
-        assertNull(
+        assertEquals(
+            36,
             DisplayCadencePolicy.nextHigher(
                 currentFps = 30,
+                refreshRateHz = 60.0,
+                ceilingFps = 60,
+                floorFps = 30,
+                sourceRefreshRateHz = 144.0
+            )
+        )
+        assertEquals(
+            48,
+            DisplayCadencePolicy.nextHigher(
+                currentFps = 36,
                 refreshRateHz = 60.0,
                 ceilingFps = 60,
                 floorFps = 30,
@@ -201,9 +212,9 @@ class DisplayCadencePolicyTest {
     }
 
     @Test
-    fun dualClockPolicyKeepsOnlyExactCommonHighCadenceHarmonics() {
+    fun controllerClockCapsCapacityWithoutPhaseLockingTheProducer() {
         assertEquals(
-            listOf(60, 30, 24, 20, 15),
+            listOf(60, 40, 30, 24, 20, 15),
             DisplayCadencePolicy.descending(
                 refreshRateHz = 60.0,
                 ceilingFps = 60,
@@ -211,7 +222,7 @@ class DisplayCadencePolicyTest {
             )
         )
         assertEquals(
-            30,
+            40,
             DisplayCadencePolicy.nextLower(
                 currentFps = 60,
                 refreshRateHz = 60.0,
@@ -231,10 +242,10 @@ class DisplayCadencePolicyTest {
         )
     }
 
-
     @Test
-    fun mismatchedSixtyToNinetyStaysAtSmoothSafetyCadenceUntilDisplayClockChanges() {
-        assertNull(
+    fun sixtyHzSourceKeepsSixtyUniqueFramesOnNinetyHzController() {
+        assertEquals(
+            60,
             DisplayCadencePolicy.nextHigher(
                 currentFps = 30,
                 refreshRateHz = 90.0,
@@ -245,13 +256,43 @@ class DisplayCadencePolicyTest {
         )
 
         assertEquals(
-            60,
+            listOf(60, 30, 24, 20, 15),
+            DisplayCadencePolicy.descending(
+                refreshRateHz = 90.0,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+    }
+
+    @Test
+    fun oneTwentyHzSourceDoesNotCollapseOnNinetyHzController() {
+        assertEquals(
+            listOf(60, 40, 30, 24, 20, 15),
+            DisplayCadencePolicy.descending(
+                refreshRateHz = 90.0,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 120.0
+            )
+        )
+        assertEquals(
+            40,
             DisplayCadencePolicy.nextHigher(
                 currentFps = 30,
-                refreshRateHz = 60.0,
+                refreshRateHz = 90.0,
                 ceilingFps = 60,
                 floorFps = 30,
-                sourceRefreshRateHz = 60.0
+                sourceRefreshRateHz = 120.0
+            )
+        )
+        assertEquals(
+            60,
+            DisplayCadencePolicy.nextHigher(
+                currentFps = 40,
+                refreshRateHz = 90.0,
+                ceilingFps = 60,
+                floorFps = 30,
+                sourceRefreshRateHz = 120.0
             )
         )
     }
