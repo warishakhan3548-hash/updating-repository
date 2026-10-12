@@ -301,8 +301,10 @@ internal class MotionVideoBudget {
          *
          * Example: a cheap 60 fps form using 2.8 Mbps on a 5 Mbps path keeps
          * 60 fps; a complex 60 fps scene using 4.5 Mbps gets a modest cadence
-         * trim while preserving pixels. If even the >=30 fps floor cannot be
-         * protected, fall through to spatial relief.
+         * trim while preserving pixels. Above 360px, inability to protect
+         * 30 fps falls through to spatial relief. At the committed 360px floor,
+         * measured demand may continue through 24/20/15 instead of blurring the
+         * last readable pixel rung.
          */
         observedBandwidthUtilization?.let { utilization ->
             val measuredSenderFps =
