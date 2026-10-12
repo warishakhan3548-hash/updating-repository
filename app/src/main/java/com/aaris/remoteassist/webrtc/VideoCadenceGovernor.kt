@@ -31,6 +31,15 @@ class VideoCadenceGovernor(
     private var clarityBandwidthPressure = 0
     private var clarityBandwidthVoteCap = 0
     private var clarityBandwidthVoteTarget = 0
+    /*
+     * A known source clock may have no smooth high-cadence relief rung.
+     * Example: a 60 Hz MediaProjection can emit 60 or 30 evenly, but not 50/45
+     * without deterministic long producer intervals. Before crossing that
+     * visually large boundary for ordinary pressure, give the measured spatial
+     * governor a bounded opportunity to reduce encoder/network work while
+     * preserving readable pixels. Severe/CPU pressure never waits here.
+     */
+    private var cadenceCliffDeferrals = 0
     private val highCadenceProbe = HighCadenceProbe()
     private val highCadencePressureGate = HighCadencePressureGate()
     val probingHighCadence: Boolean get() = highCadenceProbe.probing
@@ -47,8 +56,15 @@ class VideoCadenceGovernor(
     fun observeClarityBandwidthCeiling(
         ceilingFps: Int?,
         requestedFps: Int,
-        nowMs: Long
+        nowMs: Long,
+        displayRefreshRateHz: Double? = null,
+        sourceRefreshRateHz: Double? = null
     ): Boolean {
+        rememberClockEvidence(
+            displayRefreshRateHz = displayRefreshRateHz,
+            sourceRefreshRateHz = sourceRefreshRateHz
+        )
+
         if (nowMs < 0L || requestedFps <= CLARITY_BANDWIDTH_MIN_FPS) {
             resetClarityBandwidthVotes()
             return false
@@ -60,25 +76,27 @@ class VideoCadenceGovernor(
                 requestedFps,
                 maxFps
             ).coerceAtLeast(1)
-        val rawCeiling =
-            ceilingFps
-                ?.takeIf {
-                    it in CLARITY_BANDWIDTH_MIN_FPS until current
-                }
-                ?: run {
-                    resetClarityBandwidthVotes()
-                    return false
-                }
         val target =
-            DisplayCadencePolicy.nearestPressureReliefAtOrBelow(
-                limitFps = rawCeiling,
-                refreshRateHz = lastDisplayRefreshRateHz,
-                ceilingFps = current,
-                floorFps = CLARITY_BANDWIDTH_MIN_FPS,
-                sourceRefreshRateHz = lastSourceRefreshRateHz
-            )
-        if (target >= current) {
+            clarityBandwidthTarget(
+                ceilingFps = ceilingFps,
+                requestedFps = requestedFps
+            ) ?: run {
+                resetClarityBandwidthVotes()
+                return false
+            }
+
+        /*
+         * A BWE-only prediction is deliberately not allowed to turn a smooth
+         * 60 Hz source directly into a 30 fps stream merely because 52/50/45
+         * are non-harmonic producer rates. In that topology the next cheaper
+         * smooth actuator is measured spatial/bitrate relief, bounded by the
+         * existing 360px readability floor. The host will continue through the
+         * normal MotionVideoBudget lane for this same telemetry window.
+         */
+        if (shouldSpendSpatialBeforeCadenceCliff(current, target)) {
             resetClarityBandwidthVotes()
+            cadenceCliffDeferrals = 0
+            lastDecision = "clarity-bwe-spatial-first@$current"
             return false
         }
 
@@ -111,10 +129,95 @@ class VideoCadenceGovernor(
         healthy = 0
         interactiveHeadroom = 0
         interactiveFloorHeadroom = 0
+        cadenceCliffDeferrals = 0
         highCadencePressureGate.reset()
         lastDecision = "clarity-bwe-relief->$target"
         resetClarityBandwidthVotes()
         return true
+    }
+
+    /**
+     * True only when a BWE suggestion would cross from >30 fps directly into
+     * the low-cadence ladder because the known producer clock has no smooth
+     * intermediate rung. This is an actuator-ordering decision, not a quality
+     * decision: MotionVideoBudget still requires its own measured pressure
+     * evidence before moving 720 -> 540 -> 360.
+     */
+    internal fun prefersSpatialReliefForClarityBandwidth(
+        ceilingFps: Int?,
+        requestedFps: Int,
+        displayRefreshRateHz: Double? = null,
+        sourceRefreshRateHz: Double? = null
+    ): Boolean {
+        rememberClockEvidence(
+            displayRefreshRateHz = displayRefreshRateHz,
+            sourceRefreshRateHz = sourceRefreshRateHz
+        )
+        val current =
+            minOf(
+                cap,
+                requestedFps.coerceAtLeast(1),
+                maxFps
+            ).coerceAtLeast(1)
+        val target =
+            clarityBandwidthTarget(
+                ceilingFps = ceilingFps,
+                requestedFps = requestedFps
+            ) ?: return false
+        return shouldSpendSpatialBeforeCadenceCliff(current, target)
+    }
+
+    private fun clarityBandwidthTarget(
+        ceilingFps: Int?,
+        requestedFps: Int
+    ): Int? {
+        if (requestedFps <= CLARITY_BANDWIDTH_MIN_FPS) return null
+
+        val current =
+            minOf(
+                cap,
+                requestedFps,
+                maxFps
+            ).coerceAtLeast(1)
+        val rawCeiling =
+            ceilingFps
+                ?.takeIf {
+                    it in CLARITY_BANDWIDTH_MIN_FPS until current
+                }
+                ?: return null
+        return DisplayCadencePolicy.nearestPressureReliefAtOrBelow(
+            limitFps = rawCeiling,
+            refreshRateHz = lastDisplayRefreshRateHz,
+            ceilingFps = current,
+            floorFps = CLARITY_BANDWIDTH_MIN_FPS,
+            sourceRefreshRateHz = lastSourceRefreshRateHz
+        ).takeIf { it < current }
+    }
+
+    private fun shouldSpendSpatialBeforeCadenceCliff(
+        currentFps: Int,
+        targetFps: Int
+    ): Boolean =
+        currentFps > MOTION_SPATIAL_RELIEF_MAX_FPS &&
+            targetFps <= MOTION_SPATIAL_RELIEF_MAX_FPS &&
+            mayReduceMotionResolution(currentFps)
+
+    private fun rememberClockEvidence(
+        displayRefreshRateHz: Double?,
+        sourceRefreshRateHz: Double?
+    ) {
+        displayRefreshRateHz
+            ?.takeIf {
+                it.isFinite() &&
+                    it in MIN_DISPLAY_REFRESH_HZ..MAX_DISPLAY_REFRESH_HZ
+            }
+            ?.let { lastDisplayRefreshRateHz = it }
+        sourceRefreshRateHz
+            ?.takeIf {
+                it.isFinite() &&
+                    it in MIN_DISPLAY_REFRESH_HZ..MAX_DISPLAY_REFRESH_HZ
+            }
+            ?.let { lastSourceRefreshRateHz = it }
     }
 
     private fun resetClarityBandwidthVotes() {
@@ -138,6 +241,7 @@ class VideoCadenceGovernor(
         healthy = 0
         interactiveHeadroom = 0
         interactiveFloorHeadroom = 0
+        cadenceCliffDeferrals = 0
         lastSenderIdentity = null
         lastSenderFps = null
         lastSenderAtMs = Long.MIN_VALUE / 2
@@ -475,14 +579,13 @@ class VideoCadenceGovernor(
         requestedFps: Int,
         interactionActive: Boolean,
         nowMs: Long,
-        displayRefreshRateHz: Double? = null
+        displayRefreshRateHz: Double? = null,
+        sourceRefreshRateHz: Double? = null
     ): Boolean {
-        displayRefreshRateHz
-            ?.takeIf {
-                it.isFinite() &&
-                    it in MIN_DISPLAY_REFRESH_HZ..MAX_DISPLAY_REFRESH_HZ
-            }
-            ?.let { lastDisplayRefreshRateHz = it }
+        rememberClockEvidence(
+            displayRefreshRateHz = displayRefreshRateHz,
+            sourceRefreshRateHz = sourceRefreshRateHz
+        )
         if (
             !interactionActive ||
             nowMs < 0L ||
@@ -614,6 +717,7 @@ class VideoCadenceGovernor(
         if (senderIdentity != lastSenderIdentity) {
             lastSenderIdentity = senderIdentity
             lastSenderFps = null
+            cadenceCliffDeferrals = 0
             highCadencePressureGate.clearPresentation()
         }
         receiver?.displayRefreshRateHz
@@ -1005,6 +1109,37 @@ class VideoCadenceGovernor(
                 candidate < ceiling &&
                     (!needsStrongRelief || candidate <= STRONG_RELIEF_MAX_STEP_FPS)
             } ?: return false
+
+            /*
+             * For a known 60 Hz producer, the next evenly paced rung after 60
+             * can be 30. That is a 2x motion-step and is too large for ordinary
+             * queue/jitter/render pressure. Hand a bounded number of completed
+             * pressure windows to MotionVideoBudget first; it can shed real
+             * pixel/bitrate work while never crossing the 360px short-edge
+             * floor. If that does not relieve pressure, the deferral expires
+             * and cadence still has a deterministic 30 fps escape. Urgent
+             * freshness gets only one such opportunity; severe/CPU pressure
+             * bypasses this block entirely.
+             */
+            val wouldCrossHighCadenceCliff =
+                !needsStrongRelief &&
+                    ceiling > MOTION_SPATIAL_RELIEF_MAX_FPS &&
+                    ordinaryNext <= MOTION_SPATIAL_RELIEF_MAX_FPS
+            if (wouldCrossHighCadenceCliff) {
+                val deferralLimit =
+                    if (urgentFreshnessPressure) {
+                        URGENT_SPATIAL_FIRST_DEFERRALS
+                    } else {
+                        SOFT_SPATIAL_FIRST_DEFERRALS
+                    }
+                if (cadenceCliffDeferrals < deferralLimit) {
+                    cadenceCliffDeferrals += 1
+                    lastDecision = "spatial-first@$ceiling"
+                    return false
+                }
+            }
+            cadenceCliffDeferrals = 0
+
             val next = if (severePressure) {
                 val delivered = buildList {
                     if (sender.frames >= MIN_MEASURED_FRAMES) add(sender.fps)
@@ -1029,6 +1164,7 @@ class VideoCadenceGovernor(
             cap = boundedNext
             changedAt = nowMs
             pressure = 0
+            cadenceCliffDeferrals = 0
             interactiveHeadroom = 0
             interactiveFloorHeadroom = 0
             lastDecision =
@@ -1048,6 +1184,7 @@ class VideoCadenceGovernor(
         }
 
         pressure = 0
+        cadenceCliffDeferrals = 0
 
         // Above 30 fps only the bounded end-to-end experiment may promote.
         // Decoder-only or absent feedback must not bypass it via legacy recovery.
@@ -1136,6 +1273,7 @@ class VideoCadenceGovernor(
             "changeAgo=${ageMs(changedAt)} " +
             "overloadAgo=${ageMs(lastOverloadAtMs)} " +
             "floorProof=$interactiveFloorHeadroom/$INTERACTION_FLOOR_SAMPLES " +
+            "spatialFirst=$cadenceCliffDeferrals " +
             "clarityBwe=$clarityBandwidthSummary " +
             highCadenceProbe.debugSummary(nowMs)
     }
@@ -1150,12 +1288,34 @@ class VideoCadenceGovernor(
      * a 720 -> 540 app-level motion rung is reversible and far cheaper than
      * changing the device-wide capture tier, but it still must not race cadence.
      */
-    fun mayReduceMotionResolution(requestedFps: Int): Boolean =
-        minOf(
-            cap,
-            requestedFps.coerceAtLeast(1),
-            maxFps
-        ) <= MOTION_SPATIAL_RELIEF_MAX_FPS
+    fun mayReduceMotionResolution(requestedFps: Int): Boolean {
+        val effectiveFps =
+            minOf(
+                cap,
+                requestedFps.coerceAtLeast(1),
+                maxFps
+            ).coerceAtLeast(1)
+        if (effectiveFps <= MOTION_SPATIAL_RELIEF_MAX_FPS) {
+            return true
+        }
+
+        /*
+         * Temporal-first remains the default whenever the producer can move to
+         * a lower HIGH cadence without creating periodic source-frame beats.
+         * If no such rung exists (notably 60 Hz source at 60 fps), spatial
+         * relief becomes the next smooth actuator. MotionVideoBudget still owns
+         * the pressure proof, hysteresis and the hard 360px readability floor.
+         */
+        val nextHighCadence =
+            DisplayCadencePolicy.pressureReliefDescending(
+                refreshRateHz = lastDisplayRefreshRateHz,
+                ceilingFps = effectiveFps,
+                floorFps = MOTION_SPATIAL_RELIEF_MAX_FPS + 1,
+                sourceRefreshRateHz = lastSourceRefreshRateHz
+            ).firstOrNull { it < effectiveFps }
+
+        return nextHighCadence == null
+    }
 
     fun mayReduceResolution(nowMs: Long): Boolean =
         cap <= RESOLUTION_REDUCTION_MAX_FPS && nowMs - changedAt >= RESOLUTION_REDUCTION_GRACE_MS
@@ -1249,6 +1409,15 @@ class VideoCadenceGovernor(
         const val URGENT_FRESHNESS_CHANGE_INTERVAL_MS = 1_500L
         const val HIGH_CADENCE_FAST_RELIEF_FPS = 60
         const val HIGH_CADENCE_FAST_RELIEF_CHANGE_INTERVAL_MS = 1_000L
+
+        /*
+         * Do not make a soft 60 -> 30 motion cliff the first response when the
+         * source clock has no legal intermediate cadence. Two normal completed
+         * windows give the spatial governor enough evidence to act; urgent
+         * freshness grants one window before temporal escape.
+         */
+        const val SOFT_SPATIAL_FIRST_DEFERRALS = 2
+        const val URGENT_SPATIAL_FIRST_DEFERRALS = 1
 
         /*
          * Controller EGL feedback arrives independently of getStats(). Keep the

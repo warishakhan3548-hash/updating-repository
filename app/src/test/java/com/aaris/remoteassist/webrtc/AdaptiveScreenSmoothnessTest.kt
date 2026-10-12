@@ -102,6 +102,61 @@ class AdaptiveScreenSmoothnessTest {
     }
 
     @Test
+    fun sixtyHzBwePredictionPrefersReadablePixelsBeforeThirtyFpsCliff() {
+        val governor =
+            VideoCadenceGovernor(
+                maxFps = 60,
+                initialCap = 60
+            )
+
+        assertTrue(
+            governor.prefersSpatialReliefForClarityBandwidth(
+                ceilingFps = 52,
+                requestedFps = 60,
+                displayRefreshRateHz = 60.0,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertTrue(governor.mayReduceMotionResolution(60))
+
+        // The cadence vote itself is suppressed, so repeated BWE-only samples
+        // cannot silently turn a smooth 60 Hz source into 30 fps.
+        repeat(3) { index ->
+            assertFalse(
+                governor.observeClarityBandwidthCeiling(
+                    ceilingFps = 52,
+                    requestedFps = 60,
+                    nowMs = 1_000L + index * 1_000L,
+                    displayRefreshRateHz = 60.0,
+                    sourceRefreshRateHz = 60.0
+                )
+            )
+        }
+        assertEquals(60, governor.cap)
+        assertTrue(
+            governor.debugSummary(3_000L)
+                .contains("clarity-bwe-spatial-first@60")
+        )
+
+        // A 120 Hz producer has an exact 40 fps rung, so temporal-first remains
+        // valid there and the spatial lane does not preempt it.
+        val oneTwentyHz =
+            VideoCadenceGovernor(
+                maxFps = 60,
+                initialCap = 60
+            )
+        assertFalse(
+            oneTwentyHz.prefersSpatialReliefForClarityBandwidth(
+                ceilingFps = 52,
+                requestedFps = 60,
+                displayRefreshRateHz = 90.0,
+                sourceRefreshRateHz = 120.0
+            )
+        )
+        assertFalse(oneTwentyHz.mayReduceMotionResolution(60))
+    }
+
+    @Test
     fun transientBandwidthVoteCannotDownshiftCadenceLater() {
         val governor =
             VideoCadenceGovernor(

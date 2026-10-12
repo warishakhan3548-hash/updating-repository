@@ -1011,7 +1011,9 @@ class HostWebRtcSession(
                                     current.leaseSecret,
                                     current.displayGeneration,
                                     now
-                                )
+                                ),
+                            sourceRefreshRateHz =
+                                sourceDisplayRefreshRateHz()
                         )
                     ) {
                         applyVideoPolicy(profile)
@@ -1309,34 +1311,58 @@ class HostWebRtcSession(
                     targetFps = motionTargetFps,
                     interactionActive = interactionActive
                 )
+            /*
+             * A BWE recommendation such as 52 fps is only useful if the host
+             * producer can emit a lower high cadence evenly. On a known 60 Hz
+             * MediaProjection, 50/45 are periodic-skip patterns and the next
+             * exact harmonic is 30. Treat that 60 -> 30 jump as a cadence cliff:
+             * do not let the clarity pre-vote block the measured spatial lane.
+             */
+            val claritySpatialFirst =
+                cadenceGovernor.prefersSpatialReliefForClarityBandwidth(
+                    ceilingFps = clarityCadenceCeiling,
+                    requestedFps = motionTargetFps,
+                    displayRefreshRateHz =
+                        receiver?.displayRefreshRateHz
+                            ?: controllerDisplayRefreshRateHz,
+                    sourceRefreshRateHz = sourceRefreshRateHz
+                )
             val clarityCadenceChanged =
                 cadenceGovernor.observeClarityBandwidthCeiling(
                     ceilingFps = clarityCadenceCeiling,
                     requestedFps = motionTargetFps,
-                    nowMs = now
+                    nowMs = now,
+                    displayRefreshRateHz =
+                        receiver?.displayRefreshRateHz
+                            ?: controllerDisplayRefreshRateHz,
+                    sourceRefreshRateHz = sourceRefreshRateHz
                 )
+            val clarityCadenceVoteActive =
+                clarityCadenceCeiling != null &&
+                    !claritySpatialFirst
 
             /*
              * One health window may move ONE expensive media actuator.
              *
-             * The temporal actuator is cheaper: dropping 60 -> 45 -> 30 does
-             * not restart MediaProjection geometry or the hardware codec. Give
-             * cadence the first chance to restore freshness, then let
-             * MotionVideoBudget spend pixels only after the effective stream is
-             * already in the 30-fps class and fresh post-cadence telemetry still
-             * proves pressure. This preserves text/form clarity and removes a
-             * common resolution-reconfiguration hitch from active control.
+             * Temporal relief stays first when a lower HIGH cadence can be
+             * produced evenly (for example 60 -> 40 from a 120 Hz source).
+             * When the known producer has no smooth >30 rung, ordinary pressure
+             * gets a bounded spatial-first opportunity instead of forcing an
+             * immediate 60 -> 30 motion cliff. MotionVideoBudget still requires
+             * measured pressure and can only move through the readable
+             * 720 -> 540 -> 360 ladder. Severe/CPU failure keeps the immediate
+             * temporal escape.
              *
-             * The BWE clarity guard remains an even earlier cadence-only lane.
-             * Severe producer starvation is explicitly allowed through the
-             * spatial gate because resizing the VirtualDisplay can repair the
-             * producer itself on Android 12+.
+             * The BWE clarity guard remains cadence-only only when that cadence
+             * is source-clock compatible. Severe producer starvation is still
+             * allowed through the spatial gate because resizing the
+             * VirtualDisplay can repair the producer itself on Android 12+.
              */
             val requestedFps = effectiveCaptureProfile(profile).fps
             val cadencePressureChanged =
                 if (
                     clarityCadenceChanged ||
-                    clarityCadenceCeiling != null
+                    clarityCadenceVoteActive
                 ) {
                     false
                 } else {
@@ -1362,7 +1388,7 @@ class HostWebRtcSession(
 
             val motionBudgetChanged =
                 if (
-                    clarityCadenceCeiling != null ||
+                    clarityCadenceVoteActive ||
                     cadencePressureChanged
                 ) {
                     false
@@ -1405,7 +1431,7 @@ class HostWebRtcSession(
                     motionBudgetChanged ||
                     clarityCadenceChanged ||
                     cadencePressureChanged ||
-                    clarityCadenceCeiling != null
+                    clarityCadenceVoteActive
                 ) {
                     false
                 } else {
