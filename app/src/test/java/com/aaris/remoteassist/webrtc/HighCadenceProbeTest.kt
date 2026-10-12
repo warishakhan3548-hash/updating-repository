@@ -422,6 +422,36 @@ class HighCadenceProbeTest {
         assertEquals(50, g.cap)
     }
 
+    @Test fun knownSixtyHzSourceUsesEvenPressureReliefAtGovernorBoundary() {
+        val g = VideoCadenceGovernor(60, 60)
+
+        assertFalse(
+            sample(
+                g = g,
+                time = 1_000L,
+                fps = 60,
+                recv = receiver(60),
+                source = 60.0,
+                queue = 45.0,
+                sourceClock = 60.0
+            )
+        )
+        assertEquals(60, g.cap)
+
+        assertTrue(
+            sample(
+                g = g,
+                time = 1_500L,
+                fps = 60,
+                recv = receiver(60),
+                source = 60.0,
+                queue = 45.0,
+                sourceClock = 60.0
+            )
+        )
+        assertEquals(30, g.cap)
+    }
+
     @Test fun severeQueueCanStillTakeLargeFreshnessRelief() {
         val g = VideoCadenceGovernor(60, 60)
 
