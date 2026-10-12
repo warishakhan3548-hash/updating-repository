@@ -300,8 +300,14 @@ class VideoCadenceGovernor(
         producerFps: Double?,
         telemetryAtMs: Long,
         nowMs: Long,
-        maximumFps: Int = maxFps
+        maximumFps: Int = maxFps,
+        displayRefreshRateHz: Double? = null,
+        sourceRefreshRateHz: Double? = null
     ): Boolean {
+        rememberClockEvidence(
+            displayRefreshRateHz = displayRefreshRateHz,
+            sourceRefreshRateHz = sourceRefreshRateHz
+        )
         val ceiling =
             minOf(
                 maxFps,
@@ -328,8 +334,14 @@ class VideoCadenceGovernor(
         if (window.processingMs?.let { !it.isFinite() || it < 0.0 ||
             it >= 1000.0 / ceiling } == true) return false
 
-        val next = LOW_ASCENDING_CAPS.firstOrNull { it > cap && it <= ceiling }
-            ?: return false
+        val next =
+            DisplayCadencePolicy.nextHigher(
+                currentFps = cap,
+                refreshRateHz = lastDisplayRefreshRateHz,
+                ceilingFps = ceiling,
+                floorFps = 1,
+                sourceRefreshRateHz = lastSourceRefreshRateHz
+            ) ?: return false
         cap = next
         changedAt = nowMs
         pressure = 0
@@ -342,7 +354,8 @@ class VideoCadenceGovernor(
      * A real remote-control gesture is authoritative evidence that temporal
      * freshness matters now. If a previous congestion episode left the
      * governor parked at 15/20 fps, immediately restore one bounded interactive
-     * floor rather than waiting 8-12 seconds for passive recovery telemetry.
+     * pacing-safe rung toward that floor rather than waiting 8-12 seconds for
+     * passive recovery telemetry.
      *
      * This is only a source ceiling. libwebrtc still owns pacing, congestion
      * control and frame dropping, and the normal pressure path can step back
@@ -350,15 +363,27 @@ class VideoCadenceGovernor(
      */
     fun ensureInteractionFloor(
         minimumFps: Int,
-        nowMs: Long
+        nowMs: Long,
+        displayRefreshRateHz: Double? = null,
+        sourceRefreshRateHz: Double? = null
     ): Boolean {
+        rememberClockEvidence(
+            displayRefreshRateHz = displayRefreshRateHz,
+            sourceRefreshRateHz = sourceRefreshRateHz
+        )
         // A finger-down event cannot invalidate measured overload. Otherwise
         // each new gesture reopens the very queue the pressure path just drained.
         if (nowMs - lastOverloadAtMs < QUIET_PROBE_COOLDOWN_MS) return false
-        val target = minOf(
-            maxFps,
-            LOW_ASCENDING_CAPS.firstOrNull { it >= minimumFps } ?: minimumFps
-        ).coerceAtLeast(1)
+        val requestedCeiling =
+            minOf(maxFps, minimumFps.coerceAtLeast(1))
+        val target =
+            DisplayCadencePolicy.nearestAtOrBelow(
+                limitFps = requestedCeiling,
+                refreshRateHz = lastDisplayRefreshRateHz,
+                ceilingFps = requestedCeiling,
+                floorFps = 1,
+                sourceRefreshRateHz = lastSourceRefreshRateHz
+            )
         if (cap >= target) return false
 
         cap = target
@@ -386,8 +411,14 @@ class VideoCadenceGovernor(
         producerFps: Double?,
         interactionActive: Boolean,
         nowMs: Long,
-        maximumFps: Int = maxFps
+        maximumFps: Int = maxFps,
+        displayRefreshRateHz: Double? = null,
+        sourceRefreshRateHz: Double? = null
     ): Boolean {
+        rememberClockEvidence(
+            displayRefreshRateHz = displayRefreshRateHz,
+            sourceRefreshRateHz = sourceRefreshRateHz
+        )
         if (!interactionActive) {
             interactiveHeadroom = 0
             interactiveFloorHeadroom = 0
@@ -408,12 +439,22 @@ class VideoCadenceGovernor(
         /*
          * A recent overload must block blind finger-down promotion, but it must
          * not pin a recovered path at 15/20 fps for the whole cooldown. When
-         * active motion itself proves that 24 fps fits the encoder + pacer +
-         * network budget for two fresh windows, rescue only to 24. The normal
-         * 30/45/60 probes still require their stricter evidence.
+         * active motion itself proves that the pacing-safe rung at or below the
+         * 24 fps rescue budget fits the encoder + pacer + network budget for two
+         * fresh windows. This avoids reviving 24 fps on a 60 Hz producer where
+         * that rate necessarily alternates source-frame gaps. The normal higher
+         * probes still require their stricter evidence.
          */
-        val interactionFloorTarget =
+        val interactionFloorCeiling =
             minOf(boundedMaximumFps, INTERACTION_RESCUE_FLOOR_FPS)
+        val interactionFloorTarget =
+            DisplayCadencePolicy.nearestAtOrBelow(
+                limitFps = interactionFloorCeiling,
+                refreshRateHz = lastDisplayRefreshRateHz,
+                ceilingFps = interactionFloorCeiling,
+                floorFps = 1,
+                sourceRefreshRateHz = lastSourceRefreshRateHz
+            )
         if (cap < interactionFloorTarget) {
             val floorBudgetMs = 1_000.0 / interactionFloorTarget
             val producerHealthy =
@@ -519,8 +560,16 @@ class VideoCadenceGovernor(
             return false
         }
 
-        val ceiling =
+        val probeCeiling =
             minOf(boundedMaximumFps, INTERACTION_PROBE_FPS)
+        val ceiling =
+            DisplayCadencePolicy.nearestAtOrBelow(
+                limitFps = probeCeiling,
+                refreshRateHz = lastDisplayRefreshRateHz,
+                ceilingFps = probeCeiling,
+                floorFps = 1,
+                sourceRefreshRateHz = lastSourceRefreshRateHz
+            )
         if (cap >= ceiling) {
             interactiveHeadroom = 0
             return false
@@ -1327,7 +1376,15 @@ class VideoCadenceGovernor(
             else MIN_RECOVERY_INTERVAL_MS
         if (healthy < healthySamplesRequired || nowMs - changedAt < recoveryIntervalMs) return false
 
-        val next = LOW_ASCENDING_CAPS.firstOrNull { it > cap && it <= minOf(maxFps, maximumFps, 30) } ?: return false
+        val recoveryCeiling = minOf(maxFps, maximumFps, 30)
+        val next =
+            DisplayCadencePolicy.nextHigher(
+                currentFps = cap,
+                refreshRateHz = lastDisplayRefreshRateHz,
+                ceilingFps = recoveryCeiling,
+                floorFps = 1,
+                sourceRefreshRateHz = lastSourceRefreshRateHz
+            ) ?: return false
         cap = next
         changedAt = nowMs
         healthy = 0
@@ -1411,9 +1468,6 @@ class VideoCadenceGovernor(
         cap <= RESOLUTION_REDUCTION_MAX_FPS && nowMs - changedAt >= RESOLUTION_REDUCTION_GRACE_MS
 
     private companion object {
-        val LOW_ASCENDING_CAPS =
-            listOf(15, 20, 24, 30)
-
         const val MIN_DISPLAY_REFRESH_HZ = 30.0
         const val MAX_DISPLAY_REFRESH_HZ = 240.0
         const val MOTION_RECOVERY_FPS_CEILING = 30
