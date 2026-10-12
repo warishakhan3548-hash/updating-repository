@@ -210,6 +210,33 @@ internal class MotionVideoBudget {
         val bandwidthEstimateBps =
             outbound.availableOutgoingBitrateBps.valid()
                 ?: return null
+        /*
+         * At the terminal 360px rung, stop temporal relief as soon as the
+         * current cadence's established readable bitrate envelope fits with
+         * normal BWE headroom. This prevents a 700 kbps path, for example, from
+         * cascading 30 -> 24 -> 20 -> 15 merely because 600/700 is still above
+         * the generic high-cadence utilization target. At 20 fps the 360px
+         * nominal demand is ~600 kbps, so that path has enough room and keeps
+         * the smoother rung.
+         */
+        if (
+            bandwidthCadenceFloor < CLARITY_PRESERVING_FPS_FLOOR &&
+            target <= CLARITY_PRESERVING_FPS_FLOOR
+        ) {
+            val readableCurrentDemandBps =
+                nominalMotionBitrateBps(
+                    admittedShortEdge,
+                    target
+                )
+            if (
+                bandwidthEstimateBps >=
+                readableCurrentDemandBps *
+                    CLARITY_PRESERVING_BWE_HEADROOM_RATIO
+            ) {
+                return null
+            }
+        }
+
         val measuredSourceFps =
             sourceFps.valid()
         val movingDemandProven =
