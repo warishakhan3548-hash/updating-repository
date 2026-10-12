@@ -6,9 +6,11 @@ package com.aaris.remoteassist.capture
  * WebRTC's congestion controller remains authoritative for packet pacing and
  * bitrate. This governor changes capture cost only when transport/encoder
  * telemetry shows meaningful pressure. Network signals use asymmetric
- * hysteresis so isolated mobile-path spikes do not blur the screen, while an
- * explicit encoder CPU limitation steps capture cost down immediately because
- * the local device is already failing to sustain the requested workload.
+ * hysteresis so isolated mobile-path spikes do not blur the screen. A generic
+ * WebRTC CPU limitation is deliberately temporal-only here: under this app's
+ * MAINTAIN_RESOLUTION contract, VideoCadenceGovernor gets first ownership of
+ * that signal. Capture pixels move only when measured encode/queue delivery
+ * proves the local pipeline itself is missing deadlines.
  *
  * A bandwidth limitation by itself is deliberately treated as a weak signal.
  * libwebrtc can report "bandwidth" on a perfectly usable path simply because
@@ -78,7 +80,7 @@ class CaptureQualityGovernor(
                 normalizedRtt?.let {
                     it >= SEVERE_RTT_MS
                 } == true
-        val cpuPressure =
+        val cpuReported =
             networkPressureEligible &&
                 normalizedReason == "cpu"
         val bandwidthPressure =
@@ -138,6 +140,19 @@ class CaptureQualityGovernor(
                         normalizedRtt <= HEALTHY_RTT_MS
                     )
 
+        /*
+         * qualityLimitationReason="cpu" is not proof that resolution is the
+         * overloaded resource. libwebrtc can report CPU while its adaptation is
+         * intentionally reducing cadence. If measured encode residence, sender
+         * queue and delivery are healthy, treat the label as temporal pressure
+         * and allow slow clarity recovery instead of pinning a previous lower
+         * tier forever.
+         */
+        val cpuTemporalOnlyHealthy =
+            cpuReported &&
+                !localPipelinePressure &&
+                transportHealthy
+
         val explicitHealthy =
             normalizedReason == "none" &&
                 transportHealthy
@@ -153,12 +168,13 @@ class CaptureQualityGovernor(
 
         return when {
             /*
-             * Heavy packet loss means frames are actively being discarded.
-             * CPU limitation is similarly direct: libwebrtc is already telling
-             * us the sender cannot sustain the requested encode workload. Both
-             * deserve one immediate tier reduction; recovery remains slow.
+             * Heavy packet loss means frames are actively being discarded and
+             * deserves one immediate tier reduction. A bare CPU label does not:
+             * cadence owns generic CPU overuse, while the measured
+             * localPipelinePressure branch below remains authoritative when the
+             * encoder/pacer really cannot sustain the workload.
              */
-            severeLoss || cpuPressure -> {
+            severeLoss -> {
                 localPipelinePressureSamples = 0
                 resetPressureCounters()
                 resetRecoveryCounters()
@@ -253,6 +269,7 @@ class CaptureQualityGovernor(
             }
 
             quietSourceRecoveryEvidence ||
+                cpuTemporalOnlyHealthy ||
                 explicitHealthy ||
                 inferredHealthy -> {
                 localPipelinePressureSamples = 0

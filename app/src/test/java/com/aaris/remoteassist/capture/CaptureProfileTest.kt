@@ -193,7 +193,7 @@ class CaptureProfileTest {
     }
 
     @Test
-    fun lowTierProtectsLowRamDevices() {
+    fun lowTierProtectsLowRamDevicesWithoutDroppingBelowReadableWidth() {
         val profile =
             CaptureProfile.forDisplay(
                 displayWidthPx = 720,
@@ -201,11 +201,28 @@ class CaptureProfileTest {
                 tier = CaptureTier.LOW
             )
 
-        assertEquals(324, profile.captureWidthPx)
-        assertEquals(720, profile.captureHeightPx)
+        assertEquals(360, profile.captureWidthPx)
+        assertEquals(800, profile.captureHeightPx)
         assertEquals(15, profile.fps)
         assertEquals(20, profile.motionFps)
         assertEquals(1_200_000, profile.maxVideoBitrateBps)
+    }
+
+    @Test
+    fun lowTierKeepsModernTallPhoneAtLeastThreeSixtyShortEdge() {
+        val profile =
+            CaptureProfile.forDisplay(
+                displayWidthPx = 1080,
+                displayHeightPx = 2400,
+                tier = CaptureTier.LOW
+            )
+
+        assertEquals(
+            CaptureProfile.MIN_READABLE_CAPTURE_SHORT_SIDE,
+            minOf(profile.captureWidthPx, profile.captureHeightPx)
+        )
+        assertEquals(360, profile.captureWidthPx)
+        assertEquals(800, profile.captureHeightPx)
     }
 
     @Test

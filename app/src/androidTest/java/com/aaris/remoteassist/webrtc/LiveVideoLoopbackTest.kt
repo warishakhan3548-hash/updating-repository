@@ -223,15 +223,35 @@ class LiveVideoLoopbackTest {
                     lastBounds.set(bounds)
                 }
                 val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
-                    ?: return@waitFor false
-                try {
-                    if (bounds.isEmpty) return@waitFor false
-                    lastPixel = screenshot.getPixel(bounds.centerX().coerceIn(0, screenshot.width - 1),
-                        bounds.centerY().coerceIn(0, screenshot.height - 1))
-                    if (green) Color.green(lastPixel) > 150 && Color.red(lastPixel) < 100
-                    else Color.red(lastPixel) > 150 && Color.green(lastPixel) < 100
-                } finally {
-                    screenshot.recycle()
+                val screenshotMatches =
+                    if (screenshot == null || bounds.isEmpty) {
+                        false
+                    } else {
+                        try {
+                            lastPixel = screenshot.getPixel(
+                                bounds.centerX().coerceIn(0, screenshot.width - 1),
+                                bounds.centerY().coerceIn(0, screenshot.height - 1)
+                            )
+                            matchesVideoColor(lastPixel, green)
+                        } finally {
+                            screenshot.recycle()
+                        }
+                    }
+
+                /*
+                 * Headless SwiftShader may composite SurfaceView into the
+                 * UiAutomation screenshot with attenuated channel values even
+                 * when the EGL surface itself is correct. PixelCopy samples the
+                 * actual controller Surface and is therefore the authoritative
+                 * fallback for this native-loopback gate.
+                 */
+                if (screenshotMatches) {
+                    true
+                } else {
+                    copySurfaceCenterPixel(scenario, viewer)
+                        ?.also { lastPixel = it }
+                        ?.let { matchesVideoColor(it, green) }
+                        ?: false
                 }
             }
         } catch (error: AssertionError) {
@@ -259,6 +279,52 @@ class LiveVideoLoopbackTest {
             throw AssertionError("Display stayed ${Integer.toHexString(lastPixel)} inside $lastBounds", error)
         }
         return lastPixel
+    }
+
+    private fun matchesVideoColor(pixel: Int, green: Boolean): Boolean =
+        if (green) {
+            Color.green(pixel) > 150 && Color.red(pixel) < 100
+        } else {
+            Color.red(pixel) > 150 && Color.green(pixel) < 100
+        }
+
+    private fun copySurfaceCenterPixel(
+        scenario: ActivityScenario<LiveVideoTestActivity>,
+        viewer: InlineRemoteControllerView
+    ): Int? {
+        val result = AtomicReference<Int?>()
+        val done = java.util.concurrent.CountDownLatch(1)
+        scenario.onActivity {
+            val surfaceView = field(viewer, "surfaceView") as SurfaceView
+            if (
+                surfaceView.width <= 0 ||
+                surfaceView.height <= 0 ||
+                !surfaceView.holder.surface.isValid
+            ) {
+                done.countDown()
+                return@onActivity
+            }
+
+            val bitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+            val centerX = (surfaceView.width / 2).coerceAtMost(surfaceView.width - 1)
+            val centerY = (surfaceView.height / 2).coerceAtMost(surfaceView.height - 1)
+            val sourceRect = Rect(centerX, centerY, centerX + 1, centerY + 1)
+            PixelCopy.request(
+                surfaceView.holder.surface,
+                sourceRect,
+                bitmap,
+                { status ->
+                    if (status == PixelCopy.SUCCESS) {
+                        result.set(bitmap.getPixel(0, 0))
+                    }
+                    bitmap.recycle()
+                    done.countDown()
+                },
+                Handler(Looper.getMainLooper())
+            )
+        }
+        if (!done.await(2, TimeUnit.SECONDS)) return null
+        return result.get()
     }
 
     private fun waitFor(label: String, condition: () -> Boolean) {

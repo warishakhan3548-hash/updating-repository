@@ -135,26 +135,31 @@ internal object RealtimeMediaPolicy {
         )
 
     /**
-     * Split fast native relief from the slower app-owned source envelope.
+     * Keep exactly one spatial adaptation owner.
      *
-     * MotionVideoBudget/HighCadenceProbe cap input pixels, FPS and bitrate
-     * using end-to-end pressure measurements. Native overuse adaptation is
-     * faster than those measurements: MAINTAIN_FRAMERATE allows libwebrtc to
-     * sacrifice spatial detail inside the app's maximum capture envelope
-     * before dropping temporal cadence. It cannot raise resolution beyond
-     * that envelope; app-level recovery remains hysteresis-gated.
+     * MotionVideoBudget already owns the app's measured 720 -> 540 -> 360
+     * source-pixel ladder. Allowing libwebrtc's MAINTAIN_FRAMERATE mode to
+     * independently request a lower resolution creates a second hidden scaler:
+     * the app may admit 540 while native quality scaling silently delivers a
+     * smaller frame, producing controller-side blur and quality oscillation.
      *
-     * No additional decoded-frame queue or Java-side codec scaler is added.
-     * Non-motion callers can still select BALANCED / MAINTAIN_RESOLUTION.
+     * During motion, keep native overuse relief temporal with
+     * MAINTAIN_RESOLUTION. WebRTC can drop obsolete input cadence immediately
+     * to bound encoder debt, while MotionVideoBudget observes sustained
+     * end-to-end pressure and performs any spatial relief explicitly with
+     * hysteresis. Once pixels are reduced, VideoCadenceGovernor can recover
+     * cadence without a second native resolution decision fighting it.
+     *
+     * Quiet detail remains resolution-preserving as before. BALANCED is kept
+     * only for callers that explicitly request neither motion freshness nor
+     * resolution preservation.
      */
     fun videoDegradationPreference(
         motionPriority: Boolean,
         preserveResolution: Boolean
     ): RtpParameters.DegradationPreference =
         when {
-            motionPriority ->
-                RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
-            preserveResolution ->
+            motionPriority || preserveResolution ->
                 RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION
             else ->
                 RtpParameters.DegradationPreference.BALANCED

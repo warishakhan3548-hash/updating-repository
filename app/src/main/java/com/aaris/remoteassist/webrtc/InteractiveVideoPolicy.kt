@@ -7,16 +7,14 @@ import com.aaris.remoteassist.capture.CaptureTier
  * on screen, instead of pinning the whole session to one policy.
  *
  * While interaction or passive screen motion is active, freshness remains the
- * priority: libwebrtc may spend spatial detail inside the app-owned source
- * envelope before it drops temporal cadence. Once the screen becomes quiet,
- * preserve resolution so text/forms/icons recover to the clearest sustainable
- * representation instead of remaining unnecessarily blurred by an old
- * MAINTAIN_FRAMERATE decision.
+ * priority, but MotionVideoBudget stays the single spatial owner. Native WebRTC
+ * overuse may shed temporal cadence to bound encoder debt; measured app policy
+ * decides if source pixels must change. Once the screen becomes quiet, preserve
+ * resolution so text/forms/icons recover to the clearest sustainable result.
  *
- * MotionVideoBudget and VideoCadenceGovernor still own the app's explicit
- * spatial/cadence envelopes. This policy only selects libwebrtc's native
- * overuse preference inside those bounds; it adds no queue, encoder, or frame
- * copy.
+ * MotionVideoBudget and VideoCadenceGovernor own the app's explicit
+ * spatial/cadence envelopes. This policy only labels the current state for the
+ * native overuse preference; it adds no queue, encoder, or frame copy.
  */
 data class InteractiveVideoPolicy(
     val preserveResolution: Boolean,

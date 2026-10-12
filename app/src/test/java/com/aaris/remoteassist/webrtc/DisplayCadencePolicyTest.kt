@@ -221,8 +221,11 @@ class DisplayCadencePolicyTest {
                 sourceRefreshRateHz = 120.0
             )
         )
+        // Downward pressure uses the bounded fine-relief ladder. A 48 fps
+        // source selection repeats every five ticks on a 120 Hz producer and
+        // avoids an unnecessary 60 -> 40 discontinuity.
         assertEquals(
-            40,
+            48,
             DisplayCadencePolicy.nextLower(
                 currentFps = 60,
                 refreshRateHz = 60.0,

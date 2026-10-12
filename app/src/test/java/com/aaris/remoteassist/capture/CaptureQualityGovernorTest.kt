@@ -87,20 +87,57 @@ class CaptureQualityGovernorTest {
     }
 
     @Test
-    fun cpuPressureDowngradesImmediatelyToProtectFramePacing() {
+    fun cpuLabelAloneDoesNotSacrificeCapturePixels() {
         val governor =
             CaptureQualityGovernor(
                 initialTier = CaptureTier.STANDARD,
                 maxTier = CaptureTier.STANDARD
             )
 
-        assertEquals(
-            CaptureTier.BALANCED,
+        assertNull(
             governor.observeQualityLimitation("cpu")
         )
         assertEquals(
-            CaptureTier.BALANCED,
+            CaptureTier.STANDARD,
             governor.currentTier()
+        )
+    }
+
+    @Test
+    fun cpuLabelWithHealthyMeasuredPipelineAllowsClarityRecovery() {
+        val governor =
+            CaptureQualityGovernor(
+                initialTier = CaptureTier.BALANCED,
+                maxTier = CaptureTier.STANDARD
+            )
+
+        repeat(CaptureQualityGovernor.UPGRADE_SAMPLE_COUNT - 1) {
+            assertNull(
+                governor.observeQualityLimitation(
+                    reason = "cpu",
+                    roundTripTimeMs = 120,
+                    packetLossRatio = 0.005,
+                    encodeTimeMs = 5.0,
+                    sendQueueMs = 2.0,
+                    deliveredFps = 30.0,
+                    requestedFps = 30,
+                    outboundFrameCount = 30
+                )
+            )
+        }
+
+        assertEquals(
+            CaptureTier.STANDARD,
+            governor.observeQualityLimitation(
+                reason = "cpu",
+                roundTripTimeMs = 120,
+                packetLossRatio = 0.005,
+                encodeTimeMs = 5.0,
+                sendQueueMs = 2.0,
+                deliveredFps = 30.0,
+                requestedFps = 30,
+                outboundFrameCount = 30
+            )
         )
     }
 

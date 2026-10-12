@@ -338,6 +338,6 @@ class BweDemandAwareClarityTest {
                 interactionActive = true
             )
         )
-        assertEquals(240, budget.shortEdge)
+        assertEquals(360, budget.shortEdge)
     }
 }

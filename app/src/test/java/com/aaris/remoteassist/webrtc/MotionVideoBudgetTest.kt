@@ -204,7 +204,7 @@ class MotionVideoBudgetTest {
             budget.observe(overloaded.copy(recent = null), null, 30.0, true, 30, 4_120L, true)
         )
         assertTrue(budget.observe(overloaded, null, 30.0, true, 30, 5_000L, true))
-        assertEquals(240, budget.shortEdge)
+        assertEquals(360, budget.shortEdge)
     }
 
     @Test fun staleEncoderPressureExpiresAfterAnUnmeasuredGap() {
@@ -222,7 +222,7 @@ class MotionVideoBudgetTest {
 
         // New consecutive full windows can establish pressure again.
         assertTrue(budget.observe(overloaded, null, 30.0, true, 30, 11_500L, true))
-        assertEquals(240, budget.shortEdge)
+        assertEquals(360, budget.shortEdge)
     }
 
     @Test fun replacementCodecOrStreamCannotInheritOldPressure() {
@@ -241,7 +241,7 @@ class MotionVideoBudgetTest {
         assertFalse(budget.observe(replacement, null, 30.0, true, 30, 5_000L, true))
         assertEquals(360, budget.shortEdge)
         assertTrue(budget.observe(replacement, null, 30.0, true, 30, 6_000L, true))
-        assertEquals(240, budget.shortEdge)
+        assertEquals(360, budget.shortEdge)
     }
 
     @Test fun nativeSourceAboveBudgetCeilingIsStableAcrossUnprovenTouchDownAndFingerUp() {
@@ -339,12 +339,12 @@ class MotionVideoBudgetTest {
             )
         )
         val relieved = budget.apply(nativeProfile, true)
-        assertEquals(240, relieved.captureWidthPx)
-        assertEquals(532, relieved.captureHeightPx)
+        assertEquals(360, relieved.captureWidthPx)
+        assertEquals(800, relieved.captureHeightPx)
         // Once pressure has committed the source rung, rate control may tighten
         // in the same operating point instead of leading geometry speculatively.
         assertEquals(
-            1_000_000,
+            1_800_000,
             budget.bitrateCeiling(nativeProfile, true, targetFps = 60)
         )
     }
@@ -399,10 +399,10 @@ class MotionVideoBudgetTest {
                 interactionActive = true
             )
         )
-        // Two measured pressure windows already justify the 240 rung. Commit
-        // it directly rather than paying 360 then another MediaCodec resize.
-        assertEquals(240, budget.apply(profile, true).captureWidthPx)
-        assertEquals(532, budget.apply(profile, true).captureHeightPx)
+        // Two measured pressure windows may commit the speculative warm-start,
+        // but ordinary pressure is clamped to the 360 readability floor.
+        assertEquals(360, budget.apply(profile, true).captureWidthPx)
+        assertEquals(800, budget.apply(profile, true).captureHeightPx)
     }
 
     @Test fun unvalidatedWarmStartNeverLeaksIntoIdleGeometry() {
@@ -598,6 +598,9 @@ class MotionVideoBudgetTest {
         }
         assertEquals(360, budget.shortEdge)
 
+        // After the gesture settles, the existing fast-recovery contract is
+        // allowed again: three clean end-to-end windows restore 540px, then
+        // five more clean windows plus the native settle restore 720px.
         repeat(12) { index ->
             budget.observe(
                 outbound = healthy,
@@ -610,7 +613,7 @@ class MotionVideoBudgetTest {
                 allowResolutionRecovery = true
             )
         }
-        assertEquals(540, budget.shortEdge)
+        assertEquals(720, budget.shortEdge)
     }
     @Test fun recordedSoftwareCollapseGetsPixelAndUrgentCadenceRelief() {
         val budget = MotionVideoBudget()
@@ -627,7 +630,7 @@ class MotionVideoBudgetTest {
         assertTrue(cadence.observe(collapse, null, 30, 4000, budget.cadenceFloor(profile, true, 4000)))
         // Pixel relief continues while the severe stale queue drains.
         budget.observe(collapse, null, 30.0, true, 30, 7000)
-        assertEquals(240, budget.shortEdge)
+        assertEquals(360, budget.shortEdge)
         assertTrue(cadence.observe(collapse, null, 30, 7000, budget.cadenceFloor(profile, true, 7000)))
         // The emergency cadence floor has now been reached.
         assertFalse(cadence.observe(collapse, null, 30, 10000, budget.cadenceFloor(profile, true, 10000)))
@@ -640,15 +643,16 @@ class MotionVideoBudgetTest {
         for (time in 1_000L..8_000L step 1_000L) {
             budget.observe(recorded, null, 24.0, true, 30, time)
         }
-        assertEquals(240, budget.shortEdge)
+        assertEquals(360, budget.shortEdge)
         val small = budget.apply(profile, true)
-        assertEquals(240, small.captureWidthPx)
-        assertEquals(532, small.captureHeightPx)
+        assertEquals(360, small.captureWidthPx)
+        assertEquals(800, small.captureHeightPx)
         assertEquals(720, small.displayWidthPx)
         assertEquals(1600, small.displayHeightPx)
-        // Resolution recovers only one rung after sustained delivered 30 FPS.
+        // Clean delivery may recover above the clarity floor; codec pressure itself
+        // must never have pushed the primary stream below 360.
         repeat(12) { budget.observe(sender(), receiver(), 30.0, true, 30, 20_000L + it * 1_000) }
-        assertEquals(360, budget.shortEdge)
+        assertTrue(budget.shortEdge >= 360)
     }
 
 
@@ -681,7 +685,7 @@ class MotionVideoBudgetTest {
             if (index < 2) assertFalse(changed) else assertTrue(changed)
         }
 
-        assertEquals(240, budget.shortEdge)
+        assertEquals(360, budget.shortEdge)
     }
 
     @Test fun oneResidenceSpikeDoesNotTriggerPredictivePixelRelief() {
@@ -836,7 +840,7 @@ class MotionVideoBudgetTest {
                 interactionActive = true
             )
         )
-        assertEquals(240, budget.shortEdge)
+        assertEquals(360, budget.shortEdge)
 
         /*
          * The exact same 55 ms serial residence fits comfortably inside the
@@ -916,7 +920,7 @@ class MotionVideoBudgetTest {
                 interactionActive = true
             )
         )
-        assertEquals(240, budget.shortEdge)
+        assertEquals(360, budget.shortEdge)
 
         // The same encoder timing is not pressure for a real 30 fps target.
         val thirtyFps = MotionVideoBudget()
@@ -978,8 +982,8 @@ class MotionVideoBudgetTest {
                 interactionActive = true
             )
         )
-        assertEquals(240, budget.shortEdge)
-        assertEquals(500_000, budget.bitrateCeiling(profile, true))
+        assertEquals(360, budget.shortEdge)
+        assertEquals(900_000, budget.bitrateCeiling(profile, true))
     }
 
     @Test fun mildBandwidthDipCanPreservePixelsBySpendingHighCadenceFirst() {
@@ -1106,8 +1110,8 @@ class MotionVideoBudgetTest {
                 interactionActive = true
             )
         )
-        assertEquals(240, budget.shortEdge)
-        assertEquals(500_000, budget.bitrateCeiling(profile, true))
+        assertEquals(360, budget.shortEdge)
+        assertEquals(900_000, budget.bitrateCeiling(profile, true))
     }
 
     @Test fun sixtyFpsBandwidthPredictionUsesPixelRateNotThirtyFpsRung() {
@@ -1151,9 +1155,9 @@ class MotionVideoBudgetTest {
                 interactionActive = true
             )
         )
-        assertEquals(240, sixty.shortEdge)
+        assertEquals(360, sixty.shortEdge)
         assertEquals(
-            1_000_000,
+            1_800_000,
             sixty.bitrateCeiling(profile, true, targetFps = 60)
         )
 
@@ -1365,7 +1369,7 @@ class MotionVideoBudgetTest {
         assertEquals(360, budget.shortEdge)
     }
 
-    @Test fun recordedBandwidthQueueSpendsPixelsBeforeCadence() {
+    @Test fun recordedBandwidthQueueSpendsCadenceBeforeCrossingReadablePixels() {
         val budget = MotionVideoBudget()
         val cadence = VideoCadenceGovernor(30, 30)
         val recorded = sender(
@@ -1381,11 +1385,11 @@ class MotionVideoBudgetTest {
         assertTrue(budget.primeForMotion(profile, 0L))
         assertEquals(360, budget.shortEdge)
 
-        // This mirrors the uploaded trace: source motion is ~14 fps while the
-        // sender falls to ~5 fps and packet send residence is hundreds of ms.
+        // The first severe moving-window sample may commit the speculative
+        // warm-start resize, but it must stop at the readable 360 floor.
         assertTrue(budget.observe(recorded, null, 14.0, true, 30, 1_000L))
-        assertEquals(240, budget.shortEdge)
-        assertEquals(500_000, budget.bitrateCeiling(profile, true))
+        assertEquals(360, budget.shortEdge)
+        assertEquals(900_000, budget.bitrateCeiling(profile, true))
         assertTrue(
             cadence.observe(
                 recorded,
@@ -1401,9 +1405,11 @@ class MotionVideoBudgetTest {
         val worse = recorded.copy(
             recent = recorded.recent!!.copy(frames = 2, sendQueueMs = 1_669.0)
         )
-        assertTrue(budget.observe(worse, null, 31.0, true, 30, 2_000L))
-        assertEquals(180, budget.shortEdge)
-        assertEquals(350_000, budget.bitrateCeiling(profile, true))
+        // Once cadence is already at 24 fps, even corroborated severe
+        // transport pressure must keep the readable 360px spatial floor.
+        assertFalse(budget.observe(worse, null, 31.0, true, 24, 2_000L))
+        assertEquals(360, budget.shortEdge)
+        assertEquals(900_000, budget.bitrateCeiling(profile, true))
         assertTrue(
             cadence.observe(
                 worse,
@@ -1416,37 +1422,24 @@ class MotionVideoBudgetTest {
         )
         assertEquals(20, cadence.cap)
 
-        // Once the smallest pixel rung has had time to drain the old queue,
-        // cadence remains the final safety valve if the link is still bad.
-        assertTrue(
-            cadence.observe(
-                worse,
-                null,
-                24,
-                5_100L,
-                budget.cadenceFloor(profile, true, 5_100L),
-                producerFps = 31.0
-            )
-        )
-        assertTrue(cadence.cap < 30)
+        // Continued severe pressure spends cadence, never readability pixels.
+        assertFalse(budget.observe(worse, null, 31.0, true, 20, 3_000L))
+        assertEquals(360, budget.shortEdge)
     }
 
-    @Test fun activeInteractionKeepsSparseProducerFreshInsteadOfCollapsingCadence() {
+    @Test fun activeInteractionUsesCadenceAfterReadablePixelFloor() {
         val budget = MotionVideoBudget()
         val cadence = VideoCadenceGovernor(30, 24)
         val recorded = sender(
             fps = 6,
             encode = 16.0,
-            queue = 120.0,
+            queue = 353.0,
             implementation = "c2.mtk.avc.encoder"
         ).copy(
             qualityLimitationReason = "bandwidth",
             roundTripTimeMs = 160
         )
 
-        // Mirrors the uploaded run: the producer reports only ~3 fps, but a
-        // real remote gesture is actively changing the UI. Interaction is
-        // authoritative motion evidence and must not be vetoed by sourceFps.
         assertTrue(budget.primeForMotion(profile, 0L))
         assertTrue(
             budget.observe(
@@ -1459,8 +1452,8 @@ class MotionVideoBudgetTest {
                 interactionActive = true
             )
         )
-        assertEquals(240, budget.shortEdge)
-        assertEquals(500_000, budget.bitrateCeiling(profile, true))
+        assertEquals(360, budget.shortEdge)
+        assertEquals(900_000, budget.bitrateCeiling(profile, true))
 
         val floor = budget.cadenceFloor(
             profile = profile,
@@ -1469,25 +1462,9 @@ class MotionVideoBudgetTest {
             interactionActive = true
         )
         assertEquals(30, floor)
-        // cadence.observe() only applies pressure/relief; HostWebRtcSession's
-        // touch-down path owns upward rescue through ensureInteractionFloor().
-        // This direct unit starts at 24 to prove severe/sparse evidence is not
-        // accidentally interpreted as permission to promote.
-        assertFalse(
-            cadence.observe(
-                outbound = recorded,
-                receiver = null,
-                requestedFps = 24,
-                nowMs = 1_000L,
-                minimumFps = floor,
-                producerFps = 3.0
-            )
-        )
-        assertEquals(24, cadence.cap)
 
-        // A second bad window spends the final pixel rung, not temporal
-        // cadence, while the user is still interacting.
-        assertTrue(
+        // 360 is terminal: a second bad window cannot spend another pixel rung.
+        assertFalse(
             budget.observe(
                 outbound = recorded,
                 receiver = null,
@@ -1498,20 +1475,10 @@ class MotionVideoBudgetTest {
                 interactionActive = true
             )
         )
-        assertEquals(180, budget.shortEdge)
-        assertEquals(350_000, budget.bitrateCeiling(profile, true))
-        // Spatial relief is now exhausted, so ordinary active-control pressure
-        // may fall back to the established 24 fps bandwidth floor.
-        assertEquals(
-            24,
-            budget.cadenceFloor(
-                profile,
-                true,
-                2_000L,
-                interactionActive = true
-            )
-        )
-        assertFalse(
+        assertEquals(360, budget.shortEdge)
+
+        // Once the pixel escape hatch is exhausted, temporal relief remains.
+        assertTrue(
             cadence.observe(
                 outbound = recorded,
                 receiver = null,
@@ -1526,7 +1493,7 @@ class MotionVideoBudgetTest {
                 producerFps = 3.0
             )
         )
-        assertEquals(24, cadence.cap)
+        assertEquals(20, cadence.cap)
     }
 
     @Test fun activeSourceStarvationMustNotTriggerBandwidthPixelCollapse() {
@@ -1558,7 +1525,7 @@ class MotionVideoBudgetTest {
         assertEquals(360, budget.shortEdge)
     }
 
-    @Test fun activeSparseSourceWithRealRtpBacklogStillGetsPixelRelief() {
+    @Test fun activeSparseSourceWithRealRtpBacklogStopsAtReadablePixelFloor() {
         val budget = MotionVideoBudget()
         assertTrue(budget.primeForMotion(profile, 0L))
         val congestion = sender(fps = 6, encode = 10.0, queue = 120.0).copy(
@@ -1579,7 +1546,7 @@ class MotionVideoBudgetTest {
                 interactionActive = true
             )
         )
-        assertEquals(240, budget.shortEdge)
+        assertEquals(360, budget.shortEdge)
     }
 
     @Test fun activeHighSupplyBandwidthUnderdeliveryStillGetsPixelRelief() {
@@ -1602,7 +1569,7 @@ class MotionVideoBudgetTest {
                 interactionActive = true
             )
         )
-        assertEquals(240, budget.shortEdge)
+        assertEquals(360, budget.shortEdge)
     }
 
     @Test fun bandwidthLabelWithoutMovingSourceCannotOverBlur() {
@@ -1839,5 +1806,149 @@ class MotionVideoBudgetTest {
         ))
         assertEquals(24, cadence.cap)
     }
+
+
+    @Test fun cpuLimitationLabelAlonePreservesReadablePixelsForCadenceRelief() {
+        val budget = nativeWarmBudget()
+        val cpuLimited =
+            sender(
+                fps = 60,
+                encode = 5.0,
+                queue = 5.0
+            ).copy(
+                qualityLimitationReason = "CPU"
+            )
+        val healthyReceiver = receiver(fps = 60, presented = 60)
+
+        /*
+         * WebRTC's CPU reason describes the most limiting reason for
+         * resolution and/or frame rate. With MAINTAIN_RESOLUTION, the temporal
+         * governor owns that generic signal. Healthy measured encode, queue,
+         * decode and presentation therefore must not spend source pixels.
+         */
+        repeat(8) { index ->
+            assertFalse(
+                budget.observe(
+                    cpuLimited,
+                    healthyReceiver,
+                    60.0,
+                    true,
+                    60,
+                    500L + index * 500L,
+                    interactionActive = true
+                )
+            )
+        }
+        assertEquals(720, budget.shortEdge)
+    }
+
+    @Test fun cpuLabelWithMeasuredEncoderCollapseStillGetsSpatialSafetyRelief() {
+        val budget = nativeWarmBudget()
+        val overloaded =
+            sender(
+                fps = 30,
+                encode = 18.0,
+                queue = 5.0
+            ).copy(
+                qualityLimitationReason = "CPU"
+            )
+        val receiver = receiver(fps = 30, presented = 30)
+
+        assertFalse(
+            budget.observe(
+                overloaded,
+                receiver,
+                60.0,
+                true,
+                60,
+                1_000L,
+                interactionActive = true
+            )
+        )
+        assertTrue(
+            budget.observe(
+                overloaded,
+                receiver,
+                60.0,
+                true,
+                60,
+                2_000L,
+                interactionActive = true
+            )
+        )
+        assertEquals(540, budget.shortEdge)
+    }
+
+    @Test fun highCadenceSpatialPressureWaitsForTemporalReliefAndFreshEvidence() {
+        val budget = nativeWarmBudget()
+        val stressed =
+            sender(
+                fps = 42,
+                encode = 20.0,
+                queue = 5.0,
+                implementation = "c2.qti.avc.encoder"
+            )
+        val glass = receiver(fps = 42, decode = 5.0, presented = 42)
+
+        // At a 45/60-fps operating point the host keeps this gate closed while
+        // cadence spends temporal excess. Repeated old operating-point pressure
+        // must not accumulate a hidden pixel vote.
+        repeat(2) { index ->
+            assertFalse(
+                budget.observe(
+                    outbound = stressed,
+                    receiver = glass,
+                    sourceFps = 60.0,
+                    motionActive = true,
+                    targetFps = 60,
+                    nowMs = 1_000L + index * 1_000L,
+                    interactionActive = true,
+                    allowSpatialRelief = false
+                )
+            )
+        }
+        assertEquals(720, budget.apply(profile, true).captureWidthPx)
+
+        // After cadence reaches the 30-fps class, require two fresh completed
+        // windows at that operating point before paying a geometry/codec reset.
+        assertFalse(
+            budget.observe(
+                outbound = stressed,
+                receiver = glass,
+                sourceFps = 60.0,
+                motionActive = true,
+                targetFps = 60,
+                nowMs = 3_000L,
+                interactionActive = true,
+                allowSpatialRelief = true
+            )
+        )
+        assertTrue(
+            budget.observe(
+                outbound = stressed,
+                receiver = glass,
+                sourceFps = 60.0,
+                motionActive = true,
+                targetFps = 60,
+                nowMs = 4_000L,
+                interactionActive = true,
+                allowSpatialRelief = true
+            )
+        )
+        assertEquals(540, budget.apply(profile, true).captureWidthPx)
+    }
+
+    @Test fun motionSpatialEligibilityUsesEffectiveThirtyFpsClass() {
+        val cadence = VideoCadenceGovernor(60, 60)
+
+        assertFalse(cadence.mayReduceMotionResolution(60))
+        assertFalse(cadence.mayReduceMotionResolution(45))
+
+        // LOW/BALANCED profiles are already temporal-first at <=30 fps even if
+        // the session-wide governor has a higher hardware ceiling.
+        assertTrue(cadence.mayReduceMotionResolution(30))
+        assertTrue(cadence.mayReduceMotionResolution(20))
+    }
+
 
 }
