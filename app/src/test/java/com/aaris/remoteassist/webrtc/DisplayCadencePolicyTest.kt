@@ -329,6 +329,122 @@ class DisplayCadencePolicyTest {
     }
 
     @Test
+    fun pressureReliefAvoidsSixtyToThirtyCliffOnSixtyHzPair() {
+        assertEquals(
+            listOf(60, 50, 48, 45, 40, 36, 30, 24, 20, 15),
+            DisplayCadencePolicy.pressureReliefDescending(
+                refreshRateHz = 60.0,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertEquals(
+            50,
+            DisplayCadencePolicy.nextLower(
+                currentFps = 60,
+                refreshRateHz = 60.0,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertEquals(
+            45,
+            DisplayCadencePolicy.nearestPressureReliefAtOrBelow(
+                limitFps = 47,
+                refreshRateHz = 60.0,
+                ceilingFps = 60,
+                floorFps = 30,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+
+        // Steady-state admission stays strict: pressure relief must not leak into
+        // startup/promotion and create avoidable producer cadence jitter.
+        assertEquals(
+            listOf(60, 30, 24, 20, 15),
+            DisplayCadencePolicy.descending(
+                refreshRateHz = 60.0,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+    }
+
+    @Test
+    fun mixedRefreshControllerDoesNotOverConstrainPressureRelief() {
+        assertEquals(
+            listOf(60, 50, 48, 45, 40, 36, 30, 24, 20, 15),
+            DisplayCadencePolicy.pressureReliefDescending(
+                refreshRateHz = 90.0,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertEquals(
+            50,
+            DisplayCadencePolicy.nextLower(
+                currentFps = 60,
+                refreshRateHz = 90.0,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+    }
+
+    @Test
+    fun oneSixtyFiveHzControllerCannotCollapseKnownSixtyHzSource() {
+        assertEquals(
+            50,
+            DisplayCadencePolicy.nextLower(
+                currentFps = 60,
+                refreshRateHz = 165.0,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertEquals(
+            listOf(60, 50, 48, 45, 40, 36, 30, 24, 20, 15),
+            DisplayCadencePolicy.pressureReliefDescending(
+                refreshRateHz = 165.0,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+    }
+
+    @Test
+    fun shortRepeatSourceRungCanFillLegacyLadderGap() {
+        assertTrue(
+            48 in DisplayCadencePolicy.pressureReliefDescending(
+                refreshRateHz = 60.0,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertEquals(
+            48,
+            DisplayCadencePolicy.nextLower(
+                currentFps = 50,
+                refreshRateHz = 60.0,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+    }
+
+    @Test
+    fun oneTwentyHzSourceGetsFortyEightBeforeFortyUnderPressure() {
+        assertEquals(
+            listOf(60, 48, 40, 30, 24, 20, 15),
+            DisplayCadencePolicy.pressureReliefDescending(
+                refreshRateHz = 90.0,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 120.0
+            )
+        )
+    }
+
+    @Test
     fun sourceClockStillProtectsCadenceBeforeControllerRefreshArrives() {
         assertEquals(
             listOf(60, 30, 24, 20, 15),

@@ -109,6 +109,99 @@ internal object DisplayCadencePolicy {
         return rates.sortedDescending()
     }
 
+    /**
+     * Pressure relief has a different job from steady-state admission.
+     *
+     * Healthy capture/promotion remains source-harmonic so an unconstrained
+     * stream never creates avoidable producer cadence jitter. Once measured
+     * pressure says the current high cadence is too expensive, however, jumping
+     * straight from 60 -> 30 can be a larger visual discontinuity than using a
+     * bounded intermediate cadence.
+     *
+     * Once the source clock is known, it owns temporal quality: admit relief
+     * rungs with a short producer repeat cycle and use the controller clock only
+     * as a presentation-capacity ceiling. Source and controller displays are
+     * independent clocks across a network, so requiring both to share a short
+     * nominal cycle recreates the mixed-refresh collapse fixed by the steady
+     * policy (for example a 60 Hz source on a 165 Hz controller).
+     *
+     * If source-clock evidence is unavailable, fall back to the controller's
+     * historical short-repeat ladder. With a known source, safe short-cycle
+     * rates that were absent from that historical list (for example 48/60 or
+     * 54/90) are allowed to fill the pressure ladder. <=30 fps remains the
+     * existing emergency/recovery ladder.
+     */
+    fun pressureReliefDescending(
+        refreshRateHz: Double?,
+        ceilingFps: Int = PRODUCT_MAX_FPS,
+        floorFps: Int = 1,
+        sourceRefreshRateHz: Double? = null
+    ): List<Int> {
+        val floor = floorFps.coerceAtLeast(1)
+        val ceiling = ceilingFps.coerceAtLeast(floor)
+        val refresh = normalizedRefresh(refreshRateHz)
+        val sourceRefresh = normalizedRefresh(sourceRefreshRateHz)
+
+        if (refresh == null && sourceRefresh == null) {
+            return legacyDescending
+                .filter { it in floor..ceiling }
+                .ifEmpty { listOf(ceiling) }
+        }
+
+        val rates = linkedSetOf<Int>()
+        val firstHigh = maxOf(HIGH_CADENCE_MIN_FPS, floor)
+
+        fun sourcePressureCompatible(fps: Int): Boolean =
+            sourceRefresh == null ||
+                fps <= LOW_CADENCE_MAX_FPS ||
+                shortRepeatCycle(sourceRefresh, fps)
+
+        fun admitHigh(fps: Int): Boolean =
+            fps in firstHigh..ceiling &&
+                if (sourceRefresh != null) {
+                    sourcePressureCompatible(fps) &&
+                        controllerRefreshCapacityCompatible(refresh, fps)
+                } else {
+                    controllerClockCompatible(refresh, fps)
+                }
+
+        if (ceiling >= firstHigh) {
+            if (sourceRefresh != null) {
+                /*
+                 * Pressure is already proven, so use every high cadence whose
+                 * producer repeat cycle is bounded. This fills safe historical
+                 * gaps such as 48/60 and 54/90 without allowing arbitrary 58/60
+                 * or 55/60 long-beat trims. The controller remains a capacity
+                 * ceiling only; it is not phase-locked to the remote producer.
+                 */
+                (minOf(PRODUCT_MAX_FPS, ceiling, sourceRefresh) downTo firstHigh)
+                    .asSequence()
+                    .filter(::admitHigh)
+                    .forEach(rates::add)
+            } else {
+                /*
+                 * Before source-clock evidence exists, preserve the historical
+                 * controller-side pressure ladder and its proven short-repeat
+                 * filtering instead of synthesizing new rates from incomplete
+                 * timing information.
+                 */
+                legacyDescending
+                    .asSequence()
+                    .filter(::admitHigh)
+                    .forEach(rates::add)
+            }
+        }
+
+        lowCadenceDescending
+            .filterTo(rates) { it in floor..ceiling }
+
+        if (rates.isEmpty()) {
+            rates += ceiling
+        }
+
+        return rates.sortedDescending()
+    }
+
     fun nextLower(
         currentFps: Int,
         refreshRateHz: Double?,
@@ -116,7 +209,7 @@ internal object DisplayCadencePolicy {
         ceilingFps: Int = PRODUCT_MAX_FPS,
         sourceRefreshRateHz: Double? = null
     ): Int? =
-        descending(
+        pressureReliefDescending(
             refreshRateHz = refreshRateHz,
             ceilingFps = maxOf(ceilingFps, currentFps),
             floorFps = floorFps,
@@ -189,6 +282,26 @@ internal object DisplayCadencePolicy {
             .filter { it > currentFps && it <= boundedCeiling }
             .minOrNull()
     }
+
+    /**
+     * Resolve an already-proven downward ceiling without needlessly halving
+     * cadence when a bounded short-cycle rung can satisfy the same pressure.
+     * Unlike nearestAtOrBelow(), this is never used for startup or promotion.
+     */
+    fun nearestPressureReliefAtOrBelow(
+        limitFps: Int,
+        refreshRateHz: Double?,
+        ceilingFps: Int = PRODUCT_MAX_FPS,
+        floorFps: Int = 1,
+        sourceRefreshRateHz: Double? = null
+    ): Int =
+        pressureReliefDescending(
+            refreshRateHz = refreshRateHz,
+            ceilingFps = maxOf(ceilingFps, limitFps),
+            floorFps = floorFps,
+            sourceRefreshRateHz = sourceRefreshRateHz
+        ).firstOrNull { it <= limitFps }
+            ?: minOf(limitFps.coerceAtLeast(1), HIGH_CADENCE_MIN_FPS - 1)
 
     fun nearestAtOrBelow(
         limitFps: Int,

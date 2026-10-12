@@ -1597,22 +1597,20 @@ class InlineRemoteControllerView(
 
         runCatching {
             /*
-             * Android 16 adds an explicit interactive-UI contract: AT_LEAST
-             * asks SurfaceFlinger not to select a presentation clock below the
-             * requested rate. Remote control is scrolling/animation driven, so
-             * a stable >=60 Hz glass clock is preferable to matching a
-             * temporarily reduced network cadence. Older releases retain
-             * DEFAULT compatibility because AT_LEAST does not exist there.
+             * This stream is variable-rate remote UI/video, not a request for
+             * "any display clock >= 60". On a 90 Hz panel, Android 16's AT_LEAST
+             * contract may legally keep/select 90 Hz for a 60 fps stream, which
+             * creates a deterministic 2:3 presentation cadence. DEFAULT keeps
+             * 60 as a preference while still letting SurfaceFlinger choose a
+             * compatible mode such as 60/120 and while allowing the system to
+             * ignore the hint when necessary.
+             *
+             * Keep the request stable for the whole stream and only permit
+             * seamless mode changes. Network-driven FPS changes must never
+             * toggle physical display modes.
              */
             val compatibility =
-                if (
-                    Build.VERSION.SDK_INT >=
-                    Build.VERSION_CODES.BAKLAVA
-                ) {
-                    Surface.FRAME_RATE_COMPATIBILITY_AT_LEAST
-                } else {
-                    Surface.FRAME_RATE_COMPATIBILITY_DEFAULT
-                }
+                Surface.FRAME_RATE_COMPATIBILITY_DEFAULT
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 surface.setFrameRate(

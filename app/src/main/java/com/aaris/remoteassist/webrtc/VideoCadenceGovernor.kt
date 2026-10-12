@@ -70,7 +70,7 @@ class VideoCadenceGovernor(
                     return false
                 }
         val target =
-            DisplayCadencePolicy.nearestAtOrBelow(
+            DisplayCadencePolicy.nearestPressureReliefAtOrBelow(
                 limitFps = rawCeiling,
                 refreshRateHz = lastDisplayRefreshRateHz,
                 ceilingFps = current,
@@ -981,15 +981,18 @@ class VideoCadenceGovernor(
 
             val ceiling = minOf(cap, requestedFps)
             /*
-             * Ordinary pressure takes one display-paced rung. Numerically tiny
-             * near-refresh trims can create long frame/vsync beat periods and
-             * visible micro-stutter even when the pipeline is otherwise healthy.
+             * Ordinary pressure takes one bounded short-cycle rung. Steady-state
+             * promotion remains source-harmonic, while measured pressure may use
+             * an intermediate cadence with a short producer repeat cycle.
+             * The remote display is only a capacity ceiling because its clock is
+             * not phase-locked to the host across the network. This avoids a
+             * needless 60 -> 30 cliff while still rejecting long producer beats.
              * Severe queue/jitter/presentation pressure and CPU limitation may
              * still jump directly to the <=30 fps freshness ladder.
              */
             val needsStrongRelief = severePressure || cpuPressure
             val cadenceSteps =
-                DisplayCadencePolicy.descending(
+                DisplayCadencePolicy.pressureReliefDescending(
                     refreshRateHz = lastDisplayRefreshRateHz,
                     ceilingFps = maxFps,
                     floorFps = 1,
