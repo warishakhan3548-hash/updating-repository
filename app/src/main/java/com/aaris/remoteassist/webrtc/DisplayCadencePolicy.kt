@@ -118,15 +118,18 @@ internal object DisplayCadencePolicy {
      * straight from 60 -> 30 can be a larger visual discontinuity than using a
      * bounded intermediate cadence.
      *
-     * Admit only rungs whose repeat pattern is short on every clock we know.
-     * This keeps ordinary relief such as 60 -> 50/45/40/36 on a 60 Hz pair,
-     * 60 -> 45 on a 60 Hz source / 90 Hz controller, and 48 -> 36 on a
-     * 144 Hz source / 60 Hz controller. Long-beat rates remain rejected.
+     * Once the source clock is known, it owns temporal quality: admit relief
+     * rungs with a short producer repeat cycle and use the controller clock only
+     * as a presentation-capacity ceiling. Source and controller displays are
+     * independent clocks across a network, so requiring both to share a short
+     * nominal cycle recreates the mixed-refresh collapse fixed by the steady
+     * policy (for example a 60 Hz source on a 165 Hz controller).
      *
-     * Exact source/controller divisors that are absent from the historical
-     * ladder are also eligible (for example 48 fps on a 96 Hz controller)
-     * when the other known clock has a short repeat cycle. <=30 fps remains the
-     * existing emergency/recovery ladder.
+     * If source-clock evidence is unavailable, fall back to the controller's
+     * short-repeat rule. Exact source/controller divisors absent from the
+     * historical ladder may also fill a safe pressure rung when they satisfy the
+     * same source-authoritative rule. <=30 fps remains the existing emergency/
+     * recovery ladder.
      */
     fun pressureReliefDescending(
         refreshRateHz: Double?,
@@ -148,15 +151,19 @@ internal object DisplayCadencePolicy {
         val rates = linkedSetOf<Int>()
         val firstHigh = maxOf(HIGH_CADENCE_MIN_FPS, floor)
 
-        fun clockCompatible(clockHz: Int?, fps: Int): Boolean =
-            clockHz == null ||
+        fun sourcePressureCompatible(fps: Int): Boolean =
+            sourceRefresh == null ||
                 fps <= LOW_CADENCE_MAX_FPS ||
-                shortRepeatCycle(clockHz, fps)
+                shortRepeatCycle(sourceRefresh, fps)
 
         fun admitHigh(fps: Int): Boolean =
             fps in firstHigh..ceiling &&
-                clockCompatible(sourceRefresh, fps) &&
-                clockCompatible(refresh, fps)
+                if (sourceRefresh != null) {
+                    sourcePressureCompatible(fps) &&
+                        controllerRefreshCapacityCompatible(refresh, fps)
+                } else {
+                    controllerClockCompatible(refresh, fps)
+                }
 
         if (ceiling >= firstHigh) {
             legacyDescending
@@ -166,8 +173,9 @@ internal object DisplayCadencePolicy {
 
             /*
              * Keep useful exact harmonics even when they are not in the legacy
-             * pressure ladder. The second known clock must still accept the rung
-             * with a short repeat cycle, so this cannot introduce long beats.
+             * pressure ladder. With a known producer clock, admitHigh() still
+             * requires a short source repeat cycle and only treats the remote
+             * display as a capacity ceiling.
              */
             sourceRefresh
                 ?.let { source ->
