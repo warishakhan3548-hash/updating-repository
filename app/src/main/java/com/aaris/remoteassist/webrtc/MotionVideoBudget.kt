@@ -172,9 +172,36 @@ internal class MotionVideoBudget {
     ): Int? {
         val target =
             targetFps.coerceIn(1, MAX_MOTION_TARGET_FPS)
+        val profileShortEdge =
+            minOf(
+                profile.captureWidthPx,
+                profile.captureHeightPx
+            )
+        val admittedShortEdge =
+            minOf(
+                profileShortEdge,
+                committedSourceShortEdge
+            )
+        /*
+         * Above the readable pixel floor, temporal pre-relief stops at 30 fps
+         * so the spatial governor still has room to trade 720 -> 540 -> 360.
+         *
+         * Once 360px is the ACTUAL admitted source geometry, there is no legal
+         * spatial relief left. On a genuinely bandwidth-saturated path, keeping
+         * 360p@30 merely forces the encoder to spend fewer bits on every frame
+         * (higher QP / softer text). At that terminal rung, allow measured BWE
+         * to trade cadence down through 24/20/15 instead. Resolution never goes
+         * below 360 and no minimum bitrate is forced into GCC.
+         */
+        val bandwidthCadenceFloor =
+            if (admittedShortEdge <= CLARITY_FLOOR_SHORT_EDGE) {
+                TERMINAL_READABILITY_FPS_FLOOR
+            } else {
+                CLARITY_PRESERVING_FPS_FLOOR
+            }
         if (
             !motionActive ||
-            target <= CLARITY_PRESERVING_FPS_FLOOR
+            target <= bandwidthCadenceFloor
         ) {
             return null
         }
@@ -296,13 +323,36 @@ internal class MotionVideoBudget {
             if (sustainableFps >= target) {
                 return null
             }
-            if (sustainableFps < CLARITY_PRESERVING_FPS_FLOOR) {
-                return null
+            if (sustainableFps < bandwidthCadenceFloor) {
+                /*
+                 * Above 360px, an estimate below 30 means cadence alone cannot
+                 * preserve the current geometry, so let MotionVideoBudget spend
+                 * pixels. At the terminal 360px rung there is nowhere else to
+                 * go spatially; 15 fps is the bounded readability escape.
+                 */
+                return if (
+                    bandwidthCadenceFloor <
+                        CLARITY_PRESERVING_FPS_FLOOR
+                ) {
+                    bandwidthCadenceFloor
+                } else {
+                    null
+                }
             }
             return sustainableFps.coerceIn(
-                CLARITY_PRESERVING_FPS_FLOOR,
+                bandwidthCadenceFloor,
                 target - 1
             )
+        }
+
+        /*
+         * Never infer a sub-30 readability trade from the fixed nominal table.
+         * The terminal path requires real interval RTP bitrate plus WebRTC's
+         * own outgoing bandwidth estimate so low-entropy forms cannot be
+         * penalized by a generic resolution model.
+         */
+        if (target <= CLARITY_PRESERVING_FPS_FLOOR) {
+            return null
         }
 
         /*
@@ -310,16 +360,6 @@ internal class MotionVideoBudget {
          * available. Budget the geometry actually admitted to the encoder, not
          * a speculative control-plane rung.
          */
-        val profileShortEdge =
-            minOf(
-                profile.captureWidthPx,
-                profile.captureHeightPx
-            )
-        val admittedShortEdge =
-            minOf(
-                profileShortEdge,
-                committedSourceShortEdge
-            )
         val currentDemandBps =
             nominalMotionBitrateBps(
                 admittedShortEdge,
@@ -1637,6 +1677,7 @@ internal class MotionVideoBudget {
          * VideoCadenceGovernor before it acts.
          */
         const val CLARITY_PRESERVING_FPS_FLOOR = 30
+        const val TERMINAL_READABILITY_FPS_FLOOR = 15
         const val CLARITY_PRESERVING_MIN_UTILIZATION_RATIO = 0.82
         const val CLARITY_PRESERVING_TARGET_UTILIZATION_RATIO = 0.78
         const val CLARITY_PRESERVING_BWE_HEADROOM_RATIO = 1.10
