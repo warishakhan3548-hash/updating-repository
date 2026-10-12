@@ -350,6 +350,36 @@ internal object DisplayCadencePolicy {
         ).firstOrNull { it <= limitFps }
             ?: minOf(limitFps.coerceAtLeast(1), HIGH_CADENCE_MIN_FPS - 1)
 
+    /**
+     * Smallest pacing-safe cadence that meets a requested floor, or null when
+     * the active profile ceiling leaves no such rung.
+     *
+     * Enumerate from the full safe ladder instead of raising floorFps to the
+     * requested minimum: descending() deliberately preserves a compatibility
+     * fallback when its filtered set is empty, and that fallback must never be
+     * mistaken for source-harmonic proof.
+     */
+    fun nearestAtOrAbove(
+        limitFps: Int,
+        refreshRateHz: Double?,
+        ceilingFps: Int = PRODUCT_MAX_FPS,
+        sourceRefreshRateHz: Double? = null
+    ): Int? {
+        val ceiling = ceilingFps.coerceAtLeast(1)
+        val requested = limitFps.coerceAtLeast(1)
+        if (requested > ceiling) return null
+
+        return descending(
+            refreshRateHz = refreshRateHz,
+            ceilingFps = ceiling,
+            floorFps = 1,
+            sourceRefreshRateHz = sourceRefreshRateHz
+        )
+            .asSequence()
+            .filter { it >= requested }
+            .minOrNull()
+    }
+
     private fun harmonicPromotionCeiling(
         refreshHz: Int,
         ceilingFps: Int
