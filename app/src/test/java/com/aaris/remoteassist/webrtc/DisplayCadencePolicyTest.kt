@@ -371,9 +371,9 @@ class DisplayCadencePolicyTest {
     }
 
     @Test
-    fun mixedSixtyToNinetyUsesOnlyShortRepeatPressureRungs() {
+    fun mixedRefreshControllerDoesNotOverConstrainPressureRelief() {
         assertEquals(
-            listOf(60, 45, 36, 30, 24, 20, 15),
+            listOf(60, 50, 45, 40, 36, 30, 24, 20, 15),
             DisplayCadencePolicy.pressureReliefDescending(
                 refreshRateHz = 90.0,
                 ceilingFps = 60,
@@ -381,10 +381,31 @@ class DisplayCadencePolicyTest {
             )
         )
         assertEquals(
-            45,
+            50,
             DisplayCadencePolicy.nextLower(
                 currentFps = 60,
                 refreshRateHz = 90.0,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+    }
+
+    @Test
+    fun oneSixtyFiveHzControllerCannotCollapseKnownSixtyHzSource() {
+        assertEquals(
+            50,
+            DisplayCadencePolicy.nextLower(
+                currentFps = 60,
+                refreshRateHz = 165.0,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertEquals(
+            listOf(60, 50, 45, 40, 36, 30, 24, 20, 15),
+            DisplayCadencePolicy.pressureReliefDescending(
+                refreshRateHz = 165.0,
                 ceilingFps = 60,
                 sourceRefreshRateHz = 60.0
             )
