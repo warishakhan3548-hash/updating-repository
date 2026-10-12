@@ -977,10 +977,18 @@ class HostWebRtcSession(
                 ) {
                     /*
                      * EGL cadence is already reported every ~500 ms, sooner than
-                     * the outbound getStats() loop. During active control, use
-                     * that fresh proof-of-glass only as an emergency downshift
-                     * signal so a 60 Hz stream cannot spend another stats cycle
-                     * accumulating obsolete frames on the controller.
+                     * the outbound getStats() loop. Use that fresh proof-of-glass
+                     * whenever freshness-sensitive motion is active: either a
+                     * direct remote-control gesture OR real passive source motion
+                     * such as fling/scroll inertia, animation, video, or a game.
+                     *
+                     * Restricting this fast brake to finger-down left a blind
+                     * interval immediately after touch-up: the source could keep
+                     * moving while controller EGL was visibly hitching, yet the
+                     * host waited for the slower full stats lane before trimming
+                     * an unsustainable high cadence. Reuse the existing
+                     * freshnessPriorityActive() authority instead of inventing a
+                     * second motion heuristic.
                      *
                      * This never promotes FPS or estimates bandwidth. The normal
                      * sender/receiver/GCC telemetry path remains the authority
@@ -988,13 +996,15 @@ class HostWebRtcSession(
                      */
                     val requestedFps =
                         effectiveCaptureProfile(profile).fps
+                    val fastPresentationDemand =
+                        freshnessPriorityActive(now)
                     if (
                         cadenceGovernor.observeFastPresentation(
                             intervalMs = packet.intervalMs,
                             renderedFrames = packet.renderedFrames,
                             maxGapMs = packet.maxGapMs,
                             requestedFps = requestedFps,
-                            interactionActive = interactionActive,
+                            interactionActive = fastPresentationDemand,
                             nowMs = now,
                             displayRefreshRateHz =
                                 receiverFeedback.currentDisplayRefreshRateHz(
