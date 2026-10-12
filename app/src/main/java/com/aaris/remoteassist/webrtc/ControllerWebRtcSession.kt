@@ -849,11 +849,14 @@ class ControllerWebRtcSession(
                         recent.frames,
                         recent.processingMs?.toFloat() ?: -1f,
                         /*
-                         * The wire field stays protocol-compatible, but carries
-                         * the freshness-relevant playout residence: whichever
-                         * is larger of measured jitter-buffer residence or the
-                         * receiver's current target delay. Older hosts safely
-                         * interpret this as a conservative jitter value.
+                         * Keep the wire field protocol-compatible, but report
+                         * measured jitter-buffer residence whenever WebRTC
+                         * exposes it. The native target delay is a scheduling
+                         * goal, not time already spent waiting; conflating it
+                         * with actual debt can make host adaptation fight the
+                         * receiver jitter controller. On implementations that
+                         * omit measured residence, playoutDelayMs falls back to
+                         * the target so telemetry does not disappear entirely.
                          */
                         recent.playoutDelayMs?.toFloat() ?: -1f,
                         recent.dropped ?: -1,
