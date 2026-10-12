@@ -93,7 +93,7 @@ class VideoUrgentFreshnessTest {
                 renderedFrames = 22,
                 maxGapMs = 80,
                 requestedFps = 60,
-                freshnessActive = true,
+                interactionActive = true,
                 nowMs = 500
             )
         )
@@ -110,7 +110,7 @@ class VideoUrgentFreshnessTest {
                 renderedFrames = 22,
                 maxGapMs = 80,
                 requestedFps = 60,
-                freshnessActive = true,
+                interactionActive = true,
                 nowMs = 500
             )
         )
@@ -120,7 +120,7 @@ class VideoUrgentFreshnessTest {
                 renderedFrames = 22,
                 maxGapMs = 80,
                 requestedFps = 60,
-                freshnessActive = true,
+                interactionActive = true,
                 nowMs = 1_000
             )
         )
@@ -136,7 +136,7 @@ class VideoUrgentFreshnessTest {
                 renderedFrames = 22,
                 maxGapMs = 80,
                 requestedFps = 60,
-                freshnessActive = true,
+                interactionActive = true,
                 nowMs = 500
             )
         )
@@ -146,7 +146,7 @@ class VideoUrgentFreshnessTest {
                 renderedFrames = 22,
                 maxGapMs = 80,
                 requestedFps = 60,
-                freshnessActive = true,
+                interactionActive = true,
                 nowMs = 1_000
             )
         )
@@ -157,7 +157,7 @@ class VideoUrgentFreshnessTest {
                 renderedFrames = 20,
                 maxGapMs = 80,
                 requestedFps = 58,
-                freshnessActive = true,
+                interactionActive = true,
                 nowMs = 1_500
             )
         )
@@ -173,7 +173,7 @@ class VideoUrgentFreshnessTest {
                 renderedFrames = 10,
                 maxGapMs = 180,
                 requestedFps = 60,
-                freshnessActive = true,
+                interactionActive = true,
                 nowMs = 500
             )
         )
@@ -185,7 +185,7 @@ class VideoUrgentFreshnessTest {
                 renderedFrames = 10,
                 maxGapMs = 180,
                 requestedFps = 58,
-                freshnessActive = true,
+                interactionActive = true,
                 nowMs = 1_000
             )
         )
@@ -193,7 +193,7 @@ class VideoUrgentFreshnessTest {
     }
 
     @Test
-    fun presentationFastPathNeedsFreshnessAndRecentHighCadenceEvidence() {
+    fun presentationFastPathNeedsActiveRecentHighCadenceEvidence() {
         val inactive = measuredHighCadence()
         assertFalse(
             inactive.observeFastPresentation(
@@ -201,7 +201,7 @@ class VideoUrgentFreshnessTest {
                 renderedFrames = 10,
                 maxGapMs = 180,
                 requestedFps = 60,
-                freshnessActive = false,
+                interactionActive = false,
                 nowMs = 500
             )
         )
@@ -214,7 +214,7 @@ class VideoUrgentFreshnessTest {
                 renderedFrames = 30,
                 maxGapMs = 180,
                 requestedFps = 60,
-                freshnessActive = true,
+                interactionActive = true,
                 nowMs = 3_000
             )
         )
@@ -227,7 +227,7 @@ class VideoUrgentFreshnessTest {
                 renderedFrames = 5,
                 maxGapMs = 180,
                 requestedFps = 30,
-                freshnessActive = true,
+                interactionActive = true,
                 nowMs = 500
             )
         )
