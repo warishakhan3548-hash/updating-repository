@@ -166,33 +166,30 @@ internal object DisplayCadencePolicy {
                 }
 
         if (ceiling >= firstHigh) {
-            legacyDescending
-                .asSequence()
-                .filter(::admitHigh)
-                .forEach(rates::add)
-
-            /*
-             * Keep useful exact harmonics even when they are not in the legacy
-             * pressure ladder. With a known producer clock, admitHigh() still
-             * requires a short source repeat cycle and only treats the remote
-             * display as a capacity ceiling.
-             */
-            sourceRefresh
-                ?.let { source ->
-                    (minOf(PRODUCT_MAX_FPS, ceiling, source) downTo firstHigh)
-                        .asSequence()
-                        .filter { source % it == 0 }
-                        .filter(::admitHigh)
-                        .forEach(rates::add)
-                }
-            refresh
-                ?.let { display ->
-                    (minOf(PRODUCT_MAX_FPS, ceiling, display) downTo firstHigh)
-                        .asSequence()
-                        .filter { display % it == 0 }
-                        .filter(::admitHigh)
-                        .forEach(rates::add)
-                }
+            if (sourceRefresh != null) {
+                /*
+                 * Pressure is already proven, so use every high cadence whose
+                 * producer repeat cycle is bounded. This fills safe historical
+                 * gaps such as 48/60 and 54/90 without allowing arbitrary 58/60
+                 * or 55/60 long-beat trims. The controller remains a capacity
+                 * ceiling only; it is not phase-locked to the remote producer.
+                 */
+                (minOf(PRODUCT_MAX_FPS, ceiling, sourceRefresh) downTo firstHigh)
+                    .asSequence()
+                    .filter(::admitHigh)
+                    .forEach(rates::add)
+            } else {
+                /*
+                 * Before source-clock evidence exists, preserve the historical
+                 * controller-side pressure ladder and its proven short-repeat
+                 * filtering instead of synthesizing new rates from incomplete
+                 * timing information.
+                 */
+                legacyDescending
+                    .asSequence()
+                    .filter(::admitHigh)
+                    .forEach(rates::add)
+            }
         }
 
         lowCadenceDescending
