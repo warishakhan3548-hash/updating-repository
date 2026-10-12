@@ -119,6 +119,30 @@ class FallbackReadbackBudgetTest {
         assertEquals(360.0, deliveredShortEdge, 0.001)
     }
 
+    @Test fun oddSourceGeometryCannotRoundThe360FloorDownTo358() {
+        val budget = FallbackReadbackBudget()
+        budget.observe(40, 1_000)
+        budget.observe(40, 1_050)
+        budget.observe(40, 3_100)
+        budget.observe(40, 3_150)
+
+        /*
+         * 1385x2770 is a useful adversarial geometry: a nominal 720px long
+         * side is mathematically 360px short, but floating/integer conversion
+         * can become 359 and CpuFrameCopy then rounds it to 358. The budget
+         * deliberately requests enough pre-rounding headroom to keep >=360.
+         */
+        val side =
+            budget.maxSidePx(
+                baseSidePx = 1200,
+                sourceWidthPx = 1385,
+                sourceHeightPx = 2770
+            )
+        val ratio = side.toDouble() / 2770.0
+        val copiedShort = (1385 * ratio).toInt().let { it / 2 * 2 }
+        assertEquals(360, copiedShort)
+    }
+
     @Test fun recoveryRequiresEnoughFreshHealthySamplesAndHoldTime() {
         val budget = FallbackReadbackBudget()
         budget.observe(40, 1_000)
