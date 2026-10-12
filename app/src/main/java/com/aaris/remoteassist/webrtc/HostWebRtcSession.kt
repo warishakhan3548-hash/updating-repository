@@ -67,6 +67,7 @@ class HostWebRtcSession(
 
     private val powerManager = appContext.getSystemService(PowerManager::class.java)
     private var deviceFpsLimit = MAX_SESSION_VIDEO_FPS
+    private var lastSourceDisplayClockHz: Int? = null
 
     private val recommendedCaptureTier =
         CaptureProfile.recommendedTier(appContext)
@@ -141,6 +142,21 @@ class HostWebRtcSession(
         InteractionCaptureFreshnessTracker()
     private val motionVideoBudget = MotionVideoBudget()
     private val receiverFeedback = ReceiverVideoFeedback()
+
+    /*
+     * Fresh controller presentation clock, published independently of EGL
+     * cadence. Keep a volatile copy at the session boundary because capture
+     * policy can be read from the display/recovery lane as well as the policy
+     * lane; ReceiverVideoFeedback itself remains policy-thread-owned.
+     *
+     * This is not a new timing authority. It is the missing second physical
+     * clock for DisplayCadencePolicy, allowing the source adapter to avoid
+     * deterministic host/controller pulldown beats immediately instead of
+     * waiting for a later getStats() window.
+     */
+    @Volatile
+    private var controllerDisplayRefreshRateHz: Double? = null
+
     private val photonGovernor = PhotonFreshnessGovernor()
     private var lastSlowVideoCheckMs = 0L
     // Evidence is taken while the producer is quiet, BEFORE fresh motion.
@@ -462,10 +478,11 @@ class HostWebRtcSession(
 
     /*
      * Some fullscreen games/OEMs coalesce or delay display callbacks while
-     * immersive mode owns the screen. A cheap logical-geometry poll is the
-     * backstop: identical profiles are a no-op, so steady-state work is just
-     * one metrics read per interval. This avoids a permanent portrait capture
-     * surface after a missed 90-degree rotation.
+     * immersive mode owns the screen. A cheap logical-geometry/clock poll is
+     * the backstop: identical profile + nominal refresh is a no-op, so
+     * steady-state work is just the display reads per interval. This avoids a
+     * permanent portrait capture surface after a missed rotation and prevents
+     * adaptive-refresh changes from leaving a stale source cadence behind.
      */
     private val displayGeometryWatchdog =
         object : Runnable {
@@ -496,6 +513,9 @@ class HostWebRtcSession(
 
         captureRecoveryAttempts = 0
         localCaptureFrameSeen.set(false)
+        lastSourceDisplayClockHz =
+            sourceDisplayRefreshRateHz()
+                ?.let { kotlin.math.round(it).toInt() }
 
         val initialEffective = effectiveCaptureProfile(profile)
         val initialSenderFpsCeiling =
@@ -576,21 +596,48 @@ class HostWebRtcSession(
                 appContext,
                 captureTier
             )
-        if (latest == previous) return
+        val latestSourceDisplayClockHz =
+            sourceDisplayRefreshRateHz()
+                ?.let { kotlin.math.round(it).toInt() }
+        val sourceClockChanged =
+            latestSourceDisplayClockHz != null &&
+                latestSourceDisplayClockHz !=
+                    lastSourceDisplayClockHz
 
-        profile = latest
+        if (latestSourceDisplayClockHz != null) {
+            lastSourceDisplayClockHz =
+                latestSourceDisplayClockHz
+        }
+
+        if (latest == previous && !sourceClockChanged) return
+
+        if (latest != previous) {
+            profile = latest
+        }
         policyHandler.post {
             if (!closed.get()) {
-                // Read the newest profile at execution time so rapid rotation /
-                // display callbacks coalesce instead of replaying stale policy.
+                /*
+                 * Read the newest profile and both physical display clocks at
+                 * execution time so rapid mode/rotation callbacks coalesce
+                 * instead of replaying stale cadence policy.
+                 */
                 applyVideoPolicy(profile)
             }
         }
 
+        if (sourceClockChanged) {
+            listener.onDiagnostic(
+                "Host display clock → " +
+                    latestSourceDisplayClockHz +
+                    "Hz • capture cadence realigned"
+            )
+        }
+
         /*
-         * Capture resolution/FPS may adapt without changing the remote phone's
-         * logical display geometry. Only rotate the control generation when
-         * the actual display dimensions changed (rotation/display resize).
+         * Capture resolution/FPS OR the host presentation clock may change
+         * without changing the remote phone's logical display geometry. Only
+         * rotate the control generation when the actual display dimensions
+         * changed (rotation/display resize).
          */
         if (
             latest.displayWidthPx == previous.displayWidthPx &&
@@ -699,6 +746,7 @@ class HostWebRtcSession(
         controlOpen = false
         transportReady = false
         policyHandler.post {
+            controllerDisplayRefreshRateHz = null
             passiveMotionPriority.reset()
             photonGovernor.reset()
             updateInteractionPriority(false)
@@ -973,8 +1021,51 @@ class HostWebRtcSession(
             }
             is ControlPacket.DisplayCapabilities -> policyHandler.post {
                 val current = lease
-                if (!closed.get() && current != null && SessionRuntime.isAuthorized(sessionId, current.leaseSecret, current.displayGeneration)) {
-                    receiverFeedback.accept(packet, current.leaseSecret, current.displayGeneration, android.os.SystemClock.elapsedRealtime())
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (
+                    !closed.get() &&
+                    current != null &&
+                    SessionRuntime.isAuthorized(
+                        sessionId,
+                        current.leaseSecret,
+                        current.displayGeneration
+                    ) &&
+                    receiverFeedback.accept(
+                        packet,
+                        current.leaseSecret,
+                        current.displayGeneration,
+                        now
+                    )
+                ) {
+                    val observedRefreshRateHz =
+                        packet.refreshRateHz.toDouble()
+                    val previousClock =
+                        controllerDisplayRefreshRateHz
+                            ?.let { kotlin.math.round(it).toInt() }
+                    val nextClock =
+                        kotlin.math.round(observedRefreshRateHz).toInt()
+
+                    controllerDisplayRefreshRateHz =
+                        observedRefreshRateHz
+
+                    /*
+                     * DisplayCadencePolicy already understands both physical
+                     * clocks, but previously learned the controller clock only
+                     * through a later outbound stats window. Re-apply the
+                     * existing source policy as soon as the active controller
+                     * clock materially changes so 60->90, 90->60, adaptive
+                     * refresh, and Surface.setFrameRate() transitions cannot
+                     * spend another telemetry interval in an uneven pulldown
+                     * cadence. Same-clock heartbeats remain a no-op.
+                     */
+                    if (previousClock != nextClock) {
+                        applyVideoPolicy(profile)
+                        listener.onDiagnostic(
+                            "Controller display clock → " +
+                                nextClock +
+                                "Hz • capture cadence realigned"
+                        )
+                    }
                 }
             }
             is ControlPacket.PhotonFeedback -> policyHandler.post {
@@ -1907,6 +1998,20 @@ class HostWebRtcSession(
                 spatial.captureWidthPx,
                 spatial.captureHeightPx
             )
+        val controllerRefreshRateHz =
+            controllerDisplayRefreshRateHz
+                ?.takeIf {
+                    it.isFinite() &&
+                        it in 30.0..240.0
+                }
+        val controllerFpsLimit =
+            controllerRefreshRateHz
+                ?.let {
+                    kotlin.math.round(it)
+                        .toInt()
+                        .coerceAtLeast(1)
+                }
+                ?: MAX_SESSION_VIDEO_FPS
         val unalignedTargetFps =
             RealtimeMediaPolicy.effectiveSourceFps(
                 idleFps = target.fps,
@@ -1915,7 +2020,8 @@ class HostWebRtcSession(
                 deviceFpsLimit =
                     minOf(
                         deviceFpsLimit,
-                        encoderFpsLimit
+                        encoderFpsLimit,
+                        controllerFpsLimit
                     ),
                 freshnessActive = freshnessActive
             )
@@ -1935,7 +2041,7 @@ class HostWebRtcSession(
             if (unalignedTargetFps > 30) {
                 DisplayCadencePolicy.nearestAtOrBelow(
                     limitFps = unalignedTargetFps,
-                    refreshRateHz = null,
+                    refreshRateHz = controllerRefreshRateHz,
                     ceilingFps = unalignedTargetFps,
                     floorFps = 1,
                     sourceRefreshRateHz = sourceDisplayRefreshRateHz()
@@ -2144,6 +2250,7 @@ class HostWebRtcSession(
         controlOpen = false
         transportReady = false
         interactionActive = false
+        controllerDisplayRefreshRateHz = null
         lease = null
     }
 
