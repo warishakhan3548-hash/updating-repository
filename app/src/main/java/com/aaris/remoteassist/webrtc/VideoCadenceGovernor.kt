@@ -397,8 +397,9 @@ class VideoCadenceGovernor(
     }
 
     /**
-     * Once 24 fps is stable, probe 30 fps quickly when the measured path has
-     * real headroom. This avoids the old failure mode where a clean hardware
+     * Once the source-paced recovery rung is stable, probe the next safe rung
+     * quickly when the measured path has real headroom. This avoids the old
+     * failure mode where a clean hardware
      * H.264 path stayed self-capped at 15 fps even while MediaProjection was
      * producing 40-50 fresh frames/sec and the sender queue was near zero.
      *
@@ -477,8 +478,9 @@ class VideoCadenceGovernor(
                 outbound.qualityLimitationReason == null ||
                     outbound.qualityLimitationReason.equals("none", ignoreCase = true)
             /*
-             * Emergency rescue below 24 fps is intentionally more tolerant
-             * than a 24 -> 30 promotion. At 240/360-wide emergency rungs a
+             * Emergency rescue below the ordinary interaction floor is
+             * intentionally more tolerant than the next high probe. At the
+             * 360px readability floor a
              * recovered zero-queue hardware path can still deliver useful
              * fresh motion with moderate residual loss. Requiring <4% loss here
              * made real mobile paths stick at 15 fps long after congestion had
@@ -652,10 +654,11 @@ class VideoCadenceGovernor(
     /**
      * Predict whether the current encoded content can afford a cadence probe.
      *
-     * A clean 24 fps stream may clear WebRTC's bandwidth label simply because
-     * the lower cadence now fits. Blindly probing 30 fps at that moment creates
-     * a readability oscillation: 24 -> 30 saturates BWE, QP rises, then the
-     * clarity governor returns to 24. Scale the measured RTP demand by the
+     * A clean low-cadence stream may clear WebRTC's bandwidth label simply
+     * because the lower cadence now fits. Blindly probing a higher rung at that
+     * moment creates a readability oscillation: cadence rises, BWE saturates,
+     * QP rises, then the clarity governor falls back. Scale the measured RTP
+     * demand by the
      * proposed cadence and require modest estimator headroom before probing.
      *
      * Missing stats preserve the previous behavior; this is only an additional
