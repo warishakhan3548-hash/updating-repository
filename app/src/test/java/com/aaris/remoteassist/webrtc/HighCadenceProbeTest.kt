@@ -422,7 +422,7 @@ class HighCadenceProbeTest {
         assertEquals(50, g.cap)
     }
 
-    @Test fun knownSixtyHzSourceUsesEvenPressureReliefAtGovernorBoundary() {
+    @Test fun knownSixtyHzSoftPressureTriesReadableSpatialReliefBeforeThirtyFpsCliff() {
         val g = VideoCadenceGovernor(60, 60)
 
         assertFalse(
@@ -438,10 +438,43 @@ class HighCadenceProbeTest {
         )
         assertEquals(60, g.cap)
 
-        assertTrue(
+        // 60 Hz has no evenly produced high-cadence rung below 60. Do not
+        // turn an ordinary 45 ms queue crossing directly into 30 fps.
+        assertFalse(
             sample(
                 g = g,
                 time = 1_500L,
+                fps = 60,
+                recv = receiver(60),
+                source = 60.0,
+                queue = 45.0,
+                sourceClock = 60.0
+            )
+        )
+        assertEquals(60, g.cap)
+        assertTrue(g.mayReduceMotionResolution(60))
+
+        // Give the measured spatial governor a second completed pressure window.
+        assertFalse(
+            sample(
+                g = g,
+                time = 2_000L,
+                fps = 60,
+                recv = receiver(60),
+                source = 60.0,
+                queue = 45.0,
+                sourceClock = 60.0
+            )
+        )
+        assertEquals(60, g.cap)
+
+        // The deferral is bounded. If pixels/bitrate did not relieve pressure
+        // (for example because the stream is already at the 360px floor), the
+        // deterministic 30 fps escape remains available.
+        assertTrue(
+            sample(
+                g = g,
+                time = 2_500L,
                 fps = 60,
                 recv = receiver(60),
                 source = 60.0,
