@@ -1002,7 +1002,7 @@ class HostWebRtcSession(
                             renderedFrames = packet.renderedFrames,
                             maxGapMs = packet.maxGapMs,
                             requestedFps = requestedFps,
-                            interactionActive = freshnessPriorityActive(now),
+                            freshnessActive = freshnessPriorityActive(now),
                             nowMs = now,
                             displayRefreshRateHz =
                                 receiverFeedback.currentDisplayRefreshRateHz(
