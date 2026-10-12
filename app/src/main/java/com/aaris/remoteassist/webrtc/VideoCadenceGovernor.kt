@@ -380,11 +380,10 @@ class VideoCadenceGovernor(
         val requestedFloor =
             minOf(boundedMaximum, minimumFps.coerceAtLeast(1))
         val target =
-            DisplayCadencePolicy.nextHigher(
-                currentFps = requestedFloor - 1,
+            DisplayCadencePolicy.nearestAtOrAbove(
+                limitFps = requestedFloor,
                 refreshRateHz = lastDisplayRefreshRateHz,
                 ceilingFps = boundedMaximum,
-                floorFps = requestedFloor,
                 sourceRefreshRateHz = lastSourceRefreshRateHz
             ) ?: DisplayCadencePolicy.nearestAtOrBelow(
                 limitFps = requestedFloor,
