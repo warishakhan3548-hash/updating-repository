@@ -70,7 +70,7 @@ class HighCadenceProbeTest {
         )
 
     @Test
-    fun lateDualClockEvidenceDropsNonHarmonicHighCapWithoutWaitingForCongestion() {
+    fun lateSourceClockEvidenceDropsNonProducerHarmonicHighCapWithoutCongestion() {
         val g = VideoCadenceGovernor(60, 40)
 
         assertTrue(
@@ -85,10 +85,32 @@ class HighCadenceProbeTest {
                     gap = 34
                 ),
                 source = 40.0,
-                sourceClock = 120.0
+                sourceClock = 60.0
             )
         )
         assertEquals(30, g.cap)
+    }
+
+    @Test
+    fun controllerPhaseMismatchDoesNotDownshiftProducerHarmonic() {
+        val g = VideoCadenceGovernor(60, 40)
+
+        assertFalse(
+            sample(
+                g = g,
+                time = 1_000L,
+                fps = 40,
+                recv = receiver(
+                    fps = 40,
+                    refresh = 60.0,
+                    presented = 40,
+                    gap = 34
+                ),
+                source = 40.0,
+                sourceClock = 120.0
+            )
+        )
+        assertEquals(40, g.cap)
     }
 
     @Test
@@ -637,7 +659,7 @@ class HighCadenceProbeTest {
             21_000L,
             allowResolutionRecovery = false
         )
-        assertEquals(240, budget.shortEdge)
+        assertEquals(360, budget.shortEdge)
     }
 
     @Test fun capabilityPacketIsBoundedLeaseBoundReplaySafeAndExpires() {

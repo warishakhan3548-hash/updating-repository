@@ -145,18 +145,19 @@ class RealtimeMediaPolicyTest {
     }
 
     @Test
-    fun nativeSpatialReliefMaintainsFrameRateUnderSuddenCodecPressure() {
+    fun nativeOveruseNeverCreatesASecondSpatialScaler() {
         assertEquals(
-            RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE,
+            RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION,
             RealtimeMediaPolicy.videoDegradationPreference(
                 motionPriority = true,
                 preserveResolution = false
             )
         )
-        // Motion cadence takes precedence over a stale resolution-preserving
-        // hint; native downscaling remains inside the app's source ceiling.
+        // Active motion still uses temporal native relief even when a stale
+        // caller also requests resolution preservation. MotionVideoBudget is
+        // the only component allowed to change source pixels.
         assertEquals(
-            RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE,
+            RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION,
             RealtimeMediaPolicy.videoDegradationPreference(
                 motionPriority = true,
                 preserveResolution = true

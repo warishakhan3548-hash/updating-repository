@@ -45,6 +45,15 @@ data class CaptureProfile(
         private const val BALANCED_CAPTURE_LONG_SIDE = 1200
 
         /*
+         * Remote-control feedback must stay readable even on the LOW tier.
+         * For tall phones a long-side-only 720 cap produced ~324x720, which is
+         * visibly softer than a 360p-class UI. Keep at least a 360px short edge
+         * whenever the physical display itself is large enough; never upscale a
+         * genuinely smaller source.
+         */
+        internal const val MIN_READABLE_CAPTURE_SHORT_SIDE = 360
+
+        /*
          * STANDARD is the normal 4 GB-class path. A 2160 ceiling forced a
          * 1080x2400 host to 972x2160 and made the controller upscale every
          * frame again, so even a perfect network could never look fully native.
@@ -188,6 +197,7 @@ data class CaptureProfile(
             val displayWidth = displayWidthPx.coerceAtLeast(1)
             val displayHeight = displayHeightPx.coerceAtLeast(1)
             val longSide = max(displayWidth, displayHeight)
+            val shortSide = minOf(displayWidth, displayHeight)
 
             val maxCaptureLongSide =
                 when (tier) {
@@ -197,13 +207,31 @@ data class CaptureProfile(
                     CaptureTier.HIGH -> HIGH_CAPTURE_LONG_SIDE
                 }
 
-            val scale =
+            val longSideScale =
                 if (longSide > maxCaptureLongSide) {
                     maxCaptureLongSide.toFloat() /
                         longSide.toFloat()
                 } else {
                     1f
                 }
+            val readableShortSideScale =
+                if (shortSide > MIN_READABLE_CAPTURE_SHORT_SIDE) {
+                    MIN_READABLE_CAPTURE_SHORT_SIDE.toFloat() /
+                        shortSide.toFloat()
+                } else {
+                    1f
+                }
+            /*
+             * LOW's long-side budget is still the target on ordinary aspect
+             * ratios, but readability wins when that target would make the
+             * short edge narrower than 360px. maxOf() relaxes only as much as
+             * needed and never exceeds the native source size.
+             */
+            val scale =
+                maxOf(
+                    longSideScale,
+                    readableShortSideScale
+                ).coerceAtMost(1f)
 
             fun even(value: Int): Int {
                 val clamped = value.coerceAtLeast(2)

@@ -1306,8 +1306,55 @@ class HostWebRtcSession(
                     nowMs = now
                 )
 
+            /*
+             * One health window may move ONE expensive media actuator.
+             *
+             * The temporal actuator is cheaper: dropping 60 -> 45 -> 30 does
+             * not restart MediaProjection geometry or the hardware codec. Give
+             * cadence the first chance to restore freshness, then let
+             * MotionVideoBudget spend pixels only after the effective stream is
+             * already in the 30-fps class and fresh post-cadence telemetry still
+             * proves pressure. This preserves text/form clarity and removes a
+             * common resolution-reconfiguration hitch from active control.
+             *
+             * The BWE clarity guard remains an even earlier cadence-only lane.
+             * Severe producer starvation is explicitly allowed through the
+             * spatial gate because resizing the VirtualDisplay can repair the
+             * producer itself on Android 12+.
+             */
+            val requestedFps = effectiveCaptureProfile(profile).fps
+            val cadencePressureChanged =
+                if (
+                    clarityCadenceChanged ||
+                    clarityCadenceCeiling != null
+                ) {
+                    false
+                } else {
+                    cadenceGovernor.observe(
+                        outbound = snapshot,
+                        receiver = receiver,
+                        requestedFps = requestedFps,
+                        nowMs = now,
+                        minimumFps = motionVideoBudget.cadenceFloor(
+                            profile = profile,
+                            motionActive = motionActive,
+                            nowMs = now,
+                            interactionActive = interactionActive
+                        ),
+                        producerFps = sourceFps,
+                        maximumFps = profileMaximumFps,
+                        allowHighCadenceProbe =
+                            motionActive &&
+                                photonPolicy.allowCadencePromotion,
+                        sourceRefreshRateHz = sourceRefreshRateHz
+                    )
+                }
+
             val motionBudgetChanged =
-                if (clarityCadenceCeiling != null) {
+                if (
+                    clarityCadenceCeiling != null ||
+                    cadencePressureChanged
+                ) {
                     false
                 } else {
                     motionVideoBudget.observe(
@@ -1330,57 +1377,24 @@ class HostWebRtcSession(
                         interactionCaptureStarved =
                             interactionCaptureFreshness.isStarved(now),
                         canResizeProducerSurface =
-                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
+                        profile = profile,
+                        allowSpatialRelief =
+                            cadenceGovernor.mayReduceMotionResolution(
+                                requestedFps = requestedFps
+                            )
                     )
                 }
 
-            /*
-             * One health window may move ONE expensive media actuator.
-             *
-             * libwebrtc already has its own QP/encode-overuse spatial adapter
-             * under MAINTAIN_FRAMERATE. If our measured pixel budget also moves,
-             * do not simultaneously change the app cadence ceiling from the
-             * same stale evidence. That double-step used to reconfigure source
-             * geometry and sender cadence together, making otherwise recoverable
-             * pressure look like visible micro-stutter on the controller.
-             *
-             * Keep the learned cadence cap, but invalidate pre-resize trial and
-             * fast-presentation evidence. The next complete stats window can
-             * still take cadence relief immediately if pressure persists.
-             */
             if (motionBudgetChanged) {
                 cadenceGovernor.onSpatialBudgetTransition(now)
             }
 
-            val requestedFps = effectiveCaptureProfile(profile).fps
-            val cadencePressureChanged =
-                if (motionBudgetChanged || clarityCadenceChanged) {
-                    false
-                } else {
-                    cadenceGovernor.observe(
-                        outbound = snapshot,
-                        receiver = receiver,
-                        requestedFps = requestedFps,
-                        nowMs = now,
-                        minimumFps = motionVideoBudget.cadenceFloor(
-                            profile = profile,
-                            motionActive = motionActive,
-                            nowMs = now,
-                            interactionActive = interactionActive
-                        ),
-                        producerFps = sourceFps,
-                        maximumFps = profileMaximumFps,
-                        allowHighCadenceProbe =
-                            motionActive &&
-                                clarityCadenceCeiling == null &&
-                                photonPolicy.allowCadencePromotion,
-                        sourceRefreshRateHz = sourceRefreshRateHz
-                    )
-                }
             val interactionProbeChanged =
                 if (
                     motionBudgetChanged ||
                     clarityCadenceChanged ||
+                    cadencePressureChanged ||
                     clarityCadenceCeiling != null
                 ) {
                     false
@@ -1673,10 +1687,16 @@ class HostWebRtcSession(
                         requestedFps = effectiveRequestedFps
                     )
                 } ?: false
+            /*
+             * A generic WebRTC CPU label is owned by VideoCadenceGovernor under
+             * MAINTAIN_RESOLUTION. Only measured local pipeline debt or proven
+             * network pressure may unlock the slower capture-tier spatial
+             * safety valve. This prevents CPU-only feedback from pinning the
+             * controller at a blurry tier after cadence has already adapted.
+             */
             val remotePressure =
-                snapshot.qualityLimitationReason == "cpu" ||
-                    (snapshot.packetLossRatio ?: 0.0) >=
-                        CaptureQualityGovernor.PRESSURE_PACKET_LOSS_RATIO ||
+                (snapshot.packetLossRatio ?: 0.0) >=
+                    CaptureQualityGovernor.PRESSURE_PACKET_LOSS_RATIO ||
                     (snapshot.roundTripTimeMs ?: 0) >=
                         CaptureQualityGovernor.PRESSURE_RTT_MS
             val pressured =

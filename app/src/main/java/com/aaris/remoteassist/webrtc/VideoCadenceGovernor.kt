@@ -1137,6 +1137,23 @@ class VideoCadenceGovernor(
             highCadenceProbe.debugSummary(nowMs)
     }
 
+    /**
+     * MotionVideoBudget may spend pixels only after high-cadence temporal
+     * excess has been exhausted. A LOW/BALANCED profile whose requested rate is
+     * already <=30 fps is immediately eligible; STANDARD/HIGH sessions must
+     * first prove that a 45/60 fps operating point cannot stay fresh.
+     *
+     * This is deliberately separate from the slower CaptureTier downgrade gate:
+     * a 720 -> 540 app-level motion rung is reversible and far cheaper than
+     * changing the device-wide capture tier, but it still must not race cadence.
+     */
+    fun mayReduceMotionResolution(requestedFps: Int): Boolean =
+        minOf(
+            cap,
+            requestedFps.coerceAtLeast(1),
+            maxFps
+        ) <= MOTION_SPATIAL_RELIEF_MAX_FPS
+
     fun mayReduceResolution(nowMs: Long): Boolean =
         cap <= RESOLUTION_REDUCTION_MAX_FPS && nowMs - changedAt >= RESOLUTION_REDUCTION_GRACE_MS
 
@@ -1265,6 +1282,7 @@ class VideoCadenceGovernor(
         const val MIN_RECOVERY_INTERVAL_MS = 12_000L
         const val PRESENTATION_PROVEN_RECOVERY_INTERVAL_MS = 5_000L
 
+        const val MOTION_SPATIAL_RELIEF_MAX_FPS = 30
         const val RESOLUTION_REDUCTION_MAX_FPS = 24
         const val RESOLUTION_REDUCTION_GRACE_MS = 6_000L
     }
