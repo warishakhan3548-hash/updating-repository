@@ -193,7 +193,7 @@ class VideoUrgentFreshnessTest {
     }
 
     @Test
-    fun presentationFastPathNeedsActiveRecentHighCadenceEvidence() {
+    fun presentationFastPathNeedsFreshnessAndRecentHighCadenceEvidence() {
         val inactive = measuredHighCadence()
         assertFalse(
             inactive.observeFastPresentation(
