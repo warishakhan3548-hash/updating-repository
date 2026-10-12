@@ -11,11 +11,13 @@ package com.aaris.remoteassist.webrtc
  * 48/60 every five, 45/60 every four, and 40/60 every three.
  *
  * We therefore FILTER the already-proven high-cadence (>30 fps) adaptation
- * ladder by the clocks that physically produce and present the frame. When both
- * clocks are known, a high-cadence rung must be an exact divisor of BOTH clocks;
- * otherwise deterministic pulldown can look like network/decoder stutter even
- * on a perfectly healthy path. When only the controller clock is known, retain
- * the legacy short-repeat rule until source-clock evidence arrives.
+ * ladder by the clock that physically PRODUCES unique frames. Once the host
+ * source clock is known, source harmonics are authoritative: the controller
+ * clock is only a presentation-capacity ceiling, never a phase-lock requirement.
+ * Source and controller displays are independent clocks across a network; forcing
+ * an exact common divisor can discard half the source motion (for example,
+ * 60 Hz source -> 90 Hz controller collapsing to 30 fps). When the source clock
+ * is unknown, retain the legacy controller short-repeat rule as a safe fallback.
  *
  * 60 fps remains the product ceiling even on unusual high-refresh panels.
  *
@@ -57,10 +59,11 @@ internal object DisplayCadencePolicy {
          * are perfect. That periodic long interval is perceived as judder.
          *
          * Once the host source clock is known, keep high-cadence rungs on an
-         * integer divisor of that clock. If the controller clock is also known,
-         * require an integer divisor there too. A 40 fps source on a 60 Hz glass
-         * clock, for example, necessarily alternates presentation intervals even
-         * if encode, RTP, decode and EGL are all healthy.
+         * integer divisor of that producer clock. The remote display is not
+         * phase-locked to MediaProjection, so its refresh rate may cap how many
+         * unique frames are useful but must not require an exact common divisor.
+         * A 60 fps source on a 90 Hz controller should therefore remain 60 fps
+         * (fresh 16.7 ms motion), not collapse to 30 fps (33.3 ms motion).
          *
          * The older short-repeat controller filter is retained only while source
          * clock evidence is unavailable. <=30 fps remains the pressure/recovery
@@ -68,12 +71,12 @@ internal object DisplayCadencePolicy {
          */
         fun admitHigh(fps: Int): Boolean =
             fps in firstHigh..ceiling &&
-                controllerClockCompatible(
-                    controllerRefreshHz = refresh,
-                    sourceRefreshHz = sourceRefresh,
-                    fps = fps
-                ) &&
-                sourceClockCompatible(sourceRefresh, fps)
+                sourceClockCompatible(sourceRefresh, fps) &&
+                if (sourceRefresh != null) {
+                    controllerRefreshCapacityCompatible(refresh, fps)
+                } else {
+                    controllerClockCompatible(refresh, fps)
+                }
 
         if (ceiling >= firstHigh) {
             legacyDescending
@@ -83,8 +86,8 @@ internal object DisplayCadencePolicy {
 
             /*
              * Some useful source harmonics are not in the historical ladder
-             * (for example 48 fps from a 144 Hz producer). Add only exact source
-             * divisors that also satisfy the controller-clock rule above.
+             * (for example 48 fps from a 144 Hz producer). Add exact producer
+             * divisors while respecting only the controller's capacity ceiling.
              */
             sourceRefresh
                 ?.let { source ->
@@ -130,33 +133,35 @@ internal object DisplayCadencePolicy {
         /*
          * Promotion and relief have different visual failure modes.
          *
-         * Relief may still use a short-repeat non-harmonic rung to drain an
-         * encoder/pacer backlog without a huge 60 -> 30 cliff. Promotion is
-         * stricter: when the active display exposes an exact high-cadence
-         * harmonic inside the current device/encoder ceiling, never climb past
-         * that harmonic into a cadence that necessarily needs uneven pulldown.
+         * When the source clock is known, promotion follows source harmonics:
+         * VideoSource can then select frames at an even producer cadence while
+         * WebRTC/EGL absorb the independent receiver-vsync phase. The controller
+         * refresh rate remains a hard capacity ceiling only; sending more unique
+         * frames than it can present wastes encode/network work.
          *
-         * Examples:
-         *   90 Hz  -> steady ceiling 45 fps
-         *   120 Hz -> steady ceiling 60 fps
-         *   144 Hz -> steady ceiling 48 fps
-         *   165 Hz -> steady ceiling 55 fps
-         *
-         * If the encoder ceiling is below every exact harmonic (for example a
-         * 45 fps codec ceiling on a 60 Hz panel), preserve the existing
-         * short-repeat ladder rather than forcing a large drop to 30 fps.
+         * When source-clock evidence is unavailable, keep the historical
+         * controller-harmonic promotion rule. This preserves the established
+         * fallback behavior without allowing a remote display clock to halve a
+         * known-good source cadence.
          */
-        val harmonicCeiling =
+        val controllerCeiling =
             normalizedRefresh(refreshRateHz)
-                ?.let { refresh ->
+                ?.let { minOf(ceilingFps, it) }
+                ?: ceilingFps
+        val promotionClock =
+            normalizedRefresh(sourceRefreshRateHz)
+                ?: normalizedRefresh(refreshRateHz)
+        val harmonicCeiling =
+            promotionClock
+                ?.let { clock ->
                     harmonicPromotionCeiling(
-                        refreshHz = refresh,
-                        ceilingFps = ceilingFps
+                        refreshHz = clock,
+                        ceilingFps = controllerCeiling
                     )
                 }
         val boundedCeiling =
-            harmonicCeiling?.let { minOf(ceilingFps, it) }
-                ?: ceilingFps
+            harmonicCeiling?.let { minOf(controllerCeiling, it) }
+                ?: controllerCeiling
 
         val candidates =
             descending(
@@ -240,28 +245,28 @@ internal object DisplayCadencePolicy {
     }
 
     /**
-     * Controller cadence is strict once both physical clocks are known.
-     *
-     * A short repeat cycle is less bad than a long beat, but it is still
-     * deterministic uneven pulldown. During remote control that looks like a
-     * periodic hitch exactly when the user scrolls or drags. With complete clock
-     * evidence, prefer a stable <=30 fps safety rung over a numerically higher
-     * cadence that cannot be presented evenly.
+     * Before source-clock evidence exists, prefer controller cadences with a
+     * short repeat cycle. Once the producer clock is known this is deliberately
+     * no longer used: remote displays are asynchronous and are not phase-locked
+     * strongly enough for nominal common-divisor gating to buy end-to-end
+     * smoothness.
      */
     private fun controllerClockCompatible(
         controllerRefreshHz: Int?,
-        sourceRefreshHz: Int?,
         fps: Int
     ): Boolean {
         if (controllerRefreshHz == null || fps <= LOW_CADENCE_MAX_FPS) return true
         if (fps <= 0 || fps > controllerRefreshHz) return false
-
-        return if (sourceRefreshHz != null) {
-            controllerRefreshHz % fps == 0
-        } else {
-            shortRepeatCycle(controllerRefreshHz, fps)
-        }
+        return shortRepeatCycle(controllerRefreshHz, fps)
     }
+
+    private fun controllerRefreshCapacityCompatible(
+        controllerRefreshHz: Int?,
+        fps: Int
+    ): Boolean =
+        controllerRefreshHz == null ||
+            fps <= LOW_CADENCE_MAX_FPS ||
+            (fps > 0 && fps <= controllerRefreshHz)
 
     private fun shortRepeatCycle(refreshHz: Int, fps: Int): Boolean {
         if (fps <= 0 || fps > refreshHz) return false
