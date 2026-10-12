@@ -221,11 +221,10 @@ class DisplayCadencePolicyTest {
                 sourceRefreshRateHz = 120.0
             )
         )
-        // Downward pressure uses the bounded fine-relief ladder. A 48 fps
-        // source selection repeats every five ticks on a 120 Hz producer and
-        // avoids an unnecessary 60 -> 40 discontinuity.
+        // Pressure relief stays on exact producer harmonics. 40 fps is an
+        // exact 120/3 cadence, so every admitted source interval is uniform.
         assertEquals(
-            48,
+            40,
             DisplayCadencePolicy.nextLower(
                 currentFps = 60,
                 refreshRateHz = 60.0,
