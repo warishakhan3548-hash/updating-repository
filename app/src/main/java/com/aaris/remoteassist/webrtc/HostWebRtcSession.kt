@@ -67,6 +67,7 @@ class HostWebRtcSession(
 
     private val powerManager = appContext.getSystemService(PowerManager::class.java)
     private var deviceFpsLimit = MAX_SESSION_VIDEO_FPS
+    private var lastSourceDisplayClockHz: Int? = null
 
     private val recommendedCaptureTier =
         CaptureProfile.recommendedTier(appContext)
@@ -477,10 +478,11 @@ class HostWebRtcSession(
 
     /*
      * Some fullscreen games/OEMs coalesce or delay display callbacks while
-     * immersive mode owns the screen. A cheap logical-geometry poll is the
-     * backstop: identical profiles are a no-op, so steady-state work is just
-     * one metrics read per interval. This avoids a permanent portrait capture
-     * surface after a missed 90-degree rotation.
+     * immersive mode owns the screen. A cheap logical-geometry/clock poll is
+     * the backstop: identical profile + nominal refresh is a no-op, so
+     * steady-state work is just the display reads per interval. This avoids a
+     * permanent portrait capture surface after a missed rotation and prevents
+     * adaptive-refresh changes from leaving a stale source cadence behind.
      */
     private val displayGeometryWatchdog =
         object : Runnable {
@@ -511,6 +513,9 @@ class HostWebRtcSession(
 
         captureRecoveryAttempts = 0
         localCaptureFrameSeen.set(false)
+        lastSourceDisplayClockHz =
+            sourceDisplayRefreshRateHz()
+                ?.let { kotlin.math.round(it).toInt() }
 
         val initialEffective = effectiveCaptureProfile(profile)
         val initialSenderFpsCeiling =
@@ -591,21 +596,48 @@ class HostWebRtcSession(
                 appContext,
                 captureTier
             )
-        if (latest == previous) return
+        val latestSourceDisplayClockHz =
+            sourceDisplayRefreshRateHz()
+                ?.let { kotlin.math.round(it).toInt() }
+        val sourceClockChanged =
+            latestSourceDisplayClockHz != null &&
+                latestSourceDisplayClockHz !=
+                    lastSourceDisplayClockHz
 
-        profile = latest
+        if (latestSourceDisplayClockHz != null) {
+            lastSourceDisplayClockHz =
+                latestSourceDisplayClockHz
+        }
+
+        if (latest == previous && !sourceClockChanged) return
+
+        if (latest != previous) {
+            profile = latest
+        }
         policyHandler.post {
             if (!closed.get()) {
-                // Read the newest profile at execution time so rapid rotation /
-                // display callbacks coalesce instead of replaying stale policy.
+                /*
+                 * Read the newest profile and both physical display clocks at
+                 * execution time so rapid mode/rotation callbacks coalesce
+                 * instead of replaying stale cadence policy.
+                 */
                 applyVideoPolicy(profile)
             }
         }
 
+        if (sourceClockChanged) {
+            listener.onDiagnostic(
+                "Host display clock → " +
+                    latestSourceDisplayClockHz +
+                    "Hz • capture cadence realigned"
+            )
+        }
+
         /*
-         * Capture resolution/FPS may adapt without changing the remote phone's
-         * logical display geometry. Only rotate the control generation when
-         * the actual display dimensions changed (rotation/display resize).
+         * Capture resolution/FPS OR the host presentation clock may change
+         * without changing the remote phone's logical display geometry. Only
+         * rotate the control generation when the actual display dimensions
+         * changed (rotation/display resize).
          */
         if (
             latest.displayWidthPx == previous.displayWidthPx &&
