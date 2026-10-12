@@ -490,6 +490,45 @@ class DisplayCadencePolicyTest {
     }
 
     @Test
+    fun interactionFloorChoosesSmallestSafeRungAtOrAboveRequest() {
+        assertEquals(
+            30,
+            DisplayCadencePolicy.nearestAtOrAbove(
+                limitFps = 24,
+                refreshRateHz = 90.0,
+                ceilingFps = 30,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertEquals(
+            36,
+            DisplayCadencePolicy.nearestAtOrAbove(
+                limitFps = 30,
+                refreshRateHz = 60.0,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 144.0
+            )
+        )
+        assertNull(
+            DisplayCadencePolicy.nearestAtOrAbove(
+                limitFps = 30,
+                refreshRateHz = 60.0,
+                ceilingFps = 30,
+                sourceRefreshRateHz = 144.0
+            )
+        )
+        assertEquals(
+            24,
+            DisplayCadencePolicy.nearestAtOrBelow(
+                limitFps = 30,
+                refreshRateHz = 60.0,
+                ceilingFps = 30,
+                sourceRefreshRateHz = 144.0
+            )
+        )
+    }
+
+    @Test
     fun sourceClockStillProtectsCadenceBeforeControllerRefreshArrives() {
         assertEquals(
             listOf(60, 30, 20, 15),
