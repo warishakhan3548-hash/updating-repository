@@ -29,7 +29,7 @@ class VideoHealthMetricsTest {
         assertFalse(snapshot.compact().contains("private-address"))
     }
 
-    @Test fun intervalWindowKeepsTargetPlayoutAsAnEarlyFreshnessSignal() {
+    @Test fun intervalWindowKeepsMeasuredResidenceAuthoritativeWhenTargetRunsAhead() {
         fun inbound(
             timestampUs: Long,
             framesDecoded: Long,
@@ -89,6 +89,23 @@ class VideoHealthMetricsTest {
 
         assertEquals(10.0, checkNotNull(recent.jitterMs), 0.001)
         assertEquals(50.0, checkNotNull(recent.jitterTargetMs), 0.001)
+        // The target is predictive scheduling intent, not 50 ms of debt that
+        // the emitted frames have already accumulated.
+        assertEquals(10.0, checkNotNull(recent.playoutDelayMs), 0.001)
+    }
+
+    @Test fun targetDelayRemainsFallbackWhenMeasuredResidenceIsUnavailable() {
+        val recent =
+            VideoHealthWindow(
+                intervalMs = 1_000,
+                frames = 30,
+                processingMs = 4.0,
+                jitterMs = null,
+                dropped = 0,
+                freezes = 0,
+                jitterTargetMs = 50.0
+            )
+
         assertEquals(50.0, checkNotNull(recent.playoutDelayMs), 0.001)
     }
 
