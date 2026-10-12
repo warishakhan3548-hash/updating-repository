@@ -1821,6 +1821,11 @@ class HostWebRtcSession(
                                 interactionActive = true
                             ),
                         nowMs = now,
+                        maximumFps =
+                            minOf(
+                                deviceFpsLimit,
+                                profile.motionFps
+                            ).coerceAtLeast(1),
                         displayRefreshRateHz = controllerDisplayRefreshRateHz,
                         sourceRefreshRateHz = sourceDisplayRefreshRateHz()
                     )
