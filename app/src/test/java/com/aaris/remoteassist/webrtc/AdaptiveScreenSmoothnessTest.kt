@@ -355,34 +355,17 @@ class AdaptiveScreenSmoothnessTest {
     }
 
     @Test
-    fun sixtyHzInteractionRecoveryUsesPacingSafeTwentyFpsRung() {
+    fun sixtyHzOverloadRecoveryUsesPacingSafeTwentyFpsRung() {
         val governor = VideoCadenceGovernor(maxFps = 30, initialCap = 15)
-
-        assertTrue(
-            governor.ensureInteractionFloor(
-                minimumFps = 24,
-                nowMs = 1_000L,
-                displayRefreshRateHz = 60.0,
-                sourceRefreshRateHz = 60.0
-            )
-        )
-        assertEquals(20, governor.cap)
-
         val clean =
             outbound(
-                fps = 20,
-                processingMs = 12.0,
+                fps = 15,
+                processingMs = 20.0,
                 queueMs = 0.0
             ).copy(
-                roundTripTimeMs = 20,
+                roundTripTimeMs = 14,
                 packetLossRatio = 0.0,
-                availableOutgoingBitrateBps = 1_500_000.0,
-                recent =
-                    outbound(
-                        fps = 20,
-                        processingMs = 12.0,
-                        queueMs = 0.0
-                    ).recent!!.copy(bitrateBps = 500_000)
+                codecImplementation = "c2.mtk.avc.encoder"
             )
 
         assertFalse(
@@ -391,7 +374,7 @@ class AdaptiveScreenSmoothnessTest {
                 receiver = null,
                 producerFps = 60.0,
                 interactionActive = true,
-                nowMs = 2_000L,
+                nowMs = 1_000L,
                 maximumFps = 30,
                 displayRefreshRateHz = 60.0,
                 sourceRefreshRateHz = 60.0
@@ -403,13 +386,17 @@ class AdaptiveScreenSmoothnessTest {
                 receiver = null,
                 producerFps = 60.0,
                 interactionActive = true,
-                nowMs = 3_000L,
+                nowMs = 1_500L,
                 maximumFps = 30,
                 displayRefreshRateHz = 60.0,
                 sourceRefreshRateHz = 60.0
             )
         )
-        assertEquals(30, governor.cap)
+        assertEquals(20, governor.cap)
+        assertTrue(
+            governor.debugSummary(1_500L)
+                .contains("interaction-clean-rescue->20")
+        )
     }
 
     @Test
