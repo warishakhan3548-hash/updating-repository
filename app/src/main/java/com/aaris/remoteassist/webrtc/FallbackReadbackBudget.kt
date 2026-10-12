@@ -1,7 +1,19 @@
 package com.aaris.remoteassist.webrtc
 
 import com.aaris.remoteassist.capture.CaptureVideoContract
-import kotlin.math.ceil
+
+
+/**
+ * Convert a measured synchronous readback duration to milliseconds without
+ * hiding a near-one-frame stall behind integer truncation. At 60 Hz the frame
+ * budget is ~16.67 ms; flooring that sample to 16 ms would miss the overload
+ * threshold and allow the fallback lane to keep blocking primary capture.
+ */
+internal fun ceilReadbackCostMs(elapsedNs: Long): Long {
+    val safe = elapsedNs.coerceAtLeast(0L)
+    if (safe == 0L) return 0L
+    return 1L + (safe - 1L) / 1_000_000L
+}
 
 /**
  * Keeps compatibility-video GPU readback from monopolizing the primary RTP
@@ -57,30 +69,64 @@ internal class FallbackReadbackBudget {
         val readabilityFloor =
             CaptureVideoContract.MIN_FALLBACK_READABLE_SHORT_SIDE_PX
         val readableLong =
-            if (sourceShort <= readabilityFloor) {
-                /*
-                 * The producer is already at/below the contract. Do not
-                 * downscale it (and never invent an upscale).
-                 */
-                sourceLong
-            } else {
-                /*
-                 * CpuFrameCopy rounds scaled dimensions DOWN to an even value.
-                 * Budget one pre-rounding pixel above the 360px contract so an
-                 * odd source geometry cannot turn a mathematically exact 360.0
-                 * into 359 -> 358 after integer/even rounding.
-                 */
-                val preEvenShort = readabilityFloor + 1
-                ceil(
-                    sourceLong.toDouble() *
-                        preEvenShort.toDouble() /
-                        sourceShort.toDouble()
-                ).toInt()
-            }
-                .let { if (it % 2 == 0) it else it + 1 }
-                .coerceAtMost(sourceLong)
+            minimumReadableLongSide(
+                sourceLongPx = sourceLong,
+                sourceShortPx = sourceShort,
+                readableShortEdgePx = readabilityFloor
+            )
 
         return maxOf(pressureSide, readableLong)
+    }
+
+    /**
+     * Match CpuFrameCopy's actual scale -> truncate -> even-down geometry.
+     *
+     * Start from the exact rational lower bound, round the requested long side
+     * UP to an even codec-friendly size, then verify with the same Double/toInt
+     * semantics used by CpuFrameCopy. The verification loop matters on awkward
+     * aspect ratios where floating point can land infinitesimally below an
+     * integer boundary. Unlike a blanket +1 short-edge pad, this pays only the
+     * pixels that are actually needed to preserve the 360px contract.
+     */
+    private fun minimumReadableLongSide(
+        sourceLongPx: Int,
+        sourceShortPx: Int,
+        readableShortEdgePx: Int
+    ): Int {
+        if (sourceShortPx <= readableShortEdgePx) {
+            // Never upscale; if the source itself is below the contract, retain
+            // all source pixels and spend fallback cadence instead.
+            return sourceLongPx
+        }
+
+        val numerator =
+            sourceLongPx.toLong() *
+                readableShortEdgePx.toLong()
+        var candidate =
+            ((numerator + sourceShortPx - 1L) /
+                sourceShortPx.toLong())
+                .toInt()
+                .coerceAtLeast(2)
+        if (candidate % 2 != 0) candidate += 1
+        candidate = candidate.coerceAtMost(sourceLongPx)
+
+        while (candidate < sourceLongPx) {
+            val ratio =
+                candidate.toDouble() /
+                    sourceLongPx.toDouble()
+            val deliveredShort =
+                (sourceShortPx * ratio)
+                    .toInt()
+                    .let { it / 2 * 2 }
+                    .coerceAtLeast(2)
+            if (deliveredShort >= readableShortEdgePx) {
+                break
+            }
+            candidate =
+                (candidate + 2)
+                    .coerceAtMost(sourceLongPx)
+        }
+        return candidate
     }
 
     /**
