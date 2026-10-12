@@ -85,6 +85,55 @@ class BweDemandAwareClarityTest {
             assertEquals(720, shortEdge)
         }
 
+    private fun committedFloorBudget(): MotionVideoBudget =
+        MotionVideoBudget().apply {
+            val collapse =
+                sender(
+                    fps = 6,
+                    bitrateBps = 450_000,
+                    availableOutgoingBitrateBps = 600_000.0
+                ).copy(
+                    codecImplementation = "libvpx",
+                    recent =
+                        sender(
+                            fps = 6,
+                            bitrateBps = 450_000,
+                            availableOutgoingBitrateBps = 600_000.0
+                        ).recent!!.copy(
+                            processingMs = 53.0,
+                            sendQueueMs = 585.0
+                        )
+                )
+
+            assertTrue(
+                observe(
+                    collapse,
+                    null,
+                    30.0,
+                    true,
+                    30,
+                    1_000L
+                )
+            )
+            assertEquals(540, shortEdge)
+            assertTrue(
+                observe(
+                    collapse,
+                    null,
+                    30.0,
+                    true,
+                    30,
+                    4_000L
+                )
+            )
+            assertEquals(360, shortEdge)
+            val applied = apply(profile, true)
+            assertEquals(
+                360,
+                minOf(applied.captureWidthPx, applied.captureHeightPx)
+            )
+        }
+
     @Test
     fun lowDemandMovingUiDoesNotSpendCadenceForNominalBweShortfall() {
         val budget = nativeBudget()
@@ -301,6 +350,89 @@ class BweDemandAwareClarityTest {
             )
         )
         assertEquals(540, budget.shortEdge)
+    }
+
+    @Test
+    fun terminal360TradesCadenceInsteadOfPixelsWhenMeasuredBweIsSaturated() {
+        val budget = committedFloorBudget()
+        val saturatedAtThirty =
+            sender(
+                fps = 30,
+                bitrateBps = 630_000,
+                availableOutgoingBitrateBps = 700_000.0
+            )
+
+        // 630/700 = 90% utilization. Preserve a 22% burst reserve:
+        // floor(30 * 0.78 / 0.90) = 26. The cadence governor will quantize this
+        // onto the existing low-cadence ladder (24 fps).
+        assertEquals(
+            26,
+            budget.clarityPreservingCadenceCeiling(
+                profile = profile,
+                outbound = saturatedAtThirty,
+                receiver = receiver(30),
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                interactionActive = true
+            )
+        )
+        assertEquals(360, budget.shortEdge)
+        val applied = budget.apply(profile, true)
+        assertEquals(
+            360,
+            minOf(applied.captureWidthPx, applied.captureHeightPx)
+        )
+    }
+
+    @Test
+    fun terminal360DoesNotSacrificeCadenceForCheapContent() {
+        val budget = committedFloorBudget()
+        val cheapAtThirty =
+            sender(
+                fps = 30,
+                bitrateBps = 300_000,
+                availableOutgoingBitrateBps = 700_000.0
+            )
+
+        assertNull(
+            budget.clarityPreservingCadenceCeiling(
+                profile = profile,
+                outbound = cheapAtThirty,
+                receiver = receiver(30),
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                interactionActive = true
+            )
+        )
+        assertEquals(360, budget.shortEdge)
+    }
+
+    @Test
+    fun nonTerminalPixelsStillUseSpatialReliefBeforeSubThirtyCadence() {
+        val budget = nativeBudget()
+        val saturatedAtThirty =
+            sender(
+                fps = 30,
+                bitrateBps = 630_000,
+                availableOutgoingBitrateBps = 700_000.0
+            )
+
+        // Native/720 pixels still have legal 540/360 spatial relief, so the
+        // clarity predictor must not spend below the ordinary 30 fps floor.
+        assertNull(
+            budget.clarityPreservingCadenceCeiling(
+                profile = profile,
+                outbound = saturatedAtThirty,
+                receiver = receiver(30),
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                interactionActive = true
+            )
+        )
+        assertEquals(720, budget.shortEdge)
     }
 
     @Test
