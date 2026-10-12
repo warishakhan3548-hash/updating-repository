@@ -5,6 +5,14 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class FallbackReadbackBudgetTest {
+    @Test fun readbackDurationRoundsUpAtThe60HzFrameBoundary() {
+        assertEquals(0L, ceilReadbackCostMs(0L))
+        assertEquals(16L, ceilReadbackCostMs(16_000_000L))
+        assertEquals(17L, ceilReadbackCostMs(16_000_001L))
+        assertEquals(17L, ceilReadbackCostMs(16_666_667L))
+        assertEquals(18L, ceilReadbackCostMs(17_000_001L))
+    }
+
     @Test fun defaultEnvelopePreservesLegacyAndInteractiveQuality() {
         val budget = FallbackReadbackBudget()
         assertEquals(
@@ -127,10 +135,9 @@ class FallbackReadbackBudgetTest {
         budget.observe(40, 3_150)
 
         /*
-         * 1385x2770 is a useful adversarial geometry: a nominal 720px long
-         * side is mathematically 360px short, but floating/integer conversion
-         * can become 359 and CpuFrameCopy then rounds it to 358. The budget
-         * deliberately requests enough pre-rounding headroom to keep >=360.
+         * Verify the returned long-side budget using the exact scale/truncate/
+         * even-down sequence performed by CpuFrameCopy. The budget may add at
+         * most the tiny amount of long-side headroom required by that geometry.
          */
         val side =
             budget.maxSidePx(
