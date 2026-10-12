@@ -2643,12 +2643,13 @@ class InlineRemoteControllerView(
 
     /**
      * The EglRenderer already keeps a one-frame queue and overwrites stale
-     * pending renders. During active control, give that tiny render lane a
-     * temporary scheduling advantage so swapBuffers is less likely to miss a
-     * display opportunity because unrelated app work happened first.
+     * pending renders. Give that tiny render lane a scheduling advantage while
+     * either remote input is active or real EGL cadence proves continuing
+     * post-touch motion, so swapBuffers is less likely to miss a display
+     * opportunity because unrelated app work happened first.
      *
      * Priority changes do not increase requested FPS or create additional GPU
-     * work, and are removed as soon as the interaction tail expires.
+     * work. Quiet presentation naturally releases the passive-motion tail.
      */
     private fun setRenderInteractionPriority(active: Boolean) {
         if (renderTouchPriorityActive == active) return
@@ -2657,6 +2658,15 @@ class InlineRemoteControllerView(
     }
 
     private fun setRenderPassivePriority(active: Boolean) {
+        /*
+         * Presentation motion is also the correct local getStats demand. Keep
+         * decoder/jitter feedback fast without sending a fake InteractionState
+         * to the host. Retry the idempotent session update even when the render
+         * demand itself did not change, because service attachment may race the
+         * first presentation window.
+         */
+        session()?.setPresentationMotionActive(active)
+
         if (renderPassivePriorityActive == active) return
         renderPassivePriorityActive = active
         updateRenderPriority()
