@@ -57,11 +57,20 @@ data class VideoHealthWindow(
     val fps: Double get() = frames * 1000.0 / intervalMs
 
     /**
-     * Receiver freshness budget. WebRTC may intentionally grow its target
-     * jitter-buffer residence before the measured emitted-frame residence has
-     * caught up. For remoting, the larger valid value is the useful early
-     * warning because both represent time a fresh frame can spend waiting
-     * before decode/render.
+     * Receiver playout residence used as actual freshness debt.
+     *
+     * jitterBufferDelay measures time frames really spent in WebRTC's jitter
+     * buffer before emission. jitterBufferTargetDelay is different: it is the
+     * jitter controller's desired scheduling target and may intentionally run
+     * ahead of measured residence while native playout is smoothing a variable
+     * mobile/TURN path.
+     *
+     * Treating max(actual, target) as already accumulated debt creates a
+     * positive feedback loop: native WebRTC raises its smoothing target, then
+     * the app mistakes that target for stale queued video and unnecessarily
+     * cuts cadence or pixels. Measured residence is therefore authoritative.
+     * The target remains a compatibility fallback only on implementations that
+     * expose the target counter but omit usable measured residence.
      */
     val playoutDelayMs: Double?
         get() {
@@ -69,11 +78,7 @@ data class VideoHealthWindow(
                 jitterMs?.takeIf { it.isFinite() && it >= 0.0 }
             val target =
                 jitterTargetMs?.takeIf { it.isFinite() && it >= 0.0 }
-            return when {
-                actual == null -> target
-                target == null -> actual
-                else -> maxOf(actual, target)
-            }
+            return actual ?: target
         }
     val presentedFps: Double?
         get() {
