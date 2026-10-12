@@ -710,8 +710,8 @@ internal class MotionVideoBudget {
          * being consumed by encode + sender residence + receiver playout +
          * decode. Keep the signal disabled below the high-cadence ladder:
          * 30 Hz network/jitter pressure already has established cadence relief,
-         * and must not unlock the 240px emergency codec-resolution rung by
-         * itself.
+         * and must never imply a spatial rung below the hard 360px readability
+         * floor.
          */
         val pipelineDeadlineMs =
             if (
