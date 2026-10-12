@@ -1441,7 +1441,11 @@ class HostWebRtcSession(
                         producerFps = sourceFps,
                         interactionActive = interactionActive,
                         nowMs = now,
-                        maximumFps = profileMaximumFps
+                        maximumFps = profileMaximumFps,
+                        displayRefreshRateHz =
+                            receiver?.displayRefreshRateHz
+                                ?: controllerDisplayRefreshRateHz,
+                        sourceRefreshRateHz = sourceRefreshRateHz
                     )
                 }
             val cadenceChanged =
@@ -1816,7 +1820,9 @@ class HostWebRtcSession(
                                 nowMs = now,
                                 interactionActive = true
                             ),
-                        nowMs = now
+                        nowMs = now,
+                        displayRefreshRateHz = controllerDisplayRefreshRateHz,
+                        sourceRefreshRateHz = sourceDisplayRefreshRateHz()
                     )
                 if (interactionCadenceRecovered) {
                     listener.onDiagnostic(
@@ -1912,7 +1918,9 @@ class HostWebRtcSession(
                 minOf(
                     deviceFpsLimit,
                     profile.motionFps
-                ).coerceAtLeast(1)
+                ).coerceAtLeast(1),
+            displayRefreshRateHz = controllerDisplayRefreshRateHz,
+            sourceRefreshRateHz = sourceDisplayRefreshRateHz()
         )
         // Consume the evidence once. A later touch must not repeatedly borrow
         // a quiet sample from before the previous animation.
@@ -2089,22 +2097,23 @@ class HostWebRtcSession(
          * is not sufficient: a 60 Hz MediaProjection would still enter the
          * session at 45 fps and exhibit an uneven 3-of-4 frame pattern.
          *
-         * Quantize every high-cadence source target against the host display
-         * clock before it reaches VideoSource. <=30 fps is the recovery ladder
-         * and stays untouched. Missing clock data preserves the old target.
+         * Quantize every source target against the producer clock before it
+         * reaches VideoSource. High cadence uses exact producer harmonics and
+         * the low-bandwidth band now prefers exact 15..30 fps producer divisors
+         * when a practical ladder exists. This prevents a 360p clarity-preserving
+         * temporal relief from reintroducing deterministic 2/3-tick gaps such as
+         * 24 fps sampled from a 60 Hz MediaProjection.
+         *
+         * Missing clock data preserves the historical ladder.
          */
         val targetFps =
-            if (unalignedTargetFps > 30) {
-                DisplayCadencePolicy.nearestAtOrBelow(
-                    limitFps = unalignedTargetFps,
-                    refreshRateHz = controllerRefreshRateHz,
-                    ceilingFps = unalignedTargetFps,
-                    floorFps = 1,
-                    sourceRefreshRateHz = sourceDisplayRefreshRateHz()
-                )
-            } else {
-                unalignedTargetFps
-            }
+            DisplayCadencePolicy.nearestAtOrBelow(
+                limitFps = unalignedTargetFps,
+                refreshRateHz = controllerRefreshRateHz,
+                ceilingFps = unalignedTargetFps,
+                floorFps = 1,
+                sourceRefreshRateHz = sourceDisplayRefreshRateHz()
+            )
 
         return if (targetFps == spatial.fps) {
             spatial
