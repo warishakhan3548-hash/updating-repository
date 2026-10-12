@@ -126,10 +126,10 @@ internal object DisplayCadencePolicy {
      * policy (for example a 60 Hz source on a 165 Hz controller).
      *
      * If source-clock evidence is unavailable, fall back to the controller's
-     * short-repeat rule. Exact source/controller divisors absent from the
-     * historical ladder may also fill a safe pressure rung when they satisfy the
-     * same source-authoritative rule. <=30 fps remains the existing emergency/
-     * recovery ladder.
+     * historical short-repeat ladder. With a known source, safe short-cycle
+     * rates that were absent from that historical list (for example 48/60 or
+     * 54/90) are allowed to fill the pressure ladder. <=30 fps remains the
+     * existing emergency/recovery ladder.
      */
     fun pressureReliefDescending(
         refreshRateHz: Double?,
