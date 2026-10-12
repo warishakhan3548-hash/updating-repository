@@ -9,7 +9,7 @@ class DisplayCadencePolicyTest {
         val ladder = DisplayCadencePolicy.descending(60.0, 60)
 
         assertEquals(
-            listOf(60, 50, 45, 40, 36, 30, 24, 20, 15),
+            listOf(60, 50, 48, 45, 40, 36, 30, 24, 20, 15),
             ladder
         )
         assertFalse(58 in ladder)
@@ -331,7 +331,7 @@ class DisplayCadencePolicyTest {
     @Test
     fun pressureReliefAvoidsSixtyToThirtyCliffOnSixtyHzPair() {
         assertEquals(
-            listOf(60, 50, 45, 40, 36, 30, 24, 20, 15),
+            listOf(60, 50, 48, 45, 40, 36, 30, 24, 20, 15),
             DisplayCadencePolicy.pressureReliefDescending(
                 refreshRateHz = 60.0,
                 ceilingFps = 60,
@@ -373,7 +373,7 @@ class DisplayCadencePolicyTest {
     @Test
     fun mixedRefreshControllerDoesNotOverConstrainPressureRelief() {
         assertEquals(
-            listOf(60, 50, 45, 40, 36, 30, 24, 20, 15),
+            listOf(60, 50, 48, 45, 40, 36, 30, 24, 20, 15),
             DisplayCadencePolicy.pressureReliefDescending(
                 refreshRateHz = 90.0,
                 ceilingFps = 60,
@@ -403,7 +403,7 @@ class DisplayCadencePolicyTest {
             )
         )
         assertEquals(
-            listOf(60, 50, 45, 40, 36, 30, 24, 20, 15),
+            listOf(60, 50, 48, 45, 40, 36, 30, 24, 20, 15),
             DisplayCadencePolicy.pressureReliefDescending(
                 refreshRateHz = 165.0,
                 ceilingFps = 60,
@@ -413,10 +413,10 @@ class DisplayCadencePolicyTest {
     }
 
     @Test
-    fun exactDisplayReliefHarmonicCanFillLegacyLadderGap() {
+    fun shortRepeatSourceRungCanFillLegacyLadderGap() {
         assertTrue(
             48 in DisplayCadencePolicy.pressureReliefDescending(
-                refreshRateHz = 96.0,
+                refreshRateHz = 60.0,
                 ceilingFps = 60,
                 sourceRefreshRateHz = 60.0
             )
@@ -425,9 +425,21 @@ class DisplayCadencePolicyTest {
             48,
             DisplayCadencePolicy.nextLower(
                 currentFps = 50,
-                refreshRateHz = 96.0,
+                refreshRateHz = 60.0,
                 ceilingFps = 60,
                 sourceRefreshRateHz = 60.0
+            )
+        )
+    }
+
+    @Test
+    fun oneTwentyHzSourceGetsFortyEightBeforeFortyUnderPressure() {
+        assertEquals(
+            listOf(60, 48, 40, 30, 24, 20, 15),
+            DisplayCadencePolicy.pressureReliefDescending(
+                refreshRateHz = 90.0,
+                ceilingFps = 60,
+                sourceRefreshRateHz = 120.0
             )
         )
     }
