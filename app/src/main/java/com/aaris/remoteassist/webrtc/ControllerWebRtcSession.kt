@@ -112,6 +112,15 @@ class ControllerWebRtcSession(
     @Volatile
     private var interactionActive = false
 
+    /*
+     * Local receiver telemetry has a second, presentation-driven demand.
+     * A fling/video/game may keep moving long after the remote finger lifts;
+     * that must not masquerade as an active input gesture on the host, but the
+     * controller should still sample decoder/jitter health at realtime cadence.
+     */
+    @Volatile
+    private var presentationMotionActive = false
+
     private val signaling = CloudflareSignalingClient(
         context = appContext,
         sessionId = sessionId,
@@ -331,7 +340,9 @@ class ControllerWebRtcSession(
          * the host to prioritize fresh capture. This changes telemetry cadence
          * only; it does not create extra decode/render work.
          */
-        peer.setRealtimeVideoTelemetry(active)
+        peer.setRealtimeVideoTelemetry(
+            active || presentationMotionActive
+        )
 
         if (interactionActive == active) return true
 
@@ -348,6 +359,23 @@ class ControllerWebRtcSession(
             interactionActive = active
         }
         return sent
+    }
+
+    /**
+     * Keep receiver-side getStats responsive while real EGL cadence proves
+     * autonomous screen motion. This is local-only telemetry policy: it never
+     * emits InteractionState and therefore cannot make the host believe a
+     * finger is still down.
+     */
+    fun setPresentationMotionActive(active: Boolean): Boolean {
+        if (closed.get()) return false
+        if (presentationMotionActive == active) return true
+
+        presentationMotionActive = active
+        peer.setRealtimeVideoTelemetry(
+            interactionActive || presentationMotionActive
+        )
+        return true
     }
 
     fun requestMediaRecovery(): Boolean {
@@ -664,6 +692,8 @@ class ControllerWebRtcSession(
 
     override fun onControlChannelClosed() {
         interactionActive = false
+        presentationMotionActive = false
+        peer.setRealtimeVideoTelemetry(false)
         transport.onControlChannelClosed()
             ?.let(listener::onConnectivityChanged)
     }
@@ -682,6 +712,8 @@ class ControllerWebRtcSession(
                 val resetLatency = leaseSecret != packet.leaseSecret || geometry?.generation != packet.generation
                 leaseSecret = packet.leaseSecret
                 interactionActive = false
+                presentationMotionActive = false
+                peer.setRealtimeVideoTelemetry(false)
                 inboundVideoLiveness.reset()
                 handler.removeCallbacks(helloWatchdog)
                 val geometry = RemoteGeometry(
@@ -908,6 +940,7 @@ class ControllerWebRtcSession(
         leaseSecret = null
         geometry = null
         interactionActive = false
+        presentationMotionActive = false
     }
 
     companion object {
