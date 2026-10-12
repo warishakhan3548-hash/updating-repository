@@ -996,13 +996,15 @@ class HostWebRtcSession(
                      */
                     val requestedFps =
                         effectiveCaptureProfile(profile).fps
+                    val fastPresentationDemand =
+                        freshnessPriorityActive(now)
                     if (
                         cadenceGovernor.observeFastPresentation(
                             intervalMs = packet.intervalMs,
                             renderedFrames = packet.renderedFrames,
                             maxGapMs = packet.maxGapMs,
                             requestedFps = requestedFps,
-                            freshnessActive = freshnessPriorityActive(now),
+                            interactionActive = fastPresentationDemand,
                             nowMs = now,
                             displayRefreshRateHz =
                                 receiverFeedback.currentDisplayRefreshRateHz(
