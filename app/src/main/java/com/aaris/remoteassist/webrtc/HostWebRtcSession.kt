@@ -1322,7 +1322,9 @@ class HostWebRtcSession(
                 cadenceGovernor.prefersSpatialReliefForClarityBandwidth(
                     ceilingFps = clarityCadenceCeiling,
                     requestedFps = motionTargetFps,
-                    displayRefreshRateHz = receiver?.displayRefreshRateHz,
+                    displayRefreshRateHz =
+                        receiver?.displayRefreshRateHz
+                            ?: controllerDisplayRefreshRateHz,
                     sourceRefreshRateHz = sourceRefreshRateHz
                 )
             val clarityCadenceChanged =
@@ -1330,7 +1332,9 @@ class HostWebRtcSession(
                     ceilingFps = clarityCadenceCeiling,
                     requestedFps = motionTargetFps,
                     nowMs = now,
-                    displayRefreshRateHz = receiver?.displayRefreshRateHz,
+                    displayRefreshRateHz =
+                        receiver?.displayRefreshRateHz
+                            ?: controllerDisplayRefreshRateHz,
                     sourceRefreshRateHz = sourceRefreshRateHz
                 )
             val clarityCadenceVoteActive =
