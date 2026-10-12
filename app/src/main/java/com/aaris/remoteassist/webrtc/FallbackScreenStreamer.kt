@@ -108,11 +108,14 @@ class FallbackScreenStreamer(
          */
         val copyStartedNs = System.nanoTime()
         val copySideLimit = readbackBudget.maxSidePx(
-            if (interactionActive.get()) {
-                INTERACTIVE_COPY_MAX_DIMENSION
-            } else {
-                MAX_DIMENSION
-            }
+            baseSidePx =
+                if (interactionActive.get()) {
+                    INTERACTIVE_COPY_MAX_DIMENSION
+                } else {
+                    MAX_DIMENSION
+                },
+            sourceWidthPx = frame.buffer.width,
+            sourceHeightPx = frame.buffer.height
         )
         val cpu = try {
             CpuFrameCopy.capture(frame, copySideLimit)
@@ -260,20 +263,34 @@ class FallbackScreenStreamer(
     }
 
     private fun currentFrameIntervalMs(): Long {
-        if (!deltaCapable.get()) return LEGACY_FRAME_INTERVAL_MS
+        val transportInterval =
+            if (!deltaCapable.get()) {
+                LEGACY_FRAME_INTERVAL_MS
+            } else {
+                val adaptive = adaptiveIntervalMs.get()
+                if (interactionActive.get()) {
+                    adaptive.coerceIn(
+                        ADAPTIVE_MIN_INTERVAL_MS,
+                        ADAPTIVE_MAX_INTERVAL_MS
+                    )
+                } else {
+                    maxOf(
+                        ADAPTIVE_IDLE_MIN_INTERVAL_MS,
+                        adaptive
+                    ).coerceAtMost(ADAPTIVE_MAX_INTERVAL_MS)
+                }
+            }
 
-        val adaptive = adaptiveIntervalMs.get()
-        return if (interactionActive.get()) {
-            adaptive.coerceIn(
-                ADAPTIVE_MIN_INTERVAL_MS,
-                ADAPTIVE_MAX_INTERVAL_MS
-            )
-        } else {
-            maxOf(
-                ADAPTIVE_IDLE_MIN_INTERVAL_MS,
-                adaptive
-            ).coerceAtMost(ADAPTIVE_MAX_INTERVAL_MS)
-        }
+        /*
+         * Network backpressure and capture-thread readback pressure are
+         * independent constraints. Honor the slower one. This does not add a
+         * timer or queue: FallbackFrameAdmission already owns admission and
+         * simply observes the larger interval on the next callback.
+         */
+        return maxOf(
+            transportInterval,
+            readbackBudget.minimumIntervalMs()
+        )
     }
 
     private fun adjustCadence(sent: Boolean) {
