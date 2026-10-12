@@ -129,12 +129,13 @@ class AdaptiveScreenSmoothnessTest {
                 sourceRefreshRateHz = 60.0
             )
         )
-        // <=30 uses the established safety ladder. A 26 fps measured ceiling
-        // therefore resolves to 24 rather than inventing a new pacing rate.
-        assertEquals(24, governor.cap)
+        // At the readable 360p floor, temporal relief still preserves source
+        // pacing. A 60 Hz producer cannot emit 24 fps on uniform capture ticks,
+        // so a 26 fps BWE ceiling resolves to the exact 20 fps divisor.
+        assertEquals(20, governor.cap)
         assertTrue(
             governor.debugSummary(2_000L)
-                .contains("clarity-bwe-relief->24")
+                .contains("clarity-bwe-relief->20")
         )
     }
 
@@ -351,6 +352,64 @@ class AdaptiveScreenSmoothnessTest {
                 nowMs = 1_001L
             )
         )
+    }
+
+    @Test
+    fun sixtyHzInteractionRecoveryUsesPacingSafeTwentyFpsRung() {
+        val governor = VideoCadenceGovernor(maxFps = 30, initialCap = 15)
+
+        assertTrue(
+            governor.ensureInteractionFloor(
+                minimumFps = 24,
+                nowMs = 1_000L,
+                displayRefreshRateHz = 60.0,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertEquals(20, governor.cap)
+
+        val clean =
+            outbound(
+                fps = 20,
+                processingMs = 12.0,
+                queueMs = 0.0
+            ).copy(
+                roundTripTimeMs = 20,
+                packetLossRatio = 0.0,
+                availableOutgoingBitrateBps = 1_500_000.0,
+                recent =
+                    outbound(
+                        fps = 20,
+                        processingMs = 12.0,
+                        queueMs = 0.0
+                    ).recent!!.copy(bitrateBps = 500_000)
+            )
+
+        assertFalse(
+            governor.tryProbeDuringInteraction(
+                outbound = clean,
+                receiver = null,
+                producerFps = 60.0,
+                interactionActive = true,
+                nowMs = 2_000L,
+                maximumFps = 30,
+                displayRefreshRateHz = 60.0,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertTrue(
+            governor.tryProbeDuringInteraction(
+                outbound = clean,
+                receiver = null,
+                producerFps = 60.0,
+                interactionActive = true,
+                nowMs = 3_000L,
+                maximumFps = 30,
+                displayRefreshRateHz = 60.0,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertEquals(30, governor.cap)
     }
 
     @Test
