@@ -570,9 +570,10 @@ internal class MotionVideoBudget {
         val queueMs = sender.sendQueueMs.valid()
         val received = receiver?.takeIf { it.intervalMs in 500..6000 && it.frames >= 2 }
         val decodeMs = received?.processingMs.valid()
-        // Use the receiver's larger actual/target playout residence. A rising
-        // WebRTC jitter target is actionable before emitted frames have fully
-        // accumulated that delay.
+        // Use measured receiver playout residence as real pipeline debt.
+        // WebRTC's target delay is only a fallback when measured residence is
+        // unavailable; a predictive jitter target alone must not trigger an
+        // expensive VideoSource/MediaCodec resize.
         val jitterMs = received?.playoutDelayMs.valid()
         val underDelivery = sender.fps < goal * 0.85
         /*
