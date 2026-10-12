@@ -449,7 +449,7 @@ class VideoCadenceGovernor(
     }
 
     /**
-     * Fast receiver-presentation brake for freshness-sensitive motion.
+     * Fast receiver-presentation brake for active remote control.
      *
      * The controller already reports real EGL swaps in bounded ~500 ms windows.
      * Consuming that signal only on the next one-second getStats() callback adds
@@ -462,9 +462,8 @@ class VideoCadenceGovernor(
      * glass cadence with recent completed sender supply; sparse/unknown/expired
      * supply cannot establish a fast display-overload vote.
      *
-     * Direct interaction and source-proven passive motion share this gate. At
-     * high cadence one trustworthy hitch earns one display-paced relief step.
-     * This avoids long frame/vsync beat patterns such as 58/60 while a
+     * At high cadence one trustworthy hitch earns one display-paced relief
+     * step. This avoids long frame/vsync beat patterns such as 58/60 while a
      * large fall toward 30 still requires severe presentation/pipeline evidence.
      * The bounded cooldown plus one-step rule prevents one scheduler pause from
      * cascading through multiple levels.
@@ -474,7 +473,7 @@ class VideoCadenceGovernor(
         renderedFrames: Int,
         maxGapMs: Int,
         requestedFps: Int,
-        freshnessActive: Boolean,
+        interactionActive: Boolean,
         nowMs: Long,
         displayRefreshRateHz: Double? = null
     ): Boolean {
@@ -485,7 +484,7 @@ class VideoCadenceGovernor(
             }
             ?.let { lastDisplayRefreshRateHz = it }
         if (
-            !freshnessActive ||
+            !interactionActive ||
             nowMs < 0L ||
             intervalMs !in FAST_PRESENTATION_MIN_WINDOW_MS..
                 FAST_PRESENTATION_MAX_WINDOW_MS ||
