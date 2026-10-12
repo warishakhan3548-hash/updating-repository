@@ -355,6 +355,33 @@ class AdaptiveScreenSmoothnessTest {
     }
 
     @Test
+    fun normalInteractionFloorDoesNotUndercutThirtyFpsWhenSafeRungExists() {
+        val sixtyHz = VideoCadenceGovernor(maxFps = 60, initialCap = 15)
+        assertTrue(
+            sixtyHz.ensureInteractionFloor(
+                minimumFps = 30,
+                nowMs = 1_000L,
+                maximumFps = 60,
+                displayRefreshRateHz = 90.0,
+                sourceRefreshRateHz = 60.0
+            )
+        )
+        assertEquals(30, sixtyHz.cap)
+
+        val oneFortyFourHz = VideoCadenceGovernor(maxFps = 60, initialCap = 15)
+        assertTrue(
+            oneFortyFourHz.ensureInteractionFloor(
+                minimumFps = 30,
+                nowMs = 1_000L,
+                maximumFps = 60,
+                displayRefreshRateHz = 60.0,
+                sourceRefreshRateHz = 144.0
+            )
+        )
+        assertEquals(36, oneFortyFourHz.cap)
+    }
+
+    @Test
     fun sixtyHzOverloadRecoveryUsesPacingSafeTwentyFpsRung() {
         val governor = VideoCadenceGovernor(maxFps = 30, initialCap = 15)
         val clean =
