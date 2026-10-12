@@ -473,7 +473,7 @@ class VideoCadenceGovernor(
         renderedFrames: Int,
         maxGapMs: Int,
         requestedFps: Int,
-        interactionActive: Boolean,
+        freshnessActive: Boolean,
         nowMs: Long,
         displayRefreshRateHz: Double? = null
     ): Boolean {
@@ -484,7 +484,7 @@ class VideoCadenceGovernor(
             }
             ?.let { lastDisplayRefreshRateHz = it }
         if (
-            !interactionActive ||
+            !freshnessActive ||
             nowMs < 0L ||
             intervalMs !in FAST_PRESENTATION_MIN_WINDOW_MS..
                 FAST_PRESENTATION_MAX_WINDOW_MS ||
