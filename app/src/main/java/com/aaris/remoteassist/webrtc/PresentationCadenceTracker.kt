@@ -45,12 +45,47 @@ class PresentationCadenceTracker(
     private var lastFrameMs = -1L
     private var frames = 0
     private var largestGapMs = 0L
+    private var lastDecodedSequence: Long? = null
+
+    // A long interval with no intermediate decoded frames is source/transport
+    // silence, not a renderer service-time measurement. Keep the next actual
+    // EGL swap as a new anchor rather than reporting a fake multi-second
+    // maxGap/FPS drop to the host governor.
+    private val sourceQuietGapMs = 750L
 
     @Synchronized
-    fun onPresented(nowMs: Long): PresentationCadenceWindow? {
+    fun onPresented(
+        nowMs: Long,
+        decodedSequence: Long? = null
+    ): PresentationCadenceWindow? {
         if (nowMs < 0L) return null
 
+        // Decoder callbacks and real EGL swaps are independent clocks.
+        // Use the number of decoder callbacks since the previous swap to
+        // distinguish a quiet/static producer from an EGL queue/render stall.
+        // The optional argument preserves the old cadence-only behavior for
+        // callers without decoded-frame evidence.
+        val previousDecoded = lastDecodedSequence
+        val decodedSinceLastSwap =
+            if (
+                decodedSequence != null &&
+                previousDecoded != null &&
+                decodedSequence >= previousDecoded
+            ) {
+                decodedSequence - previousDecoded
+            } else {
+                null
+            }
+        val quietSourceGap =
+            lastFrameMs >= 0L &&
+                nowMs >= lastFrameMs &&
+                nowMs - lastFrameMs >= sourceQuietGapMs &&
+                decodedSinceLastSwap != null &&
+                decodedSinceLastSwap <= 1L
+        lastDecodedSequence = decodedSequence
+
         if (
+            quietSourceGap ||
             windowStartMs < 0L ||
             lastFrameMs < 0L ||
             nowMs < lastFrameMs ||
@@ -91,5 +126,6 @@ class PresentationCadenceTracker(
         lastFrameMs = -1L
         frames = 0
         largestGapMs = 0L
+        lastDecodedSequence = null
     }
 }
