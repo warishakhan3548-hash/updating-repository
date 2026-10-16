@@ -124,8 +124,19 @@ data class VideoHealthWindow(
 class VideoHealthWindowTracker {
     private var previous: VideoHealthSnapshot? = null
 
+    // An RTP stats ID and codec MIME may survive an encoder/decoder component
+    // replacement. Keep the last *reported* concrete component across vendor
+    // stats probes that temporarily omit the implementation label.
+    private var lastKnownCodecImplementation: String? = null
+
     @Synchronized fun sample(current: VideoHealthSnapshot): VideoHealthSnapshot {
         val old = previous
+        val implementation =
+            current.codecImplementation
+                ?.trim()
+                ?.takeIf(String::isNotEmpty)
+                ?.lowercase()
+
         if (
             old == null ||
             current.streamId != old.streamId ||
@@ -133,12 +144,32 @@ class VideoHealthWindowTracker {
             current.codec != old.codec
         ) {
             previous = current
+            lastKnownCodecImplementation = implementation
             return current
         }
+
+        if (
+            implementation != null &&
+            lastKnownCodecImplementation != null &&
+            implementation != lastKnownCodecImplementation
+        ) {
+            // Do not subtract counters spanning different MediaCodec instances:
+            // their totals, latency and QP describe unrelated operating points.
+            // The next completed window must be measured entirely on the new
+            // component before spatial/cadence adaptation can use it.
+            previous = current
+            lastKnownCodecImplementation = implementation
+            return current
+        }
+        if (implementation != null) {
+            lastKnownCodecImplementation = implementation
+        }
+
         val interval = (current.timestampUs - old.timestampUs) / 1000.0
         if (!interval.isFinite() || interval < 0.0 || interval > 6000.0) {
             // A long gap or timestamp reset must start a new stable window.
             previous = current
+            lastKnownCodecImplementation = implementation
             return current
         }
         val frames =
@@ -149,6 +180,7 @@ class VideoHealthWindowTracker {
         if (frames !in 0..2048 || bytes < 0 || packets < 0) {
             // Reseed immediately if an RTP stream resets mid-window.
             previous = current
+            lastKnownCodecImplementation = implementation
             return current
         }
         if (interval < 500.0) {
