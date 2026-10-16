@@ -167,9 +167,10 @@ class VideoHealthWindowTracker {
 
         val interval = (current.timestampUs - old.timestampUs) / 1000.0
         if (!interval.isFinite() || interval < 0.0 || interval > 6000.0) {
-            // A long gap or timestamp reset must start a new stable window.
+            // Re-anchor the counter window, but preserve the last concrete
+            // codec implementation when this probe omits vendor metadata.
+            // A subsequent real component swap still needs its own baseline.
             previous = current
-            lastKnownCodecImplementation = implementation
             return current
         }
         val frames =
@@ -178,9 +179,10 @@ class VideoHealthWindowTracker {
         val bytes = current.bytes - old.bytes
         val packets = current.packets - old.packets
         if (frames !in 0..2048 || bytes < 0 || packets < 0) {
-            // Reseed immediately if an RTP stream resets mid-window.
+            // Counter reset does not prove a codec replacement. Do not erase
+            // the last concrete implementation merely because this sample
+            // lacks an encoder/decoder label.
             previous = current
-            lastKnownCodecImplementation = implementation
             return current
         }
         if (interval < 500.0) {
