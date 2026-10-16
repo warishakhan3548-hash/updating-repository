@@ -80,6 +80,9 @@ class InlineRemoteControllerView(
         val bitmap: Bitmap
     )
 
+    // A decoded JPEG owns its bitmap until the UI commits or replaces it.
+    private data class PendingFallbackUiFrame(val frameId: Long, val bitmap: Bitmap)
+
     private val root = FrameLayout(activity)
     private val status = TextView(activity)
     private val dock = LinearLayout(activity)
@@ -199,6 +202,24 @@ class InlineRemoteControllerView(
     private val pendingFallbackFrame =
         AtomicReference<FallbackVideoFrame?>(null)
     private val fallbackDecodeScheduled = AtomicBoolean(false)
+    private val pendingFallbackUiFrame =
+        AtomicReference<PendingFallbackUiFrame?>(null)
+    private val fallbackUiCommitPosted = AtomicBoolean(false)
+    private val fallbackUiCommit = object : Runnable {
+        override fun run() {
+            val newest = pendingFallbackUiFrame.getAndSet(null)
+            try {
+                if (newest != null) {
+                    commitFallbackUiFrame(newest.frameId, newest.bitmap)
+                }
+            } finally {
+                fallbackUiCommitPosted.set(false)
+                if (pendingFallbackUiFrame.get() != null) {
+                    scheduleFallbackUiCommit()
+                }
+            }
+        }
+    }
     private val deltaFramesInFlight = AtomicInteger(0)
     private var lastAnchorRequestMs = 0L
     private var fallbackBitmap: Bitmap? = null
@@ -570,6 +591,10 @@ class InlineRemoteControllerView(
 
         fallbackActive = false
         pendingFallbackFrame.set(null)
+        // Cancellation must release decoded but not yet displayed bitmaps.
+        mainHandler.removeCallbacks(fallbackUiCommit)
+        pendingFallbackUiFrame.getAndSet(null)?.bitmap?.recycle()
+        fallbackUiCommitPosted.set(false)
         fallbackDecoder.shutdownNow()
         activity.runOnUiThread {
             fallbackImageView.setImageDrawable(null)
@@ -1535,6 +1560,9 @@ class InlineRemoteControllerView(
                             // the UI thread. An old queued swap must not latch true
                             // and hide every fresh confirmation after recovery.
                             renderedFrameSeen.set(true)
+                            // Native EGL pixels won: discard recovery work that
+                            // could otherwise repaint an obsolete JPEG later.
+                            pendingFallbackUiFrame.getAndSet(null)?.bitmap?.recycle()
                             fallbackActive = false
                             imageDisplayed = true
                             fallbackImageView.visibility = View.GONE
@@ -1952,69 +1980,97 @@ class InlineRemoteControllerView(
             return
         }
 
-        activity.runOnUiThread {
-            if (
-                !attached ||
-                renderedFrameSeen.get()
-            ) {
-                oriented.recycle()
-                return@runOnUiThread
-            }
+        // Decode remains off-main. Post at most ONE replaceable UI commit,
+        // otherwise slow layout/UI work can queue many stale full bitmaps.
+        enqueueFallbackUiBitmap(frame.frameId, oriented)
+    }
 
-            latestObservedFrameWidth = oriented.width
-            latestObservedFrameHeight = oriented.height
-
-            val currentGeometry = geometry
-            if (
-                currentGeometry != null &&
-                !RemoteViewportMapper.frameMatchesRemote(
-                    remoteWidth = currentGeometry.widthPx,
-                    remoteHeight = currentGeometry.heightPx,
-                    frameWidth = oriented.width,
-                    frameHeight = oriented.height
-                )
-            ) {
-                oriented.recycle()
-                return@runOnUiThread
-            }
-
-            if (frame.frameId <= fallbackCompositeFrameId) {
-                oriented.recycle()
-                return@runOnUiThread
-            }
-
-            fallbackActive = true
-            imageDisplayed = true
-            fallbackCompositeFrameId = frame.frameId
-            frameWidth = oriented.width
-            frameHeight = oriented.height
-            updateVideoViewport()
-
-            val previous = fallbackBitmap
-            val previousScratch = fallbackScratchBitmap
-            fallbackBitmap = oriented
-            fallbackScratchBitmap = null
-            fallbackImageView.setImageBitmap(oriented)
-            fallbackImageView.visibility = View.VISIBLE
-
-            if (
-                previous != null &&
-                previous !== oriented &&
-                !previous.isRecycled
-            ) {
-                previous.recycle()
-            }
-            if (
-                previousScratch != null &&
-                previousScratch !== oriented &&
-                previousScratch !== previous &&
-                !previousScratch.isRecycled
-            ) {
-                previousScratch.recycle()
-            }
-
-            showVideoStatus("Compatibility video active • primary stream recovering…")
+    private fun enqueueFallbackUiBitmap(frameId: Long, bitmap: Bitmap) {
+        if (!attached || renderedFrameSeen.get()) {
+            bitmap.recycle()
+            return
         }
+        // Dropped bitmaps are never displayed and must be recycled immediately.
+        pendingFallbackUiFrame
+            .getAndSet(PendingFallbackUiFrame(frameId, bitmap))
+            ?.bitmap?.recycle()
+        scheduleFallbackUiCommit()
+    }
+
+    private fun scheduleFallbackUiCommit() {
+        if (!attached || renderedFrameSeen.get()) {
+            pendingFallbackUiFrame.getAndSet(null)?.bitmap?.recycle()
+            return
+        }
+        if (!fallbackUiCommitPosted.compareAndSet(false, true)) return
+        if (!mainHandler.post(fallbackUiCommit)) {
+            fallbackUiCommitPosted.set(false)
+            pendingFallbackUiFrame.getAndSet(null)?.bitmap?.recycle()
+        }
+    }
+
+    /** Called only by the single posted UI runnable. */
+    private fun commitFallbackUiFrame(frameId: Long, oriented: Bitmap) {
+        if (!attached || renderedFrameSeen.get()) {
+            oriented.recycle()
+            return
+        }
+
+        latestObservedFrameWidth = oriented.width
+        latestObservedFrameHeight = oriented.height
+
+        val currentGeometry = geometry
+        if (
+            currentGeometry != null &&
+            !RemoteViewportMapper.frameMatchesRemote(
+                remoteWidth = currentGeometry.widthPx,
+                remoteHeight = currentGeometry.heightPx,
+                frameWidth = oriented.width,
+                frameHeight = oriented.height
+            )
+        ) {
+            oriented.recycle()
+            return
+        }
+
+        // Deltas rely on the exact full-frame base. Never roll the composite
+        // backwards if the network/decoder delivers older JPEGs out of order.
+        if (frameId <= fallbackCompositeFrameId) {
+            oriented.recycle()
+            return
+        }
+
+        fallbackActive = true
+        imageDisplayed = true
+        fallbackCompositeFrameId = frameId
+        frameWidth = oriented.width
+        frameHeight = oriented.height
+        updateVideoViewport()
+
+        val previous = fallbackBitmap
+        val previousScratch = fallbackScratchBitmap
+        fallbackBitmap = oriented
+        fallbackScratchBitmap = null
+        fallbackImageView.setImageBitmap(oriented)
+        fallbackImageView.visibility = View.VISIBLE
+
+        if (
+            previous != null &&
+            previous !== oriented &&
+            !previous.isRecycled
+        ) {
+            previous.recycle()
+        }
+        if (
+            previousScratch != null &&
+            previousScratch !== oriented &&
+            previousScratch !== previous &&
+            !previousScratch.isRecycled
+        ) {
+            previousScratch.recycle()
+        }
+
+        showVideoStatus("Compatibility video active • primary stream recovering…")
     }
 
     // Recovery details remain in Stats. Never cover usable remote pixels with
