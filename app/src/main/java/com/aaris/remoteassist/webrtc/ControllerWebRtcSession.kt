@@ -50,7 +50,11 @@ class ControllerWebRtcSession(
     private val inputToGlass = InputToGlassTracker()
     private var lastLatencyReportMs = 0L
     private var lastPhotonReportMs = 0L
+    // Sequence each measured stream independently. Other telemetry must not
+    // look like a missing decoder/EGL window during aggregation.
     private val feedbackSequence = AtomicLong(0L)
+    private val decoderFeedbackSequence = AtomicLong(0L)
+    private val presentationFeedbackSequence = AtomicLong(0L)
     private var lastVideoLivenessMs = 0L
     private val gestureStreamIds = AtomicLong(0L)
     private val handler = Handler(Looper.getMainLooper())
@@ -241,7 +245,7 @@ class ControllerWebRtcSession(
                 ControlPacket.PresentationFeedback(
                     leaseSecret = lease,
                     generation = display.generation,
-                    sequence = feedbackSequence.incrementAndGet(),
+                    sequence = presentationFeedbackSequence.incrementAndGet(),
                     intervalMs = window.intervalMs,
                     renderedFrames = window.renderedFrames,
                     maxGapMs = window.maxGapMs
@@ -869,7 +873,7 @@ class ControllerWebRtcSession(
                     ControlPacket.VideoFeedback(
                         lease,
                         display.generation,
-                        feedbackSequence.incrementAndGet(),
+                        decoderFeedbackSequence.incrementAndGet(),
                         recent.intervalMs,
                         recent.frames,
                         recent.processingMs?.toFloat() ?: -1f,

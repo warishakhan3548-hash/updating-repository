@@ -123,6 +123,20 @@ class PresentationFeedbackTest {
         assertEquals(140, merged.maxRenderGapMs)
     }
 
+    @Test fun missingPresentationSequenceCannotBridgeOneLostWindow() {
+        val feedback = ReceiverVideoFeedback()
+        val first = ControlPacket.PresentationFeedback(42, 2, 1, 500, 30, 20)
+        val afterLoss = ControlPacket.PresentationFeedback(42, 2, 3, 500, 5, 220)
+        assertTrue(feedback.accept(first, 42, 2, 100))
+        // Sequence #2 disappeared; callback timing by itself remains ambiguous.
+        assertTrue(feedback.accept(afterLoss, 42, 2, 1_100))
+        val sample = checkNotNull(feedback.consume(42, 2, 1_150))
+        assertEquals(500, sample.presentationIntervalMs)
+        assertEquals(5, sample.presentedFrames)
+        assertEquals(10.0, sample.presentedFps!!, 0.001)
+        assertEquals(220, sample.maxRenderGapMs)
+    }
+
     @Test fun missingCompositorReportsCannotBeFabricatedIntoContinuousFps() {
         val feedback = ReceiverVideoFeedback()
         val beforeDrop = ControlPacket.PresentationFeedback(42, 2, 1, 500, 30, 30)
