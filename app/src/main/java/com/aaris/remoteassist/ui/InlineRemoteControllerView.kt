@@ -80,6 +80,11 @@ class InlineRemoteControllerView(
         val bitmap: Bitmap
     )
 
+    private data class DeferredFallbackDelta(
+        val anchorFrameId: Long,
+        val frame: FallbackDeltaFrame
+    )
+
     private val root = FrameLayout(activity)
     private val status = TextView(activity)
     private val dock = LinearLayout(activity)
@@ -200,6 +205,9 @@ class InlineRemoteControllerView(
         AtomicReference<FallbackVideoFrame?>(null)
     private val fallbackDecodeScheduled = AtomicBoolean(false)
     private val deltaFramesInFlight = AtomicInteger(0)
+    private val fallbackAdmissionLock = Any()
+    private var activeFallbackAnchorId = -1L
+    private val deferredFallbackDeltas = ArrayDeque<DeferredFallbackDelta>()
     private var lastAnchorRequestMs = 0L
     private var fallbackBitmap: Bitmap? = null
     private var fallbackScratchBitmap: Bitmap? = null
@@ -569,7 +577,7 @@ class InlineRemoteControllerView(
         releaseRenderer()
 
         fallbackActive = false
-        pendingFallbackFrame.set(null)
+        clearPendingFallbackWork()
         fallbackDecoder.shutdownNow()
         activity.runOnUiThread {
             fallbackImageView.setImageDrawable(null)
@@ -1535,6 +1543,7 @@ class InlineRemoteControllerView(
                             // the UI thread. An old queued swap must not latch true
                             // and hide every fresh confirmation after recovery.
                             renderedFrameSeen.set(true)
+                            clearPendingFallbackWork()
                             fallbackActive = false
                             imageDisplayed = true
                             fallbackImageView.visibility = View.GONE
@@ -1880,11 +1889,19 @@ class InlineRemoteControllerView(
          * Compatibility video is best-effort. Never let JPEG decode build an
          * old-frame backlog: retain only the newest not-yet-decoded frame.
          */
-        pendingFallbackFrame.set(
-            frame.copy(
-                jpeg = frame.jpeg.copyOf()
+        synchronized(fallbackAdmissionLock) {
+            if (!attached || renderedFrameSeen.get() ||
+                frame.frameId < lastFallbackFrameId.get()
+            ) return
+            val previous = pendingFallbackFrame.getAndSet(
+                frame.copy(jpeg = frame.jpeg.copyOf())
             )
-        )
+            if (previous != null) {
+                // A newer full anchor supersedes the replaced anchor's chain.
+                // Its complete pixels provide the new dependency checkpoint.
+                discardDeferredFallbackDeltas(previous.frameId)
+            }
+        }
         scheduleFallbackDecode()
     }
 
@@ -1910,38 +1927,76 @@ class InlineRemoteControllerView(
     }
 
     private fun drainFallbackFrames() {
+        var uiCommitPending = false
+        var anchorFrameId = -1L
         try {
-            while (
-                attached &&
-                !renderedFrameSeen.get()
-            ) {
-                val frame =
-                    pendingFallbackFrame.getAndSet(null)
-                        ?: break
-                decodeFallbackFrameNow(frame)
-            }
+            if (!attached || renderedFrameSeen.get()) return
+            val frame = synchronized(fallbackAdmissionLock) {
+                pendingFallbackFrame.getAndSet(null)?.also {
+                    activeFallbackAnchorId = it.frameId
+                }
+            } ?: return
+            anchorFrameId = frame.frameId
+            // Decode one anchor per executor turn. The permit stays held until
+            // its UI commit finishes, bounding decoded pixels as well as JPEGs.
+            // A new executor turn also gives queued dependent deltas a chance
+            // to run; a continuous anchor drain must not starve them.
+            uiCommitPending = decodeFallbackFrameNow(frame)
         } finally {
-            fallbackDecodeScheduled.set(false)
-            if (
-                attached &&
-                !renderedFrameSeen.get() &&
-                pendingFallbackFrame.get() != null
-            ) {
-                scheduleFallbackDecode()
+            if (!uiCommitPending) completeFallbackDecode(anchorFrameId)
+        }
+    }
+
+    private fun completeFallbackDecode(anchorFrameId: Long, committed: Boolean = false) {
+        var dependencyLost = false
+        synchronized(fallbackAdmissionLock) {
+            val ready = deferredFallbackDeltas.filter { it.anchorFrameId == anchorFrameId }
+            deferredFallbackDeltas.removeAll { it.anchorFrameId == anchorFrameId }
+            if (activeFallbackAnchorId == anchorFrameId) activeFallbackAnchorId = -1L
+            if (committed && attached && !renderedFrameSeen.get()) {
+                // Submit before releasing admission: a newer dependent delta
+                // must not overtake the chain that was waiting for this anchor.
+                ready.forEach { submitFallbackDelta(it.frame) }
+            } else {
+                deltaFramesInFlight.addAndGet(-ready.size)
+                dependencyLost = ready.isNotEmpty()
             }
+        }
+        fallbackDecodeScheduled.set(false)
+        if (!attached || renderedFrameSeen.get()) {
+            clearPendingFallbackWork()
+            return
+        }
+        if (dependencyLost) requestRecoveryAnchor()
+        if (pendingFallbackFrame.get() != null) {
+            scheduleFallbackDecode()
+        }
+    }
+
+    private fun discardDeferredFallbackDeltas(anchorFrameId: Long) {
+        val before = deferredFallbackDeltas.size
+        deferredFallbackDeltas.removeAll { it.anchorFrameId == anchorFrameId }
+        deltaFramesInFlight.addAndGet(deferredFallbackDeltas.size - before)
+    }
+
+    private fun clearPendingFallbackWork() {
+        synchronized(fallbackAdmissionLock) {
+            pendingFallbackFrame.set(null)
+            deltaFramesInFlight.addAndGet(-deferredFallbackDeltas.size)
+            deferredFallbackDeltas.clear()
         }
     }
 
     private fun decodeFallbackFrameNow(
         frame: FallbackVideoFrame
-    ) {
+    ): Boolean {
         val oriented = RecoveryBitmapRenderer.decode(
             frame.jpeg, frame.width, frame.height, frame.rotation
-        ) ?: run { requestRecoveryAnchor(); return }
+        ) ?: run { requestRecoveryAnchor(); return false }
 
         /*
          * If a newer fallback frame arrived while this JPEG was decoding,
-         * skip presenting the stale bitmap. The next loop iteration decodes
+         * skip presenting the stale bitmap. The next executor turn decodes
          * the newest frame directly.
          */
         if (
@@ -1949,72 +2004,103 @@ class InlineRemoteControllerView(
             pendingFallbackFrame.get() != null
         ) {
             oriented.recycle()
+            return false
+        }
+
+        return postDecodedFallbackFrame(frame, oriented)
+    }
+
+    private fun postDecodedFallbackFrame(
+        frame: FallbackVideoFrame,
+        oriented: Bitmap
+    ): Boolean {
+        var posted = false
+        try {
+            // Each anchor owns its callback. Replacing a bitmap behind an old
+            // callback could commit a newer anchor ahead of earlier delta work.
+            posted = mainHandler.post {
+                try {
+                    presentFallbackFrame(frame, oriented)
+                } finally {
+                    if (fallbackBitmap !== oriented && !oriented.isRecycled) {
+                        oriented.recycle()
+                    }
+                    completeFallbackDecode(
+                        frame.frameId,
+                        committed = fallbackBitmap === oriented &&
+                            fallbackCompositeFrameId == frame.frameId
+                    )
+                }
+            }
+            return posted
+        } finally {
+            // Until post succeeds, the worker still owns the decoded bitmap.
+            if (!posted && !oriented.isRecycled) oriented.recycle()
+        }
+    }
+
+    private fun presentFallbackFrame(
+        frame: FallbackVideoFrame,
+        oriented: Bitmap
+    ) {
+        if (
+            !attached ||
+            renderedFrameSeen.get()
+        ) {
             return
         }
 
-        activity.runOnUiThread {
-            if (
-                !attached ||
-                renderedFrameSeen.get()
-            ) {
-                oriented.recycle()
-                return@runOnUiThread
-            }
+        latestObservedFrameWidth = oriented.width
+        latestObservedFrameHeight = oriented.height
 
-            latestObservedFrameWidth = oriented.width
-            latestObservedFrameHeight = oriented.height
-
-            val currentGeometry = geometry
-            if (
-                currentGeometry != null &&
-                !RemoteViewportMapper.frameMatchesRemote(
-                    remoteWidth = currentGeometry.widthPx,
-                    remoteHeight = currentGeometry.heightPx,
-                    frameWidth = oriented.width,
-                    frameHeight = oriented.height
-                )
-            ) {
-                oriented.recycle()
-                return@runOnUiThread
-            }
-
-            if (frame.frameId <= fallbackCompositeFrameId) {
-                oriented.recycle()
-                return@runOnUiThread
-            }
-
-            fallbackActive = true
-            imageDisplayed = true
-            fallbackCompositeFrameId = frame.frameId
-            frameWidth = oriented.width
-            frameHeight = oriented.height
-            updateVideoViewport()
-
-            val previous = fallbackBitmap
-            val previousScratch = fallbackScratchBitmap
-            fallbackBitmap = oriented
-            fallbackScratchBitmap = null
-            fallbackImageView.setImageBitmap(oriented)
-            fallbackImageView.visibility = View.VISIBLE
-
-            if (
-                previous != null &&
-                previous !== oriented &&
-                !previous.isRecycled
-            ) {
-                previous.recycle()
-            }
-            if (
-                previousScratch != null &&
-                previousScratch !== oriented &&
-                previousScratch !== previous &&
-                !previousScratch.isRecycled
-            ) {
-                previousScratch.recycle()
-            }
-
-            showVideoStatus("Compatibility video active • primary stream recovering…")
+        val currentGeometry = geometry
+        if (
+            currentGeometry != null &&
+            !RemoteViewportMapper.frameMatchesRemote(
+                remoteWidth = currentGeometry.widthPx,
+                remoteHeight = currentGeometry.heightPx,
+                frameWidth = oriented.width,
+                frameHeight = oriented.height
+            )
+        ) {
+            return
         }
+
+        if (frame.frameId <= fallbackCompositeFrameId) {
+            return
+        }
+
+        fallbackActive = true
+        imageDisplayed = true
+        fallbackCompositeFrameId = frame.frameId
+        frameWidth = oriented.width
+        frameHeight = oriented.height
+        updateVideoViewport()
+
+        val previous = fallbackBitmap
+        val previousScratch = fallbackScratchBitmap
+        fallbackBitmap = oriented
+        fallbackScratchBitmap = null
+        fallbackImageView.setImageBitmap(oriented)
+        fallbackImageView.visibility = View.VISIBLE
+
+        if (
+            previous != null &&
+            previous !== oriented &&
+            !previous.isRecycled
+        ) {
+            previous.recycle()
+        }
+        if (
+            previousScratch != null &&
+            previousScratch !== oriented &&
+            previousScratch !== previous &&
+            !previousScratch.isRecycled
+        ) {
+            previousScratch.recycle()
+        }
+
+        showVideoStatus("Compatibility video active • primary stream recovering…")
     }
 
     // Recovery details remain in Stats. Never cover usable remote pixels with
@@ -2043,6 +2129,30 @@ class InlineRemoteControllerView(
             requestRecoveryAnchor()
             return
         }
+        synchronized(fallbackAdmissionLock) {
+            if (!attached || renderedFrameSeen.get()) {
+                deltaFramesInFlight.decrementAndGet()
+                return
+            }
+            val anchorId = when (frame.baseFrameId) {
+                activeFallbackAnchorId -> activeFallbackAnchorId.takeIf { it >= 0L }
+                pendingFallbackFrame.get()?.frameId -> frame.baseFrameId
+                else -> deferredFallbackDeltas
+                    .firstOrNull { it.frame.frameId == frame.baseFrameId }
+                    ?.anchorFrameId
+            }
+            if (anchorId != null) {
+                // These compressed packets share the existing three-delta
+                // budget. Their decoder tasks are admitted only after the full
+                // dependency's UI commit, never in front of its pixels.
+                deferredFallbackDeltas.addLast(DeferredFallbackDelta(anchorId, frame))
+            } else {
+                submitFallbackDelta(frame)
+            }
+        }
+    }
+
+    private fun submitFallbackDelta(frame: FallbackDeltaFrame) {
         try {
             fallbackDecoder.execute { decodeFallbackDeltaFrameNow(frame) }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
