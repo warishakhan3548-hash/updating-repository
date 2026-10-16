@@ -139,6 +139,10 @@ class InlineRemoteControllerView(
         ArrayList<LocalTouchPoint>(MAX_LOCAL_GESTURE_POINTS)
     private val gestureStreamPacer = GestureStreamPacer()
     private val presentationCadence = PresentationCadenceTracker()
+    // Only an O(1) counter crosses the decoder/EGL thread boundary. It lets
+    // glass telemetry exclude producer-idle gaps without hiding a renderer
+    // stall during which decoded frames kept arriving.
+    private val decodedFrameSequence = AtomicLong(0L)
     /*
      * The host already keeps capture scheduling elevated while natural screen
      * motion continues after finger-up (fling/video/game animation). Mirror that
@@ -261,7 +265,12 @@ class InlineRemoteControllerView(
          * front of the newest frame. EglRenderer remains latest-frame-wins; no
          * extra queue, copy or presentation clock is introduced here.
          */
-        eglRenderer?.onFrame(frame)
+        eglRenderer?.let { renderer ->
+            // Count before handing the frame to the EGL thread: a very fast
+            // buffer swap must never observe an older decoder sequence.
+            decodedFrameSequence.incrementAndGet()
+            renderer.onFrame(frame)
+        }
 
         lastRawFrameAtMs = android.os.SystemClock.elapsedRealtime()
         val rotatedWidth = frame.rotatedWidth
@@ -1464,7 +1473,7 @@ class InlineRemoteControllerView(
             }
 
             presentationCadence
-                .onPresented(presentedAtMs)
+                .onPresented(presentedAtMs, decodedFrameSequence.get())
                 ?.let { window ->
                     mainHandler.post {
                         if (
