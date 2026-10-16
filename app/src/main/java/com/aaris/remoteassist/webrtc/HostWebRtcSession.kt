@@ -351,6 +351,13 @@ class HostWebRtcSession(
             if (captureRecoveryAttempts < MAX_CAPTURE_RECOVERY_ATTEMPTS) {
                 captureRecoveryAttempts += 1
                 capture.update(effectiveCaptureProfile(profile))
+                if (capture.retryInitialFrameCapture()) {
+                    listener.onDiagnostic(
+                        "MediaProjection first-frame watchdog: " +
+                            "rebinding existing VirtualDisplay surface " +
+                            "(${captureRecoveryAttempts}/$MAX_CAPTURE_RECOVERY_ATTEMPTS)"
+                    )
+                }
                 displayHandler.postDelayed(
                     this,
                     CAPTURE_RECOVERY_INTERVAL_MS
