@@ -52,11 +52,15 @@ class PresentationCadenceTracker(
     // EGL swap as a new anchor rather than reporting a fake multi-second
     // maxGap/FPS drop to the host governor.
     private val sourceQuietGapMs = 750L
+    // A frame already available for >=200 ms cannot be assumed to have
+    // appeared only at the end of an otherwise quiet >750 ms glass interval.
+    private val STALLED_SINGLE_FRAME_MS = 200L
 
     @Synchronized
     fun onPresented(
         nowMs: Long,
-        decodedSequence: Long? = null
+        decodedSequence: Long? = null,
+        lastDecodedAtMs: Long? = null
     ): PresentationCadenceWindow? {
         if (nowMs < 0L) return null
 
@@ -76,12 +80,24 @@ class PresentationCadenceTracker(
             } else {
                 null
             }
+        // A lone decoded frame may have arrived soon after the last swap
+        // but waited a long time for EGL. Frame COUNT alone cannot label
+        // that interval source-idle. Use the same monotonic elapsedRealtime
+        // clock for the callback and swap; absent/invalid timestamps keep the
+        // previous conservative count-only semantics.
+        val singleFrameWasWaitingForGlass =
+            decodedSinceLastSwap == 1L &&
+                lastFrameMs >= 0L &&
+                lastDecodedAtMs != null &&
+                lastDecodedAtMs in lastFrameMs..nowMs &&
+                nowMs - lastDecodedAtMs >= STALLED_SINGLE_FRAME_MS
         val quietSourceGap =
             lastFrameMs >= 0L &&
                 nowMs >= lastFrameMs &&
                 nowMs - lastFrameMs >= sourceQuietGapMs &&
                 decodedSinceLastSwap != null &&
-                decodedSinceLastSwap <= 1L
+                decodedSinceLastSwap <= 1L &&
+                !singleFrameWasWaitingForGlass
         lastDecodedSequence = decodedSequence
 
         if (
