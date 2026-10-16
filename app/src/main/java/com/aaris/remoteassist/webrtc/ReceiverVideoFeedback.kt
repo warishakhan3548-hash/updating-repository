@@ -122,6 +122,8 @@ class ReceiverVideoFeedback {
         if (!packet.valid() || packet.leaseSecret != secret || packet.generation != generation) return false
         bindIdentity(secret, generation)
         if (packet.sequence <= lastSequence) return false
+        val consecutiveDecoderReport =
+            lastSequence == 0L || packet.sequence == lastSequence + 1L
         lastSequence = packet.sequence
         if (packet.decodedFrames > 0) lastDecodedAtMs = nowMs
         val incoming = VideoHealthWindow(
@@ -156,7 +158,8 @@ class ReceiverVideoFeedback {
          */
         val previous = pending?.takeIf {
             val reportGapMs = nowMs - receivedAt
-            reportGapMs in 0L..minOf(
+            // Time proximity cannot prove continuity if a report was lost.
+            consecutiveDecoderReport && reportGapMs in 0L..minOf(
                 MAX_AGE_MS,
                 incoming.intervalMs.toLong() +
                     VIDEO_REPORT_JITTER_TOLERANCE_MS
@@ -212,6 +215,8 @@ class ReceiverVideoFeedback {
         if (!packet.valid() || packet.leaseSecret != secret || packet.generation != generation) return false
         bindIdentity(secret, generation)
         if (packet.sequence <= lastPresentationSequence) return false
+        val consecutivePresentationReport =
+            lastPresentationSequence == 0L || packet.sequence == lastPresentationSequence + 1L
         lastPresentationSequence = packet.sequence
 
         val incoming = PresentationCadenceWindow(
@@ -244,7 +249,7 @@ class ReceiverVideoFeedback {
          */
         val previous = pendingPresentation?.takeIf {
             val reportGapMs = nowMs - presentationReceivedAt
-            reportGapMs in 0L..minOf(
+            consecutivePresentationReport && reportGapMs in 0L..minOf(
                 MAX_AGE_MS,
                 incoming.intervalMs.toLong() +
                     PRESENTATION_REPORT_JITTER_TOLERANCE_MS

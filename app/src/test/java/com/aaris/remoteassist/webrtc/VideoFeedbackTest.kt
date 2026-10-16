@@ -98,6 +98,21 @@ class VideoFeedbackTest {
         assertEquals(5, combined.dropped)
         assertEquals(1, combined.freezes)
     }
+    @Test fun shortGapWithMissingDecoderSequenceDoesNotFabricateHealthyFps() {
+        val feedback = ReceiverVideoFeedback()
+        val first = ControlPacket.VideoFeedback(42, 2, 1, 500, 30, 6f, 12f, 0, 0)
+        val afterLoss = ControlPacket.VideoFeedback(42, 2, 3, 500, 3, 18f, 160f, 4, 1)
+        assertTrue(feedback.accept(first, 42, 2, 100))
+        // 950 ms fits the old 500+750 ms jitter grace, but report #2 is lost.
+        assertTrue(feedback.accept(afterLoss, 42, 2, 1_050))
+        val sample = checkNotNull(feedback.consume(42, 2, 1_100))
+        assertEquals(500, sample.intervalMs)
+        assertEquals(3, sample.frames)
+        assertEquals(6.0, sample.fps, 0.001)
+        assertEquals(4, sample.dropped)
+        assertEquals(1, sample.freezes)
+    }
+
     @Test fun lostDecoderReportCannotFabricateHealthyContinuousFps() {
         val feedback = ReceiverVideoFeedback()
         val beforeDrop = ControlPacket.VideoFeedback(
