@@ -528,8 +528,6 @@ class AssistAccessibilityService : AccessibilityService() {
                 MIN_STREAM_SEGMENT_MS,
                 MAX_STREAM_SEGMENT_MS
             )
-        mainHandler.removeCallbacks(gestureStreamWatchdog)
-
         when (command.phase) {
             GestureStreamPhase.START -> {
                 /*
@@ -537,6 +535,7 @@ class AssistAccessibilityService : AccessibilityService() {
                  * pointer. Android cancels the previous injected gesture when
                  * a new one is dispatched, while our watchdog state is replaced.
                  */
+                mainHandler.removeCallbacks(gestureStreamWatchdog)
                 activeGestureStream = null
 
                 val first = command.points.first()
@@ -592,6 +591,7 @@ class AssistAccessibilityService : AccessibilityService() {
                     onResult(false)
                     return
                 }
+                mainHandler.removeCallbacks(gestureStreamWatchdog)
 
                 /*
                  * The continuation path MUST begin at the exact endpoint of
@@ -815,6 +815,20 @@ class AssistAccessibilityService : AccessibilityService() {
         precondition: () -> Boolean
     ) {
         val pending = PendingCommand(command, onResult, precondition)
+        // Reject invalid arrivals before they can evict valid queued motion.
+        // Do not advance replay clocks here: an unordered CONTINUE may reach
+        // this queue before its reliable START. Execution rechecks every guard.
+        if (
+            !precondition() ||
+            !SessionRuntime.isAuthorized(
+                command.sessionId,
+                command.leaseSecret,
+                command.generation
+            )
+        ) {
+            pending.complete(false)
+            return
+        }
 
         /*
          * Remote drag segments are freshness-sensitive, not archival events.
@@ -824,11 +838,16 @@ class AssistAccessibilityService : AccessibilityService() {
          * only queued (never active) CONTINUE segments from the same stream are
          * superseded by the newest position.
          *
-         * Superseded segments complete successfully because their destination
-         * is incorporated by the newer continuation/end path. Reporting them
-         * as failures would create false UI errors on a healthy session.
+         * Unordered delivery can bring an older sample after a newer one. Only
+         * a higher sequence in the same authorized stream may replace queued
+         * motion, and a queued END closes that stream to later arrivals.
+         * Superseded samples were not applied; CONTINUE has no command ACK, so
+         * completing false also avoids arming a spurious applied-input refresh.
          */
-        coalesceQueuedGestureSegments(command)
+        if (!coalesceQueuedGestureSegments(command)) {
+            pending.complete(false)
+            return
+        }
 
         val inFlight = if (activeCommand == null) 0 else 1
         if (
@@ -845,14 +864,33 @@ class AssistAccessibilityService : AccessibilityService() {
 
     private fun coalesceQueuedGestureSegments(
         command: RemoteCommand
-    ) {
+    ): Boolean {
         val stream =
-            command as? GestureStreamCommand ?: return
+            command as? GestureStreamCommand ?: return true
         if (
             stream.phase == GestureStreamPhase.START ||
             pendingCommands.isEmpty()
         ) {
-            return
+            return true
+        }
+
+        fun matches(queued: GestureStreamCommand): Boolean =
+            queued.sessionId == stream.sessionId &&
+                queued.leaseSecret == stream.leaseSecret &&
+                queued.generation == stream.generation &&
+                queued.streamId == stream.streamId
+
+        if (
+            stream.phase == GestureStreamPhase.CONTINUE &&
+            pendingCommands.any { pending ->
+                val queued = pending.command as? GestureStreamCommand
+                queued != null && matches(queued) &&
+                    (queued.phase == GestureStreamPhase.END ||
+                        (queued.phase == GestureStreamPhase.CONTINUE &&
+                            queued.sequence >= stream.sequence))
+            }
+        ) {
+            return false
         }
 
         val iterator = pendingCommands.iterator()
@@ -863,15 +901,17 @@ class AssistAccessibilityService : AccessibilityService() {
                     ?: continue
 
             if (
-                queuedStream.streamId != stream.streamId ||
-                queuedStream.phase != GestureStreamPhase.CONTINUE
+                !matches(queuedStream) ||
+                queuedStream.phase != GestureStreamPhase.CONTINUE ||
+                queuedStream.sequence >= stream.sequence
             ) {
                 continue
             }
 
             iterator.remove()
-            queued.complete(true)
+            queued.complete(false)
         }
+        return true
     }
 
     private fun drainCommandQueue() {

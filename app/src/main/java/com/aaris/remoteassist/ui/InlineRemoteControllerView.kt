@@ -37,6 +37,7 @@ import com.aaris.remoteassist.webrtc.RemoteGeometry
 import com.aaris.remoteassist.webrtc.PresentationCadenceTracker
 import com.aaris.remoteassist.webrtc.RealtimeMediaPolicy
 import com.aaris.remoteassist.webrtc.WebRtcRuntime
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -48,6 +49,7 @@ import org.webrtc.EglBase
 import org.webrtc.EglRenderer
 import org.webrtc.EglThread
 import org.webrtc.GlRectDrawer
+import org.webrtc.ThreadUtils
 import org.webrtc.VideoFrame
 import org.webrtc.VideoSink
 import org.webrtc.VideoTrack
@@ -106,6 +108,7 @@ class InlineRemoteControllerView(
     private var renderTouchPriorityActive = false
     private var renderPassivePriorityActive = false
     private var renderInteractionPriorityActive = false
+    @Volatile
     private var rendererSurfaceAttached = false
     private var remoteTrack: VideoTrack? = null
     private var sinkTrack: VideoTrack? = null
@@ -209,7 +212,7 @@ class InlineRemoteControllerView(
     @Volatile private var lastRawFrameAtMs = 0L
     @Volatile private var lastPresentedFrameAtMs = 0L
     private val renderedFrameSeen = AtomicBoolean(false)
-    private val renderConfirmationPosted = AtomicBoolean(false)
+    private val renderConfirmationGeneration = AtomicLong(-1L)
     private val recoveryGeneration = AtomicLong(0L)
     private var imageDisplayed = false
 
@@ -1390,157 +1393,7 @@ class InlineRemoteControllerView(
             )
             // FrameListener is a ONE-SHOT screenshot API. RenderListener fires
             // after every real EGL swap, so recovery can be confirmed repeatedly.
-            renderer.addRenderListener {
-                // Release/rebuild is asynchronous: an old EGL surface can
-                // complete a swap after its renderer was detached. It must
-                // never advance glass cadence or acknowledge remote input.
-                if (eglRenderer !== renderer) return@addRenderListener
-
-                val generation = recoveryGeneration.get()
-                val presentedAtMs =
-                    android.os.SystemClock.elapsedRealtime()
-                lastPresentedFrameAtMs = presentedAtMs
-
-                /*
-                 * One synchronized O(1) check per actual EGL swap. It emits no
-                 * packet unless an authoritative applied-input probe is pending,
-                 * so this adds no steady-state telemetry loop or media queue.
-                 */
-                session()?.onFramePresented(presentedAtMs)
-
-                /*
-                 * Cadence windows need multiple swaps and can be reset during
-                 * recovery. A tiny proof-of-glass heartbeat is independent:
-                 * one real EGL swap is enough to prove that pixels reached the
-                 * controller display. Throttle it so it never competes with
-                 * authoritative touch traffic.
-                 */
-                val previousHeartbeat =
-                    lastPresentationHeartbeatAtMs.get()
-                if (
-                    presentedAtMs - previousHeartbeat >=
-                        PRESENTATION_HEARTBEAT_INTERVAL_MS &&
-                    lastPresentationHeartbeatAtMs.compareAndSet(
-                        previousHeartbeat,
-                        presentedAtMs
-                    )
-                ) {
-                    mainHandler.post {
-                        if (
-                            attached &&
-                            eglRenderer === renderer &&
-                            generation == recoveryGeneration.get() &&
-                            RendererContinuityPolicy.isFreshPresentationCallback(
-                                nowMs = android.os.SystemClock.elapsedRealtime(),
-                                presentedAtMs = presentedAtMs
-                            )
-                        ) {
-                            session()?.sendPresentationHeartbeat()
-                        }
-                    }
-                }
-
-                presentationCadence
-                    .onPresented(presentedAtMs)
-                    ?.let { window ->
-                        mainHandler.post {
-                            if (
-                                attached &&
-                                eglRenderer === renderer &&
-                                generation == recoveryGeneration.get() &&
-                                RendererContinuityPolicy.isFreshPresentationCallback(
-                                    nowMs = android.os.SystemClock.elapsedRealtime(),
-                                    presentedAtMs = presentedAtMs
-                                )
-                            ) {
-                                /*
-                                 * Keep the render scheduler hot for actual
-                                 * post-touch motion. Host capture has a matching
-                                 * natural-motion tail, so dropping EGL back to
-                                 * default priority at finger-up can otherwise
-                                 * turn a healthy 45/60 fps fling into controller-
-                                 * side micro-stutter.
-                                 */
-                                passiveRenderMotion.observe(
-                                    window = null,
-                                    nowMs = presentedAtMs,
-                                    sourceFps = window.fps
-                                )
-                                val passiveRenderActive =
-                                    passiveRenderMotion.isActive(presentedAtMs)
-                                setRenderPassivePriority(passiveRenderActive)
-                                mainHandler.removeCallbacks(
-                                    passiveRenderPriorityExpiry
-                                )
-                                if (passiveRenderActive) {
-                                    mainHandler.postDelayed(
-                                        passiveRenderPriorityExpiry,
-                                        PASSIVE_RENDER_PRIORITY_TAIL_MS + 1L
-                                    )
-                                }
-
-                                /*
-                                 * Presentation feedback remains health evidence
-                                 * for host adaptation. The Surface hint itself is
-                                 * stream-stable: observe() may bootstrap one vote
-                                 * for passive viewing, but can never chase the
-                                 * variable delivered cadence afterward.
-                                 */
-                                surfaceFrameRateHints
-                                    .observe(window, presentedAtMs)
-                                    ?.let(::applySurfaceFrameRateHint)
-                                // Display capability is published by
-                                // ControllerWebRtcSession independently of EGL
-                                // cadence. This window reports only proof-of-glass.
-                                session()?.sendPresentationFeedback(window)
-                                if (renderedFrameSeen.get()) {
-                                    primaryConfirmation.onPresented(presentedAtMs) {
-                                        session()?.confirmPrimaryVideoRendered() == true
-                                    }
-                                }
-                            }
-                        }
-                    }
-                if (eglRenderer === renderer && !renderedFrameSeen.get() &&
-                    renderConfirmationPosted.compareAndSet(false, true)) {
-                    activity.runOnUiThread {
-                        try {
-                            if (
-                                attached &&
-                                eglRenderer === renderer &&
-                                generation == recoveryGeneration.get() &&
-                                RendererContinuityPolicy.isFreshPresentationCallback(
-                                    nowMs = android.os.SystemClock.elapsedRealtime(),
-                                    presentedAtMs = presentedAtMs
-                                )
-                            ) {
-                                // Commit health only after checking the generation on
-                                // the UI thread. An old queued swap must not latch true
-                                // and hide every fresh confirmation after recovery.
-                                renderedFrameSeen.set(true)
-                                fallbackActive = false
-                                imageDisplayed = true
-                                fallbackImageView.visibility = View.GONE
-                                fallbackImageView.setImageDrawable(null)
-                                fallbackBitmap?.recycle()
-                                fallbackBitmap = null
-                                fallbackScratchBitmap?.recycle()
-                                fallbackScratchBitmap = null
-                                fallbackCompositeFrameId = -1L
-                                showVideoStatus("Live video connected")
-                                primaryConfirmation.onPresented(presentedAtMs) {
-                                    session()?.confirmPrimaryVideoRendered() == true
-                                }
-                                mediaRecoveryAttempts = 0
-                                rendererRecoveryAttempts = 0
-                                setControlsVisible(false)
-                            }
-                        } finally {
-                            renderConfirmationPosted.set(false)
-                        }
-                    }
-                }
-            }
+            installPresentationListener(renderer)
 
             eglRenderer = renderer
             ensureRendererSurface()
@@ -1548,12 +1401,168 @@ class InlineRemoteControllerView(
         }.getOrDefault(false)
     }
 
+    private fun installPresentationListener(renderer: EglRenderer) {
+        renderer.addRenderListener {
+            // Capture the epoch before checking the Surface. Surface loss
+            // disables observation, fences the EGL thread, then advances this
+            // epoch, so an old swap cannot adopt a new Surface's identity.
+            val generation = recoveryGeneration.get()
+            if (
+                eglRenderer !== renderer ||
+                !rendererSurfaceAttached
+            ) return@addRenderListener
+            val presentedAtMs =
+                android.os.SystemClock.elapsedRealtime()
+            lastPresentedFrameAtMs = presentedAtMs
+
+            /*
+             * One synchronized O(1) check per actual EGL swap. It emits no
+             * packet unless an authoritative applied-input probe is pending,
+             * so this adds no steady-state telemetry loop or media queue.
+             */
+            session()?.onFramePresented(presentedAtMs)
+
+            /*
+             * Cadence windows need multiple swaps and can be reset during
+             * recovery. A tiny proof-of-glass heartbeat is independent:
+             * one real EGL swap is enough to prove that pixels reached the
+             * controller display. Throttle it so it never competes with
+             * authoritative touch traffic.
+             */
+            val previousHeartbeat =
+                lastPresentationHeartbeatAtMs.get()
+            if (
+                presentedAtMs - previousHeartbeat >=
+                    PRESENTATION_HEARTBEAT_INTERVAL_MS &&
+                lastPresentationHeartbeatAtMs.compareAndSet(
+                    previousHeartbeat,
+                    presentedAtMs
+                )
+            ) {
+                mainHandler.post {
+                    if (
+                        attached &&
+                        eglRenderer === renderer &&
+                        rendererSurfaceAttached &&
+                        generation == recoveryGeneration.get() &&
+                        RendererContinuityPolicy.isFreshPresentationCallback(
+                            nowMs = android.os.SystemClock.elapsedRealtime(),
+                            presentedAtMs = presentedAtMs
+                        )
+                    ) {
+                        session()?.sendPresentationHeartbeat()
+                    }
+                }
+            }
+
+            presentationCadence
+                .onPresented(presentedAtMs)
+                ?.let { window ->
+                    mainHandler.post {
+                        if (
+                            attached &&
+                            eglRenderer === renderer &&
+                            rendererSurfaceAttached &&
+                            generation == recoveryGeneration.get() &&
+                            RendererContinuityPolicy.isFreshPresentationCallback(
+                                nowMs = android.os.SystemClock.elapsedRealtime(),
+                                presentedAtMs = presentedAtMs
+                            )
+                        ) {
+                            /*
+                             * Keep the render scheduler hot for actual
+                             * post-touch motion. Host capture has a matching
+                             * natural-motion tail, so dropping EGL back to
+                             * default priority at finger-up can otherwise
+                             * turn a healthy 45/60 fps fling into controller-
+                             * side micro-stutter.
+                             */
+                            passiveRenderMotion.observe(
+                                window = null,
+                                nowMs = presentedAtMs,
+                                sourceFps = window.fps
+                            )
+                            val passiveRenderActive =
+                                passiveRenderMotion.isActive(presentedAtMs)
+                            setRenderPassivePriority(passiveRenderActive)
+                            mainHandler.removeCallbacks(
+                                passiveRenderPriorityExpiry
+                            )
+                            if (passiveRenderActive) {
+                                mainHandler.postDelayed(
+                                    passiveRenderPriorityExpiry,
+                                    PASSIVE_RENDER_PRIORITY_TAIL_MS + 1L
+                                )
+                            }
+
+                            /*
+                             * Presentation feedback remains health evidence
+                             * for host adaptation. The Surface hint itself is
+                             * stream-stable: observe() may bootstrap one vote
+                             * for passive viewing, but can never chase the
+                             * variable delivered cadence afterward.
+                             */
+                            surfaceFrameRateHints
+                                .observe(window, presentedAtMs)
+                                ?.let(::applySurfaceFrameRateHint)
+                            // Display capability is published by
+                            // ControllerWebRtcSession independently of EGL
+                            // cadence. This window reports only proof-of-glass.
+                            session()?.sendPresentationFeedback(window)
+                            if (renderedFrameSeen.get()) {
+                                primaryConfirmation.onPresented(presentedAtMs) {
+                                    session()?.confirmPrimaryVideoRendered() == true
+                                }
+                            }
+                        }
+                    }
+                }
+            if (eglRenderer === renderer && !renderedFrameSeen.get() &&
+                renderConfirmationGeneration.compareAndSet(-1L, generation)) {
+                activity.runOnUiThread {
+                    try {
+                        if (
+                            attached &&
+                            eglRenderer === renderer &&
+                            rendererSurfaceAttached &&
+                            generation == recoveryGeneration.get() &&
+                            RendererContinuityPolicy.isFreshPresentationCallback(
+                                nowMs = android.os.SystemClock.elapsedRealtime(),
+                                presentedAtMs = presentedAtMs
+                            )
+                        ) {
+                            // Commit health only after checking the generation on
+                            // the UI thread. An old queued swap must not latch true
+                            // and hide every fresh confirmation after recovery.
+                            renderedFrameSeen.set(true)
+                            fallbackActive = false
+                            imageDisplayed = true
+                            fallbackImageView.visibility = View.GONE
+                            fallbackImageView.setImageDrawable(null)
+                            fallbackBitmap?.recycle()
+                            fallbackBitmap = null
+                            fallbackScratchBitmap?.recycle()
+                            fallbackScratchBitmap = null
+                            fallbackCompositeFrameId = -1L
+                            showVideoStatus("Live video connected")
+                            primaryConfirmation.onPresented(presentedAtMs) {
+                                session()?.confirmPrimaryVideoRendered() == true
+                            }
+                            mediaRecoveryAttempts = 0
+                            rendererRecoveryAttempts = 0
+                            setControlsVisible(false)
+                        }
+                    } finally {
+                        renderConfirmationGeneration.compareAndSet(generation, -1L)
+                    }
+                }
+            }
+        }
+    }
+
     private fun rebuildRenderer() {
         detachCurrentTrack()
         releaseRenderer()
-        lastPresentedFrameAtMs = 0L
-        renderedFrameSeen.set(false)
-        primaryConfirmation.reset()
 
         rendererContainer.postDelayed(
             {
@@ -1639,21 +1648,38 @@ class InlineRemoteControllerView(
         val renderer = eglRenderer
         rendererSurfaceAttached = false
         if (renderer != null) {
-            runCatching {
-                renderer.releaseEglSurface {}
-            }
+            // SurfaceHolder requires rendering to stop before surfaceDestroyed
+            // returns. Match the pinned WebRTC SurfaceEglRenderer contract:
+            // releaseEglSurface only posts work; its callback is the EGL fence.
+            // The callback must never depend on the UI thread waiting here.
+            val released = CountDownLatch(1)
+            renderer.releaseEglSurface(released::countDown)
+            ThreadUtils.awaitUninterruptibly(released)
         }
+        resetPresentationAfterEglFence()
     }
 
     private fun releaseRenderer() {
-        val renderer = eglRenderer ?: return
+        val renderer = eglRenderer
         eglRenderer = null
         renderEglThread = null
         rendererSurfaceAttached = false
-        runCatching {
-            renderer.releaseEglSurface {}
-        }
-        runCatching { renderer.release() }
+        // EglRenderer.release() already waits for its EGL cleanup barrier.
+        runCatching { renderer?.release() }
+        resetPresentationAfterEglFence()
+    }
+
+    private fun resetPresentationAfterEglFence() {
+        // Advance only after old render callbacks have finished. Otherwise an
+        // in-flight old swap could read the new epoch and confirm a new Surface.
+        recoveryGeneration.incrementAndGet()
+        lastPresentedFrameAtMs = 0L
+        renderedFrameSeen.set(false)
+        renderConfirmationGeneration.set(-1L)
+        primaryConfirmation.reset()
+        presentationCadence.reset()
+        lastPresentationHeartbeatAtMs.set(Long.MIN_VALUE / 2)
+        resetPassiveRenderPriority()
     }
 
     private fun attachTrack(track: VideoTrack) {
