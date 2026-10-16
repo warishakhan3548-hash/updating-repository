@@ -167,6 +167,54 @@ class BweDemandAwareClarityTest {
     }
 
     @Test
+    fun cadenceAndPixelGuardsShareTheSameMeasuredBandwidthReserve() {
+        listOf(
+            4_250_000L to 5_000_000.0,
+            4_500_000L to 5_000_000.0,
+            5_000_000L to 5_500_000.0
+        ).forEach { (bitrate, bandwidth) ->
+            val budget = nativeBudget()
+            val healthy = sender(30, bitrate, bandwidth)
+            repeat(5) { index ->
+                assertFalse(budget.observe(
+                    outbound = healthy,
+                    receiver = receiver(30),
+                    sourceFps = 30.0,
+                    motionActive = true,
+                    targetFps = 30,
+                    nowMs = 4000L + index * 1000L,
+                    interactionActive = true
+                ))
+            }
+            assertEquals(720, budget.shortEdge)
+            assertNull(budget.clarityPreservingCadenceCeiling(
+                profile, sender(60, bitrate, bandwidth), receiver(60),
+                60.0, true, 60, interactionActive = true
+            ))
+        }
+    }
+
+    @Test
+    fun healthyUtilizationDoesNotMaskRealQueuePressure() {
+        val budget = nativeBudget()
+        val queued = sender(30, 4_250_000, 5_000_000.0).let {
+            it.copy(recent = it.recent!!.copy(sendQueueMs = 90.0))
+        }
+        assertFalse(budget.observe(queued, receiver(30), 30.0, true, 30, 4000L))
+        assertTrue(budget.observe(queued, receiver(30), 30.0, true, 30, 5000L))
+        assertEquals(540, budget.shortEdge)
+    }
+
+    @Test
+    fun utilizationImmediatelyAboveSharedReserveStillSpendsPixels() {
+        val budget = nativeBudget()
+        val overReserve = sender(30, 5_000_001, 5_500_000.0)
+        assertFalse(budget.observe(overReserve, receiver(30), 30.0, true, 30, 4000L))
+        assertTrue(budget.observe(overReserve, receiver(30), 30.0, true, 30, 5000L))
+        assertEquals(540, budget.shortEdge)
+    }
+
+    @Test
     fun highCadenceReliefUsesMeasuredDemandInsteadOfNominalBitrateTable() {
         val budget = nativeBudget()
         val complexUi =
@@ -398,7 +446,7 @@ class BweDemandAwareClarityTest {
         val saturated =
             sender(
                 fps = 60,
-                bitrateBps = 630_000,
+                bitrateBps = 665_000,
                 availableOutgoingBitrateBps = 700_000.0
             )
 

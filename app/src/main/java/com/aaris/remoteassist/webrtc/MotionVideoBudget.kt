@@ -6,7 +6,7 @@ import kotlin.math.roundToInt
 /**
  * Remote control is a detail-sensitive workload: text, forms and icons must
  * remain readable while motion stays fresh. One-second telemetry may reduce
- * the normal spatial envelope through 720 -> 540 -> 360, but 360 is the
+ * the normal spatial envelope through native -> 720 -> 540 -> 360, but 360 is the
  * readability floor for all primary-video adaptation. Once 360 is reached,
  * further overload is paid in temporal cadence/bitrate instead of making
  * text, forms and icons unreadable.
@@ -926,7 +926,7 @@ internal class MotionVideoBudget {
             bandwidthDemandProven &&
                 (
                     observedBandwidthUtilization?.let {
-                        it >= BWE_PREDICTIVE_PRESSURE_UTILIZATION_RATIO
+                        it > BWE_PREDICTIVE_PRESSURE_UTILIZATION_RATIO
                     } ?: bandwidthHeadroomRatio?.let {
                         it < BWE_PRESSURE_HEADROOM_RATIO
                     } == true
@@ -1072,6 +1072,8 @@ internal class MotionVideoBudget {
                             scopedSpatialFloor
                         )
                     }
+                shortEdge > NATIVE_WARM_START_SHORT_EDGE ->
+                    NATIVE_WARM_START_SHORT_EDGE
                 shortEdge > DETAIL_CLARITY_FLOOR_SHORT_EDGE ->
                     maxOf(
                         DETAIL_CLARITY_FLOOR_SHORT_EDGE,
@@ -1261,25 +1263,40 @@ internal class MotionVideoBudget {
                     (received.presentedFps?.let { it >= goal * 0.9 } ?: true) &&
                     (received.maxRenderGapMs ?: 0) < 100
             }
+            val profileRecoveryShortEdge =
+                profile?.let {
+                    minOf(it.captureWidthPx, it.captureHeightPx)
+                } ?: NATIVE_WARM_START_SHORT_EDGE
             val nextRecoveryRung =
                 when {
                     shortEdge < CLARITY_FLOOR_SHORT_EDGE ->
                         CLARITY_FLOOR_SHORT_EDGE
                     shortEdge < 540 -> 540
-                    else -> 720
-                }
+                    shortEdge < NATIVE_WARM_START_SHORT_EDGE ->
+                        NATIVE_WARM_START_SHORT_EDGE
+                    else -> profileRecoveryShortEdge
+                }.coerceAtMost(profileRecoveryShortEdge)
             val currentRecoveryShortEdge =
                 admittedSourceShortEdge(profile)
-            val nextRecoveryBitrateBps =
+            val recoveringNativeDetail =
+                nextRecoveryRung > NATIVE_WARM_START_SHORT_EDGE
+            val projectedRecoveryDemandBps =
                 projectedRecoveryBitrateBps(
                     sender = sender,
                     currentShortEdge = currentRecoveryShortEdge,
                     nextShortEdge = nextRecoveryRung,
                     targetFps = goal,
                     maxBitrateBps =
-                        profile?.maxVideoBitrateBps
-                            ?: Int.MAX_VALUE
-                ) ?: nominalMotionBitrateBps(
+                        if (recoveringNativeDetail) {
+                            // A capped prediction would hide native demand
+                            // that the profile's own bitrate ceiling cannot fit.
+                            Int.MAX_VALUE
+                        } else {
+                            profile?.maxVideoBitrateBps ?: Int.MAX_VALUE
+                        }
+                )
+            val nextRecoveryBitrateBps =
+                projectedRecoveryDemandBps ?: nominalMotionBitrateBps(
                     nextRecoveryRung,
                     goal
                 )
@@ -1308,8 +1325,8 @@ internal class MotionVideoBudget {
              * Add a faster one-rung capacity probe only when ALL layers prove
              * headroom at once: WebRTC BWE, sender queue/encode, RTT/loss,
              * receiver decode/jitter and real controller presentation. Missing
-             * BWE or missing glass proof can never use this path. Native 720 is
-             * deliberately harder than readability recovery to 360/540.
+             * BWE or missing glass proof can never use this path. Recovery to
+             * >=720 is deliberately harder than readability recovery to 360/540.
              *
              * This never forces bandwidth. GCC/TWCC remains authoritative; we
              * merely stop holding an obsolete low-resolution operating point
@@ -1327,10 +1344,58 @@ internal class MotionVideoBudget {
              * "recover" that speculative lower control rung by committing a
              * real resize. Either pressure validates the downgrade or the
              * native-proof path above cancels it.
+             *
+             * 720 is a compatibility rung, not a permanent native-detail cap.
+             * A continuous game may never reach the quiet-screen restore path.
+             * Admit the profile's actual geometry only after measured RTP and
+             * codec cost both project into that larger operating point. This
+             * is a conservative probe, not a throughput guarantee: new pressure
+             * still returns native detail to 720 before spending lower rungs.
+             *
+             * Missing bytes, codec identity, source supply, current dimensions
+             * or fresh controller presentation cannot authorize this new rung.
+             * Existing <=720 recovery and callers without a profile keep their
+             * compatibility behavior.
              */
+            val recoveryPixelScale =
+                (nextRecoveryRung.toDouble() / currentRecoveryShortEdge)
+                    .let { it * it }
+            val nativeDetailHeadroom =
+                !recoveringNativeDetail ||
+                    (
+                        profile != null &&
+                            !implementation.isNullOrBlank() &&
+                            !softwarePath &&
+                            projectedRecoveryDemandBps?.let {
+                                it <= profile.maxVideoBitrateBps
+                            } == true &&
+                            minOf(outbound.frameWidth, outbound.frameHeight) ==
+                                currentRecoveryShortEdge &&
+                            measuredSourceFps?.let {
+                                it >= goal * FAST_CLARITY_RECOVERY_DELIVERY_RATIO
+                            } == true &&
+                            encodeMs?.let {
+                                it * recoveryPixelScale < frameMs *
+                                    FAST_CLARITY_RECOVERY_CODEC_BUDGET_RATIO
+                            } == true &&
+                            decodeMs?.let {
+                                it * recoveryPixelScale < frameMs *
+                                    FAST_CLARITY_RECOVERY_CODEC_BUDGET_RATIO
+                            } == true &&
+                            received != null &&
+                            received.presentationSampleFresh &&
+                            received.presentationSampleAgeMs?.let {
+                                it in 0..received.intervalMs
+                            } == true &&
+                            received.presentationAgeMs?.let {
+                                it in 0..received.intervalMs
+                            } == true
+                        )
             val resolutionRecoveryAllowed =
                 allowResolutionRecovery &&
-                    !warmStartResizePending
+                    !interactionActive &&
+                    !warmStartResizePending &&
+                    nativeDetailHeadroom
             val fastRecoveryEvidence =
                 healthy &&
                     resolutionRecoveryAllowed &&
@@ -1402,15 +1467,11 @@ internal class MotionVideoBudget {
                     nowMs - changedAtMs >= CONSERVATIVE_RECOVERY_SETTLE_MS
 
             if (
-                shortEdge < NATIVE_WARM_START_SHORT_EDGE &&
-                (fastRecoveryReady || conservativeRecoveryReady)
+                nextRecoveryRung > currentRecoveryShortEdge &&
+                (fastRecoveryReady ||
+                    (!recoveringNativeDetail && conservativeRecoveryReady))
             ) {
-                shortEdge =
-                    when {
-                        shortEdge < 360 -> 360
-                        shortEdge < 540 -> 540
-                        else -> NATIVE_WARM_START_SHORT_EDGE
-                    }
+                shortEdge = nextRecoveryRung
                 committedSourceShortEdge = shortEdge
                 changedAtMs = nowMs
                 healthySamples = 0
@@ -1841,7 +1902,10 @@ internal class MotionVideoBudget {
         const val WARM_START_MAX_LOSS_RATIO = 0.02
         const val WARM_START_BWE_HEADROOM_RATIO = 1.25
         val SOFTWARE_ENCODER_MARKERS =
-            arrayOf("libvpx", "libaom", "openh264", "software")
+            arrayOf(
+                "libvpx", "libaom", "openh264", "software",
+                "omx.google.", "c2.android.", "c2.google.", "sw.", "ffmpeg"
+            )
         const val SETTLE_MS = 3_000L
         // Follow the same 6-second validity ceiling as VideoHealthWindowTracker.
         const val MAX_SENDER_SAMPLE_GAP_MS = 6_000L
@@ -1850,11 +1914,13 @@ internal class MotionVideoBudget {
         const val BWE_PRESSURE_HEADROOM_RATIO = 1.10
         /*
          * Predictive BWE relief is driven by measured RTP utilization whenever
-         * stats are available. Around 85% path use starts early relief; only a
-         * stream at/above the estimate qualifies as severe prediction. Reactive
+         * stats are available. Use the same capacity reserve as the clarity
+         * guard so clean delivery cannot be accepted by cadence policy and
+         * simultaneously blurred by the pixel policy. Reactive
          * queue/loss/decode alarms remain independent and can act sooner.
          */
-        const val BWE_PREDICTIVE_PRESSURE_UTILIZATION_RATIO = 0.85
+        const val BWE_PREDICTIVE_PRESSURE_UTILIZATION_RATIO =
+            1.0 / BWE_PRESSURE_HEADROOM_RATIO
 
         /*
          * Clarity guard: if high cadence is the only thing that no longer fits,
@@ -1863,7 +1929,8 @@ internal class MotionVideoBudget {
          * VideoCadenceGovernor before it acts.
          */
         const val CLARITY_PRESERVING_FPS_FLOOR = 30
-        const val CLARITY_PRESERVING_BWE_HEADROOM_RATIO = 1.10
+        const val CLARITY_PRESERVING_BWE_HEADROOM_RATIO =
+            BWE_PRESSURE_HEADROOM_RATIO
         const val CLARITY_PRESERVING_CODEC_BUDGET_RATIO = 0.80
         const val CLARITY_PRESERVING_MAX_QUEUE_MS = 35.0
         const val CLARITY_PRESERVING_MAX_RTT_MS = 450
@@ -1887,9 +1954,9 @@ internal class MotionVideoBudget {
         /*
          * Fast clarity recovery is a measured capacity probe, not a forced
          * bitrate floor. 360/540 may return after three consecutive clean
-         * end-to-end windows with >=30% BWE headroom. Native 720 requires five
+         * end-to-end windows with >=30% BWE headroom. Detail >=720 requires five
          * windows and >=45% headroom. Unknown/incomplete telemetry falls back
-         * to the original conservative twelve-window recovery.
+         * to conservative twelve-window recovery only for the <=720 rungs.
          */
         const val FAST_CLARITY_RECOVERY_BWE_HEADROOM_RATIO = 1.30
         const val FAST_NATIVE_RECOVERY_BWE_HEADROOM_RATIO = 1.45
