@@ -4,6 +4,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CaptureRefreshPolicyTest {
+    @Test fun firstFrameWatchdogCanOnlyRebindAnUnresponsiveSPlusProducer() {
+        assertTrue(StartupCaptureRecoveryPolicy.shouldRebindVirtualDisplay(31, true, false, false))
+        assertFalse(StartupCaptureRecoveryPolicy.shouldRebindVirtualDisplay(30, true, false, false))
+        assertFalse(StartupCaptureRecoveryPolicy.shouldRebindVirtualDisplay(34, true, false, true))
+        assertFalse(StartupCaptureRecoveryPolicy.shouldRebindVirtualDisplay(34, false, false, false))
+        assertFalse(StartupCaptureRecoveryPolicy.shouldRebindVirtualDisplay(34, true, true, false))
+    }
+
     @Test fun idleRefreshRequiresARealTextureAndIsRateLimitedEvenIfProducerIsStuck() {
         val policy = CaptureRefreshPolicy()
         assertFalse(policy.shouldRefresh(10_000))
