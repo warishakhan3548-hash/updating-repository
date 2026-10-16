@@ -1204,6 +1204,7 @@ class HostWebRtcSession(
             // discards the real motion evidence needed by the next full window
             // and can reset otherwise healthy EGL promotion history.
             // Peer identity/codec diagnostics are still handled in WebRtcPeer.
+            cadenceGovernor.onSenderEvidence(snapshot, now)
             if (snapshot.recent == null) return@post
 
             val current = lease

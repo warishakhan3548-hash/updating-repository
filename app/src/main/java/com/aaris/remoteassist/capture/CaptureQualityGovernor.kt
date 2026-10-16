@@ -27,7 +27,7 @@ class CaptureQualityGovernor(
     private var currentTier = initialTier
     private var constrainedSamples = 0
     private var bandwidthOnlySamples = 0
-    private var bandwidthProbeSamples = 0
+    private var recoverySamples = 0
     private var healthySamples = 0
     private var localPipelinePressureSamples = 0
 
@@ -227,20 +227,8 @@ class CaptureQualityGovernor(
              */
             healthyBandwidth -> {
                 localPipelinePressureSamples = 0
-                constrainedSamples = 0
-                bandwidthOnlySamples = 0
-                healthySamples = 0
-                bandwidthProbeSamples += 1
-
-                if (
-                    bandwidthProbeSamples <
-                    BANDWIDTH_PROBE_UPGRADE_SAMPLE_COUNT
-                ) {
-                    null
-                } else {
-                    bandwidthProbeSamples = 0
-                    upgrade()
-                }
+                resetPressureCounters()
+                recoverAfterHealthySample(bandwidthLimited = true)
             }
 
             /*
@@ -274,15 +262,7 @@ class CaptureQualityGovernor(
                 inferredHealthy -> {
                 localPipelinePressureSamples = 0
                 resetPressureCounters()
-                bandwidthProbeSamples = 0
-                healthySamples += 1
-
-                if (healthySamples < UPGRADE_SAMPLE_COUNT) {
-                    null
-                } else {
-                    healthySamples = 0
-                    upgrade()
-                }
+                recoverAfterHealthySample(bandwidthLimited = false)
             }
 
             else -> {
@@ -354,7 +334,24 @@ class CaptureQualityGovernor(
 
     private fun resetRecoveryCounters() {
         healthySamples = 0
-        bandwidthProbeSamples = 0
+        recoverySamples = 0
+    }
+
+    private fun recoverAfterHealthySample(bandwidthLimited: Boolean): CaptureTier? {
+        // Both branches accept recovery evidence. Idle 1/2-frame windows or
+        // harmless none/bandwidth label changes must not erase that evidence.
+        // Keep the faster path for consecutive strict windows and require the
+        // longer probe window when recovery includes healthy bandwidth limits.
+        healthySamples = if (bandwidthLimited) 0 else healthySamples + 1
+        recoverySamples += 1
+        if (
+            healthySamples < UPGRADE_SAMPLE_COUNT &&
+            recoverySamples < BANDWIDTH_PROBE_UPGRADE_SAMPLE_COUNT
+        ) {
+            return null
+        }
+        resetRecoveryCounters()
+        return upgrade()
     }
 
     private fun downgrade(): CaptureTier? =

@@ -48,6 +48,41 @@ class StableCaptureGeometryTest {
     }
 
     @Test
+    fun legacyCadenceAndQualityUpdatesPreserveRoundedInitialDimensions() {
+        val initial = CaptureProfile.forDisplay(1080, 2340, CaptureTier.BALANCED)
+        val source = StableCaptureGeometry(initial)
+        assertEquals(554, source.width)
+        assertEquals(1200, source.height)
+
+        repeat(3) {
+            assertFalse(source.update(initial.copy(fps = 30), allowAdaptiveResize = false))
+            assertFalse(
+                source.update(
+                    CaptureProfile.forDisplay(1080, 2340, CaptureTier.LOW),
+                    allowAdaptiveResize = false
+                )
+            )
+            assertFalse(source.update(initial, allowAdaptiveResize = false))
+            assertEquals(554, source.width)
+            assertEquals(1200, source.height)
+        }
+    }
+
+    @Test
+    fun legacyRealDisplayResizeStillUsesTheOriginalProducerEnvelope() {
+        val initial = CaptureProfile.forDisplay(1080, 2340, CaptureTier.BALANCED)
+        val source = StableCaptureGeometry(initial)
+        val resized = CaptureProfile.forDisplay(1440, 2560, CaptureTier.STANDARD)
+
+        assertTrue(source.update(resized, allowAdaptiveResize = false))
+        assertEquals(674, source.width)
+        assertEquals(1200, source.height)
+        assertFalse(source.update(resized.copy(fps = 60), allowAdaptiveResize = false))
+        assertEquals(674, source.width)
+        assertEquals(1200, source.height)
+    }
+
+    @Test
     fun androidTwelveAdaptiveEnvelopeTracksSpatialReliefButNotFpsOnlyChanges() {
         val source = StableCaptureGeometry(native)
 

@@ -179,6 +179,13 @@ data class VideoHealthSnapshot(
                             return@firstOrNull false
                         }
 
+                        // Missing localId is a vendor compatibility case; an
+                        // explicit different identity is a retired/other sender,
+                        // whose loss and RTT must never drive this screen stream.
+                        if (stat.members["localId"] != null) {
+                            return@firstOrNull false
+                        }
+
                         val kind =
                             stat.members["kind"]?.toString()
                                 ?: stat.members["mediaType"]?.toString()

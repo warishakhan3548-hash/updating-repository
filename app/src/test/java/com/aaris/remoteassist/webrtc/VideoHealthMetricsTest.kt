@@ -155,6 +155,61 @@ class VideoHealthMetricsTest {
         assertEquals("b", snapshot.streamId)
     }
 
+    private fun outboundWithRemoteReports(vararg reports: RTCStats): VideoHealthSnapshot {
+        val items = listOf(
+            stat("live", "outbound-rtp", "kind" to "video", "bytesSent" to 100L,
+                "transportId" to "transport"),
+            stat("transport", "transport", "selectedCandidatePairId" to "pair"),
+            stat("pair", "candidate-pair", "currentRoundTripTime" to 0.04)
+        ) + reports
+        return checkNotNull(VideoHealthSnapshot.from(
+            RTCStatsReport(1_000_000L, items.associateBy { it.id }), PeerRole.HOST
+        ))
+    }
+
+    @Test fun retiredSenderRemoteReportCannotContaminateCurrentLossOrRtt() {
+        val snapshot = outboundWithRemoteReports(
+            stat("old-remote", "remote-inbound-rtp", "kind" to "video",
+                "localId" to "retired", "roundTripTime" to 1.2, "fractionLost" to 0.3)
+        )
+        assertNull(snapshot.packetLossRatio)
+        assertEquals(40, snapshot.roundTripTimeMs)
+    }
+
+    @Test fun matchingRemoteIdentityWinsWithoutKindMetadata() {
+        val snapshot = outboundWithRemoteReports(
+            stat("old-remote", "remote-inbound-rtp", "kind" to "video",
+                "localId" to "retired", "roundTripTime" to 1.2, "fractionLost" to 0.3),
+            stat("live-remote", "remote-inbound-rtp", "localId" to "live",
+                "roundTripTime" to 0.05, "fractionLost" to 0.01)
+        )
+        assertEquals(0.01, checkNotNull(snapshot.packetLossRatio), 0.0001)
+        assertEquals(50, snapshot.roundTripTimeMs)
+    }
+
+    @Test fun missingRemoteIdentityRetainsVendorCompatibilityFallback() {
+        for (kind in listOf("video", null)) {
+            val values = listOf("roundTripTime" to 0.06, "fractionLost" to 0.02) +
+                if (kind == null) emptyList() else listOf("kind" to kind)
+            val snapshot = outboundWithRemoteReports(
+                stat("old-remote", "remote-inbound-rtp", "kind" to "video",
+                    "localId" to "retired", "roundTripTime" to 1.2, "fractionLost" to 0.3),
+                stat("vendor-remote", "remote-inbound-rtp", *values.toTypedArray())
+            )
+            assertEquals(0.02, checkNotNull(snapshot.packetLossRatio), 0.0001)
+            assertEquals(60, snapshot.roundTripTimeMs)
+        }
+    }
+
+    @Test fun unlinkedAudioReportIsNotUsedAsScreenNetworkEvidence() {
+        val snapshot = outboundWithRemoteReports(
+            stat("audio-remote", "remote-inbound-rtp", "kind" to "audio",
+                "roundTripTime" to 1.2, "fractionLost" to 0.3)
+        )
+        assertNull(snapshot.packetLossRatio)
+        assertEquals(40, snapshot.roundTripTimeMs)
+    }
+
     @Test fun outboundRecoveryCountersBecomeIntervalRepairEvidence() {
         fun outbound(
             timestampUs: Long,

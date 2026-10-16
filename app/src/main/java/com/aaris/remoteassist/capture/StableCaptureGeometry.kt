@@ -28,6 +28,16 @@ internal class StableCaptureGeometry(initial: CaptureProfile) {
         profile: CaptureProfile,
         allowAdaptiveResize: Boolean
     ): Boolean {
+        // Preserve the exact initial rounded dimensions on the legacy path.
+        // Recomputing an unchanged display with floor rounding can otherwise
+        // turn a cadence-only update into a VirtualDisplay recreation.
+        if (
+            !allowAdaptiveResize &&
+            profile.displayWidthPx == displayWidth &&
+            profile.displayHeightPx == displayHeight
+        ) {
+            return false
+        }
         displayWidth = profile.displayWidthPx
         displayHeight = profile.displayHeightPx
 

@@ -23,17 +23,59 @@ class VideoCadenceGovernor(
     private var lastDeadlineSummary = "deadline=unknown"
     // Completed upstream supply, not the requested source ceiling. Scalar
     // evidence only; capture/RTP frames remain owned by the native pipeline.
-    private var lastSenderIdentity: Pair<String, String?>? = null
+    private var lastSenderIdentity: Triple<String, String?, String?>? = null
     private var lastSenderFps: Double? = null
     private var lastSenderAtMs = Long.MIN_VALUE / 2
+    private var lastCompletedSenderAtMs = Long.MIN_VALUE / 2
     private var lastDisplayRefreshRateHz: Double? = null
     private var lastSourceRefreshRateHz: Double? = null
     private var clarityBandwidthPressure = 0
     private var clarityBandwidthVoteCap = 0
     private var clarityBandwidthVoteTarget = 0
+    private var lastClarityBandwidthAtMs = Long.MIN_VALUE / 2
     private val highCadenceProbe = HighCadenceProbe()
     private val highCadencePressureGate = HighCadencePressureGate()
     val probingHighCadence: Boolean get() = highCadenceProbe.probing
+
+    /**
+     * Admit the sender evidence before the host chooses a cadence/spatial lane.
+     * Some complete windows use only the clarity or interaction lane, so doing
+     * this solely inside observe() would let old votes survive those routes.
+     * Incomplete same-stream probes do not refresh or erase recent evidence.
+     */
+    fun onSenderEvidence(outbound: VideoHealthSnapshot, nowMs: Long) {
+        val previousIdentity = lastSenderIdentity
+        // Missing OEM component labels are not evidence of a replacement.
+        // A real stream/MIME change must not inherit the old component, though.
+        val implementation = outbound.codecImplementation
+            ?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+            ?: previousIdentity?.third?.takeIf {
+                previousIdentity.first == outbound.streamId &&
+                    previousIdentity.second == outbound.codec
+            }
+        val identity = Triple(outbound.streamId, outbound.codec, implementation)
+        val identityChanged =
+            lastSenderIdentity != null && identity != lastSenderIdentity
+        val evidenceExpired =
+            lastCompletedSenderAtMs > Long.MIN_VALUE / 4 &&
+                nowMs - lastCompletedSenderAtMs !in 0L..MAX_SENDER_SAMPLE_GAP_MS
+        if (identityChanged || evidenceExpired) {
+            pressure = 0
+            healthy = 0
+            interactiveHeadroom = 0
+            interactiveFloorHeadroom = 0
+            resetClarityBandwidthVotes()
+            highCadencePressureGate.reset()
+            lastSenderFps = null
+            lastSenderAtMs = Long.MIN_VALUE / 2
+            lastCompletedSenderAtMs = Long.MIN_VALUE / 2
+            highCadenceProbe.onOperatingPointTransition(cap, nowMs)
+        }
+        lastSenderIdentity = identity
+        if (nowMs >= 0L && outbound.recent?.completedSenderEvidence() == true) {
+            lastCompletedSenderAtMs = nowMs
+        }
+    }
 
     /**
      * Consume MotionVideoBudget's "same pixels still fit at lower cadence"
@@ -51,6 +93,10 @@ class VideoCadenceGovernor(
         displayRefreshRateHz: Double? = null,
         sourceRefreshRateHz: Double? = null
     ): Boolean {
+        if (nowMs - lastClarityBandwidthAtMs !in 0L..MAX_SENDER_SAMPLE_GAP_MS) {
+            resetClarityBandwidthVotes()
+        }
+        lastClarityBandwidthAtMs = nowMs
         displayRefreshRateHz
             ?.takeIf {
                 it.isFinite() &&
@@ -180,7 +226,7 @@ class VideoCadenceGovernor(
         lastSenderAtMs = Long.MIN_VALUE / 2
         highCadencePressureGate.reset()
         resetClarityBandwidthVotes()
-        highCadenceProbe.onSpatialBudgetTransition(
+        highCadenceProbe.onOperatingPointTransition(
             currentFps = cap,
             nowMs = nowMs
         )
@@ -289,6 +335,7 @@ class VideoCadenceGovernor(
         nowMs: Long,
         maximumFps: Int = maxFps
     ): Boolean {
+        onSenderEvidence(outbound, nowMs)
         if (!interactionActive) {
             interactiveHeadroom = 0
             interactiveFloorHeadroom = 0
@@ -673,12 +720,7 @@ class VideoCadenceGovernor(
         allowHighCadenceProbe: Boolean = true,
         sourceRefreshRateHz: Double? = null
     ): Boolean {
-        val senderIdentity = outbound.streamId to outbound.codec
-        if (senderIdentity != lastSenderIdentity) {
-            lastSenderIdentity = senderIdentity
-            lastSenderFps = null
-            highCadencePressureGate.clearPresentation()
-        }
+        onSenderEvidence(outbound, nowMs)
         receiver?.displayRefreshRateHz
             ?.takeIf {
                 it.isFinite() &&
@@ -692,7 +734,8 @@ class VideoCadenceGovernor(
             }
             ?.let { lastSourceRefreshRateHz = it }
 
-        val sender = outbound.recent ?: return false
+        val sender = outbound.recent?.takeIf { it.completedSenderEvidence() }
+            ?: return false
 
         /*
          * A high-cadence trial may start before controller display capability
@@ -1232,6 +1275,10 @@ class VideoCadenceGovernor(
     fun mayReduceResolution(nowMs: Long): Boolean =
         cap <= RESOLUTION_REDUCTION_MAX_FPS && nowMs - changedAt >= RESOLUTION_REDUCTION_GRACE_MS
 
+    private fun VideoHealthWindow.completedSenderEvidence(): Boolean =
+        intervalMs in 500..6000 && frames in 0..2048 &&
+            fps.isFinite() && fps >= 0.0
+
     private companion object {
         val LOW_ASCENDING_CAPS =
             listOf(15, 20, 24, 30)
@@ -1270,6 +1317,7 @@ class VideoCadenceGovernor(
         const val MAX_QUIET_ENCODED_FRAMES = 3
         const val QUIET_PROBE_COOLDOWN_MS = 8_000L
         const val MAX_IDLE_TELEMETRY_AGE_MS = 2_500L
+        const val MAX_SENDER_SAMPLE_GAP_MS = 6_000L
 
         const val MIN_MEASURED_FRAMES = 5
         const val MIN_COLLAPSE_MEASURED_FRAMES = 3

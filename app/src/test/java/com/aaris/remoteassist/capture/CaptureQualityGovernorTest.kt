@@ -489,6 +489,113 @@ class CaptureQualityGovernorTest {
     }
 
     @Test
+    fun alternatingQuietAndPopulatedHealthyBandwidthWindowsRecoverClarity() {
+        val governor =
+            CaptureQualityGovernor(CaptureTier.BALANCED, CaptureTier.STANDARD)
+
+        // A 1 fps still-screen heartbeat sampled every 1.5 s alternates between
+        // one quiet frame and two network-eligible frames.
+        repeat(CaptureQualityGovernor.BANDWIDTH_PROBE_UPGRADE_SAMPLE_COUNT - 1) {
+            assertNull(observeHealthy(governor, "bandwidth", frames = 1 + it % 2))
+        }
+        assertEquals(CaptureTier.BALANCED, governor.currentTier())
+        assertEquals(
+            CaptureTier.STANDARD,
+            observeHealthy(governor, "bandwidth", frames = 2)
+        )
+    }
+
+    @Test
+    fun alternatingHealthyLimitationLabelsShareTheLongerRecoveryWindow() {
+        val governor =
+            CaptureQualityGovernor(CaptureTier.BALANCED, CaptureTier.STANDARD)
+
+        repeat(CaptureQualityGovernor.BANDWIDTH_PROBE_UPGRADE_SAMPLE_COUNT - 1) {
+            assertNull(
+                observeHealthy(governor, if (it % 2 == 0) "none" else "bandwidth")
+            )
+        }
+        assertEquals(CaptureTier.BALANCED, governor.currentTier())
+        assertEquals(CaptureTier.STANDARD, observeHealthy(governor, "bandwidth"))
+    }
+
+    @Test
+    fun sixConsecutiveStrictWindowsCanFinishAnEarlierBandwidthRecoverySequence() {
+        val governor =
+            CaptureQualityGovernor(CaptureTier.BALANCED, CaptureTier.STANDARD)
+
+        assertNull(observeHealthy(governor, "bandwidth"))
+        repeat(CaptureQualityGovernor.UPGRADE_SAMPLE_COUNT - 1) {
+            assertNull(observeHealthy(governor))
+        }
+        assertEquals(CaptureTier.STANDARD, observeHealthy(governor))
+    }
+
+    @Test
+    fun anUpgradeClearsBothRecoveryThresholdsBeforeTheNextTier() {
+        val governor =
+            CaptureQualityGovernor(CaptureTier.LOW, CaptureTier.HIGH)
+
+        repeat(CaptureQualityGovernor.UPGRADE_SAMPLE_COUNT - 1) {
+            assertNull(observeHealthy(governor))
+        }
+        assertEquals(CaptureTier.BALANCED, observeHealthy(governor))
+
+        repeat(CaptureQualityGovernor.BANDWIDTH_PROBE_UPGRADE_SAMPLE_COUNT - 1) {
+            assertNull(
+                observeHealthy(governor, if (it % 2 == 0) "none" else "bandwidth")
+            )
+        }
+        assertEquals(CaptureTier.STANDARD, observeHealthy(governor, "bandwidth"))
+
+        repeat(CaptureQualityGovernor.UPGRADE_SAMPLE_COUNT - 1) {
+            assertNull(observeHealthy(governor))
+        }
+        assertEquals(CaptureTier.HIGH, observeHealthy(governor))
+    }
+
+    @Test
+    fun pressureAndAmbiguousWindowsRestartTheSharedRecoverySequence() {
+        val interruptions: List<(CaptureQualityGovernor) -> CaptureTier?> =
+            listOf(
+                { it.observeQualityLimitation("none", 700, 0.01, outboundFrameCount = 30) },
+                {
+                    it.observeQualityLimitation(
+                        "none",
+                        120,
+                        0.005,
+                        sendQueueMs = 200.0,
+                        outboundFrameCount = 30
+                    )
+                },
+                { it.observeQualityLimitation("other", 120, 0.005, outboundFrameCount = 30) },
+                { it.observeQualityLimitation(null, outboundFrameCount = 30) },
+                { it.observeQualityLimitation("bandwidth", outboundFrameCount = 30) },
+                { it.observeQualityLimitation("none", 500, 0.03, outboundFrameCount = 30) }
+            )
+
+        interruptions.forEachIndexed { index, interrupt ->
+            val governor =
+                CaptureQualityGovernor(CaptureTier.BALANCED, CaptureTier.STANDARD)
+            repeat(CaptureQualityGovernor.BANDWIDTH_PROBE_UPGRADE_SAMPLE_COUNT - 1) {
+                assertNull(observeHealthy(governor, if (it % 2 == 0) "none" else "bandwidth"))
+            }
+            assertNull("interruption $index", interrupt(governor))
+            repeat(CaptureQualityGovernor.BANDWIDTH_PROBE_UPGRADE_SAMPLE_COUNT - 1) {
+                assertNull(
+                    "recovery after interruption $index, sample $it",
+                    observeHealthy(governor, if (it % 2 == 0) "none" else "bandwidth")
+                )
+            }
+            assertEquals(
+                "recovery after interruption $index",
+                CaptureTier.STANDARD,
+                observeHealthy(governor, "bandwidth")
+            )
+        }
+    }
+
+    @Test
     fun healthyReasonWithBadTelemetryDoesNotRecover() {
         val governor =
             CaptureQualityGovernor(
@@ -562,4 +669,20 @@ class CaptureQualityGovernorTest {
             governor.observeQualityLimitation("bandwidth")
         )
     }
+
+    private fun observeHealthy(
+        governor: CaptureQualityGovernor,
+        reason: String = "none",
+        frames: Int = 30
+    ): CaptureTier? =
+        governor.observeQualityLimitation(
+            reason = reason,
+            roundTripTimeMs = 120,
+            packetLossRatio = 0.005,
+            encodeTimeMs = 4.0,
+            sendQueueMs = 2.0,
+            deliveredFps = frames / 1.5,
+            requestedFps = 30,
+            outboundFrameCount = frames
+        )
 }

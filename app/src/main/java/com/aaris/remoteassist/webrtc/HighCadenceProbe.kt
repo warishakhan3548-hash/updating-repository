@@ -40,21 +40,22 @@ internal class HighCadenceProbe {
     val probing: Boolean get() = trialFrom != null
 
     /**
-     * A source-size transition changes the encoder operating point underneath a
-     * high-cadence experiment. Preserve the learned cadence ceiling, but discard
-     * trial/presentation proof gathered for the old pixel rate and require one
-     * fresh post-resize window before probing upward again.
+     * A source-size or sender transition changes the encoder operating point
+     * underneath a high-cadence experiment. Preserve the learned cadence ceiling,
+     * but discard trial/presentation proof gathered for the previous sender or
+     * geometry and require fresh post-transition evidence before probing upward.
      *
-     * Failed-target backoff is intentionally retained: changing pixels must not
+     * Failed-target backoff is intentionally retained: a transition must not
      * erase evidence that a cadence rung recently failed on this session.
      */
-    fun onSpatialBudgetTransition(
+    fun onOperatingPointTransition(
         currentFps: Int,
         nowMs: Long
     ) {
         if (nowMs < 0L) return
 
         previousCap = currentFps.coerceAtLeast(1)
+        lastSampleAtMs = Long.MIN_VALUE / 2
         trialFrom = null
         trialAtMs = 0L
         trialGood = 0
@@ -65,7 +66,7 @@ internal class HighCadenceProbe {
         blockedUntilMs =
             maxOf(
                 blockedUntilMs,
-                nowMs + SPATIAL_TRANSITION_SETTLE_MS
+                nowMs + OPERATING_POINT_SETTLE_MS
             )
     }
 
@@ -472,7 +473,7 @@ internal class HighCadenceProbe {
         const val MIN_PROMOTION_WINDOW_SPACING_MS = 500L
 
         const val RETRY_COOLDOWN_MS = 4_000L
-        const val SPATIAL_TRANSITION_SETTLE_MS = 1_000L
+        const val OPERATING_POINT_SETTLE_MS = 1_000L
         const val MAX_PROBE_BACKOFF_EXPONENT = 4
         const val MAX_TRACKED_TRIAL_FAILURES = MAX_PROBE_BACKOFF_EXPONENT + 1
         const val MAX_RETRY_COOLDOWN_MS = 64_000L
