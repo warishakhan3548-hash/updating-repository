@@ -1,6 +1,7 @@
 package com.aaris.remoteassist.ui
 
 import android.app.Activity
+import android.graphics.Bitmap
 import android.os.Looper
 import android.os.SystemClock
 import android.view.View
@@ -251,4 +252,55 @@ class ControllerSurfaceLifecycleTest {
             fixture.close()
         }
     }
+    @Test fun fallbackUiCommitReplacesQueuedJpegBitmaps() {
+        val fixture = Fixture()
+        val main = shadowOf(Looper.getMainLooper())
+        val enqueue = InlineRemoteControllerView::class.java.getDeclaredMethod(
+            "enqueueFallbackUiBitmap",
+            java.lang.Long.TYPE,
+            Bitmap::class.java
+        ).apply { isAccessible = true }
+        val frames = (1..24).map {
+            Bitmap.createBitmap(16, 20, Bitmap.Config.ARGB_8888)
+        }
+        try {
+            // A paused UI is intentionally slower than the fallback decoder.
+            // Only the latest already-decoded JPEG may survive the backlog.
+            frames.forEachIndexed { index, bitmap ->
+                enqueue.invoke(fixture.view, (index + 1).toLong(), bitmap)
+            }
+            assertTrue(frames.dropLast(1).all { it.isRecycled })
+            assertEquals(-1L, fixture.get("fallbackCompositeFrameId"))
+            main.idle()
+            assertEquals(24L, fixture.get("fallbackCompositeFrameId"))
+            assertSame(frames.last(), fixture.get("fallbackBitmap"))
+            assertFalse(frames.last().isRecycled)
+        } finally {
+            fixture.close()
+            assertTrue(frames.all { it.isRecycled })
+        }
+    }
+
+    @Test fun hidingControllerRecyclesQueuedFallbackBitmapWithoutUiCommit() {
+        val fixture = Fixture()
+        val main = shadowOf(Looper.getMainLooper())
+        val enqueue = InlineRemoteControllerView::class.java.getDeclaredMethod(
+            "enqueueFallbackUiBitmap",
+            java.lang.Long.TYPE,
+            Bitmap::class.java
+        ).apply { isAccessible = true }
+        val image = Bitmap.createBitmap(16, 20, Bitmap.Config.ARGB_8888)
+        try {
+            enqueue.invoke(fixture.view, 7L, image)
+            assertFalse(image.isRecycled)
+            fixture.view.hide()
+            assertTrue("Pending JPEG memory must be freed at session end", image.isRecycled)
+            main.idle()
+            assertEquals(-1L, fixture.get("fallbackCompositeFrameId"))
+            assertNull(fixture.get("fallbackBitmap"))
+        } finally {
+            fixture.close()
+        }
+    }
+
 }
