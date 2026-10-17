@@ -64,7 +64,10 @@ namespace Aaris.World.Editor
 
         public static Mesh Mesh(ArtMesh source, string name)
         {
-            var mesh = new Mesh { name = name, indexFormat = IndexFormat.UInt32 };
+            // Most authored meshes fit 16-bit indices; avoid doubling mobile index-buffer bytes.
+            // Large meshes retain 32-bit indices without truncating vertex references.
+            var indexFormat = source.vertices.Length <= 65535 ? IndexFormat.UInt16 : IndexFormat.UInt32;
+            var mesh = new Mesh { name = name, indexFormat = indexFormat };
             mesh.vertices = source.vertices.Select(v => new Vector3(v.x, v.y, v.z)).ToArray();
             mesh.uv = source.vertices.Select(v => new Vector2(v.u, v.v)).ToArray();
             mesh.colors32 = source.vertices.Select(v => new Color32(v.r, v.g, v.b, 255)).ToArray();
@@ -76,11 +79,19 @@ namespace Aaris.World.Editor
         public static Material GetMaterial(PbrSurface surface)
         {
             if (Materials.TryGetValue(surface.id, out var material)) return material;
-            string shaderName = surface.id == "terrain" ? "Aaris/Biome Terrain" : "Universal Render Pipeline/Lit";
+            string shaderName = surface.id == "terrain" ? "Aaris/Biome Terrain"
+                : surface.pattern == "leaf" ? "Aaris/Procedural Foliage"
+                : "Universal Render Pipeline/Lit";
             var shader = Shader.Find(shaderName);
             if (shader == null) throw new InvalidOperationException("Missing shader: " + shaderName);
             material = new Material(shader) { name = surface.id, enableInstancing = true };
             material.SetColor("_BaseColor", Color.white);
+            if (surface.pattern == "leaf")
+            {
+                // Authoring defaults; wind is visual-only, calculated independently on each GPU.
+                material.SetFloat("_WindStrength", 0.12f);
+                material.SetFloat("_WindSpeed", 0.9f);
+            }
             if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", (float)(1 - surface.roughness));
             if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", (float)surface.metallic);
             var albedo = new Texture2D(resolution, resolution, TextureFormat.RGBA32, true, false) { name = surface.id + "_albedo", wrapMode = TextureWrapMode.Repeat, anisoLevel = 2 };
