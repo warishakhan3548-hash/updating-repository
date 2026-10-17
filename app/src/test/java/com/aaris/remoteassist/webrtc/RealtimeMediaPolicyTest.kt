@@ -93,6 +93,49 @@ class RealtimeMediaPolicyTest {
     }
 
     @Test
+    fun hardwareScreenPathProtectsSevenTwentyClassMotionDetail() {
+        assertEquals(
+            720,
+            RealtimeMediaPolicy.minimumMotionSpatialShortEdge(
+                profileShortEdgePx = 1080,
+                hardwareRealtimeEncoderAvailable = true
+            )
+        )
+        assertEquals(
+            720,
+            RealtimeMediaPolicy.minimumMotionSpatialShortEdge(
+                profileShortEdgePx = 720,
+                hardwareRealtimeEncoderAvailable = true
+            )
+        )
+        assertEquals(
+            540,
+            RealtimeMediaPolicy.minimumMotionSpatialShortEdge(
+                profileShortEdgePx = 540,
+                hardwareRealtimeEncoderAvailable = true
+            )
+        )
+    }
+
+    @Test
+    fun softwareOrLowDetailPathKeepsCompatibilityEscape() {
+        assertEquals(
+            360,
+            RealtimeMediaPolicy.minimumMotionSpatialShortEdge(
+                profileShortEdgePx = 1080,
+                hardwareRealtimeEncoderAvailable = false
+            )
+        )
+        assertEquals(
+            360,
+            RealtimeMediaPolicy.minimumMotionSpatialShortEdge(
+                profileShortEdgePx = 360,
+                hardwareRealtimeEncoderAvailable = true
+            )
+        )
+    }
+
+    @Test
     fun sourceCadenceNeverEscapesTheActiveCaptureProfile() {
         assertEquals(
             20,
