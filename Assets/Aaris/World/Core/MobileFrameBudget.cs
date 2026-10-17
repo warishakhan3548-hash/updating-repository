@@ -33,20 +33,22 @@ namespace Aaris.World
             // Ignore lifecycle stalls, pauses, zero-length and corrupted samples.
             if (double.IsNaN(frameSeconds) || double.IsInfinity(frameSeconds) ||
                 frameSeconds < 0.001 || frameSeconds > 0.5) return false;
-            // 0.5 s time-constant: short scheduling spikes do not immediately change fidelity.
-            double alpha = 1 - Math.Exp(-frameSeconds / 0.5);
-            average = sampled ? average + (frameSeconds - average) * alpha : frameSeconds;
-            sampled = true;
-            sinceChange += frameSeconds;
+            // Winsorize isolated stalls before the moving average. Sustained slow
+            // frames still accumulate, but a single GC hitch cannot downgrade art.
             double budget = 1.0 / TargetFps;
+            double observed = Math.Min(frameSeconds, budget * 2.5);
+            double alpha = 1 - Math.Exp(-observed / 0.5);
+            average = sampled ? average + (observed - average) * alpha : observed;
+            sampled = true;
+            sinceChange += observed;
             if (average > budget * SlowRatio)
             {
-                slowSeconds += frameSeconds;
+                slowSeconds += observed;
                 fastSeconds = 0;
             }
             else if (average <= budget * RecoveryRatio)
             {
-                fastSeconds += frameSeconds;
+                fastSeconds += observed;
                 slowSeconds = 0;
             }
             else
