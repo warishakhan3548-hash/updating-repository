@@ -24,6 +24,7 @@ namespace Aaris.World
     public sealed class MovementSpec
     {
         public double radius = 0.35, height = 1.8, mass = 75;
+        public double crouchHeight = 1.15, crouchSpeed = 2.8;
         public double walkSpeed = 4.5, sprintSpeed = 7.5;
         public double groundAcceleration = 35, airAcceleration = 7;
         public double jumpHeight = 1.2, maxSlope = 48;
@@ -64,6 +65,7 @@ namespace Aaris.World
                 s.maxDynamicBodies < 1 || s.maxDynamicBodies > 64 || s.props.Length + 1 > s.maxDynamicBodies || s.targets.Length > 16)
                 errors.Add("Physics step, gravity and body budgets must be bounded; count the player as a dynamic body.");
             if (!Range(m.radius, 0.2, 0.6) || !Range(m.height, 1, 2.5) || m.height < m.radius * 2 + 0.2 || !Range(m.mass, 40, 150) ||
+                !Range(m.crouchHeight, m.radius * 2 + 0.1, m.height - 0.2) || !Range(m.crouchSpeed, 0.5, m.walkSpeed) ||
                 !Range(m.walkSpeed, 1, 8) || !Range(m.sprintSpeed, m.walkSpeed, 12) || !Range(m.groundAcceleration, 1, 80) ||
                 !Range(m.airAcceleration, 0, m.groundAcceleration) || !Range(m.jumpHeight, 0.2, 2.5) || !Range(m.maxSlope, 1, 55) ||
                 !Range(m.coyoteTime, 0, 0.2) || !Range(m.jumpBuffer, 0, 0.25)) errors.Add("Invalid capsule or movement limits.");
