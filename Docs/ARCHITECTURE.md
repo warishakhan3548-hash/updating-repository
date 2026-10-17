@@ -1,5 +1,9 @@
 # World authoring v2
 
+The tactical presentation dependency/state map is documented in
+[`TACTICAL-UPGRADE.md`](TACTICAL-UPGRADE.md). It connects the existing world source,
+local simulation and read-only minimap without introducing a second map source.
+
 The project uses public large-world engineering principles: stable identities, spatial partitioning, repeatable compilation and explicit performance budgets. This is our implementation; no claim is made to reproduce proprietary PUBG/Free Fire internals.
 
 ## Source and compiled outputs

@@ -91,8 +91,11 @@ namespace Aaris.World
                     x >= w.grid.originX && x <= w.grid.originX + w.grid.sizeX &&
                     v >= w.grid.originZ && v <= w.grid.originZ + w.grid.sizeZ;
                 double shift = Math.Sqrt((z.endX - z.startX) * (z.endX - z.startX) + (z.endZ - z.startZ) * (z.endZ - z.startZ));
-                if (!InWorld(z.startX, z.startZ) || !InWorld(z.endX, z.endZ) ||
+                bool CircleInWorld(double x, double v, double radius) =>
+                    InWorld(x - radius, v - radius) && InWorld(x + radius, v + radius);
+                if (!CircleInWorld(z.startX, z.startZ, z.startRadius) || !CircleInWorld(z.endX, z.endZ, z.endRadius) ||
                     !Range(z.startRadius, 80, 1000) || !Range(z.endRadius, 20, z.startRadius) ||
+                    z.endRadius >= z.startRadius ||
                     !Range(z.waitSeconds, 0, 900) || !Range(z.shrinkSeconds, 30, 1800) ||
                     !Range(z.damagePerSecond, 0.1, 100) ||
                     !WorldValidator.Finite(shift) || shift > z.startRadius - z.endRadius + 1e-8 ||

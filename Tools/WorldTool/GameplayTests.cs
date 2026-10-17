@@ -31,6 +31,8 @@ public static class GameplayTests
         yield return ("battle zone respects capsule margin and outside distance", ZoneDistance);
         yield return ("battle zone rejects unsafe movement and impossible footprints", ZoneBadSettings);
         yield return ("battle zone timeline refuses nonfinite and backward clocks", ZoneBadClock);
+        yield return ("battle zone validator and runtime reject stationary or expanding settings", ZoneShapeSafety);
+        yield return ("battle zone rejects circles crossing world edges", ZoneWorldBounds);
     }
     private static void Assert(bool ok, string message = "Gameplay invariant failed.") { if (!ok) throw new Exception(message); }
     private static void Throws(Action action)
@@ -159,6 +161,25 @@ public static class GameplayTests
         var z = Zone(); Throws(() => BattleZoneTimeline.At(z, -0.1));
         Throws(() => BattleZoneTimeline.At(z, double.NaN));
         Throws(() => BattleZoneTimeline.At(z, double.PositiveInfinity));
+    }
+    private static void ZoneShapeSafety()
+    {
+        var z = Zone(); z.endRadius = -1;
+        Throws(() => BattleZoneTimeline.At(z, 0));
+        z = Zone(); z.endX = 480;
+        Throws(() => BattleZoneTimeline.At(z, 0));
+        var (s, w, a) = Fixture();
+        s.zone = Zone(); s.zone.endX = s.zone.startX; s.zone.endZ = s.zone.startZ;
+        s.zone.endRadius = s.zone.startRadius;
+        Bad(s, w, a); Throws(() => BattleZoneTimeline.At(s.zone, 0));
+    }
+    private static void ZoneWorldBounds()
+    {
+        var (s, w, a) = Fixture(); s.zone = Zone();
+        s.zone.startX = 30; // Centre is in-bounds, but the 490 m circle crosses the east edge.
+        Bad(s, w, a);
+        s.zone = Zone(); s.zone.startZ = -30; // South edge, while the endpoint still nests.
+        Bad(s, w, a);
     }
     private static void StrictSandbox()
     {

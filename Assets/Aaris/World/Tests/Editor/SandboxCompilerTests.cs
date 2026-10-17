@@ -13,6 +13,9 @@ namespace Aaris.World.Tests
             PhysicsSandboxCompiler.Compile(); var spec = PhysicsSandboxCompiler.Read();
             var session = Object.FindFirstObjectByType<SandboxSession>();
             Assert.That(session, Is.Not.Null); Assert.That(session.pawn.input, Is.SameAs(session.input));
+            Assert.That(session.world, Is.Not.Null);
+            Assert.That(session.world.grid.sizeX, Is.GreaterThan(0));
+            Assert.That(session.world.landmarks.Length, Is.GreaterThan(0));
             Assert.That(session.pawn.cameraRig, Is.SameAs(session.cameraRig)); Assert.That(session.weapon.muzzle, Is.Not.Null);
             Assert.That(session.pawn.Body.mass, Is.EqualTo(spec.movement.mass).Within(0.001));
             Assert.That(session.pawn.Body.collisionDetectionMode, Is.EqualTo(CollisionDetectionMode.ContinuousDynamic));

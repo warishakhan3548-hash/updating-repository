@@ -12,9 +12,15 @@ Six natural cover rocks reduce the longest flagged standing-visibility run from 
 
 ## Local gameplay / physics milestone
 
+The tactical presentation upgrade adds a north-up world minimap, compass and
+safe-zone guidance, a clearer safe-area HUD, and an original articulated ranger
+with velocity-driven development animation. Zone shape and world-edge validation
+are consistent with the runtime timeline. [Architecture, research and acceptance
+limits](Docs/TACTICAL-UPGRADE.md).
+
 Native Unity C# now includes a Rigidbody capsule motor, gravity/collision settings, jump/sprint, stable multitouch joystick/swipe controls, camera obstruction, a local hitscan rifle, reload/damage targets and six physical box props. `PhysicsSandboxCompiler` assembles a separate sandbox from the existing map.
 
-**Engine/device acceptance is pending.** The 107 .NET tests validate policies/source, not native physics. Twenty-one Unity integration tests are authored but have not run here. Current character/gun/HUD are development harnesses. Sandbox revision 2 adds a moving/shrinking battle-zone practice loop, outside damage, a boundary and HUD timing; it is not multiplayer. [Gameplay details and remaining gaps](Docs/GAMEPLAY.md).
+**Engine/device acceptance is pending.** The 119 .NET tests validate policies/source, not native physics. Unity integration tests, including character presentation checks, are authored but have not run here. Current character/gun/HUD are development harnesses. Sandbox revision 2 adds a moving/shrinking battle-zone practice loop, outside damage, a boundary and HUD timing; it is not multiplayer. [Gameplay details and remaining gaps](Docs/GAMEPLAY.md).
 
 ## Current world
 

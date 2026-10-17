@@ -6,6 +6,8 @@ namespace Aaris.World
     public sealed class SandboxSession : MonoBehaviour
     {
         public SandboxSpec settings = new SandboxSpec();
+        // Compiled read-only snapshot for tactical presentation; JSON remains the authoring source.
+        public WorldSpec world;
         public PhysicsPawn pawn;
         public PhysicsWeapon weapon;
         public SandboxInput input;

@@ -1,5 +1,10 @@
 # Native Unity physics and local TPS sandbox
 
+The tactical presentation upgrade adds the source-world minimap, heading/zone
+guidance, safe-area HUD and original articulated development character. The
+dependency/state map and acceptance boundary are in
+[`TACTICAL-UPGRADE.md`](TACTICAL-UPGRADE.md).
+
 The map is world revision 3; `Assets/GameData/World/sandbox.json` is a separate revisioned gameplay/physics source (currently r2). Compiling a sandbox reads the existing world and adds the local harness. It never rewrites world JSON or builds an Android player.
 
 ## Implemented code
@@ -28,9 +33,9 @@ Layers 8–11 are reserved for AarisWorld/AarisProp/AarisPlayer/AarisTarget; com
 
 ## Validation boundary
 
-107 .NET core/tool tests cover source safety, budgets, jump timing, touch ownership, ammunition/cadence/reload and all previous world invariants. These tests do not execute Unity, PhysX, input hardware, rendering or actual collision callbacks.
+119 .NET core/tool tests cover source safety, budgets, jump timing, touch ownership, ammunition/cadence/reload, tactical map projection/compass/guidance, zone shape/world-edge safety and all previous world invariants. These tests do not execute Unity, PhysX, input hardware, rendering or actual collision callbacks.
 
-21 Unity EditMode tests are authored: five existing world/render tests, fifteen isolated native physics/combat/camera tests, and one sandbox assembly test. They remain **pending** a licensed Unity runner. Do not call movement, collision, headshots, CCD or frame rate verified from the .NET results. CCD is a mitigation, not a guarantee against tunnelling under arbitrary geometry, scale or speed.
+Unity EditMode tests are authored for world/render behavior, isolated native physics/combat/camera behavior, sandbox assembly and character presentation. They remain **pending** a licensed Unity runner. Do not call movement, collision, headshots, CCD, character poses, UI rendering or frame rate verified from the .NET results. CCD is a mitigation, not a guarantee against tunnelling under arbitrary geometry, scale or speed.
 
 ## Distance from the requested finished battle royale
 
