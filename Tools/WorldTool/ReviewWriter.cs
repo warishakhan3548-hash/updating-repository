@@ -22,6 +22,8 @@ public static class ReviewWriter
             schemaVersion = 1, world = world.id, world.revision, world.seed,
             sourceSha256 = fingerprint, cells = plan.cells.Length, objects = plan.objects.Length,
             blockoutAssets = registry.assets.Count(a => string.IsNullOrEmpty(a.prefabPath)),
+            proceduralDevelopmentAssets = registry.assets.Count(a => a.archetype.Length > 0),
+            design = WorldDesign.Analyze(world, registry),
             peakEstimatedTriangles = plan.cells.Max(c => c.cost.triangles),
             peakEstimatedMaterialSlots = plan.cells.Max(c => c.cost.materialSlots),
             peakEstimatedTextureKiB = plan.cells.Max(c => c.cost.textureKiB),
@@ -47,17 +49,18 @@ public static class ReviewWriter
         sb.Append("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 " + N(width + 128) + " " + N(height + 170) + "\">");
         sb.Append("<rect width=\"100%\" height=\"100%\" fill=\"#111b23\"/><g font-family=\"sans-serif\" fill=\"#e4edf2\">");
         sb.Append("<text x=\"64\" y=\"28\" font-size=\"20\">AARIS / " + E(world.id) + " / r" + world.revision + "</text>");
-        sb.Append("<text x=\"64\" y=\"48\" font-size=\"12\">LAYOUT REVIEW / architectural blockout / N +Z ↑ / grid " + N(g.cellSize) + " m</text>");
+        sb.Append("<text x=\"64\" y=\"48\" font-size=\"12\">WORLD DESIGN REVIEW / N +Z ↑ / grid " + N(g.cellSize) + " m / schematic</text>");
         var terrain = new TerrainSampler(world);
         double tile = Math.Max(g.sizeX, g.sizeZ) / 96;
         for (double z = g.originZ; z < g.originZ + g.sizeZ - 0.001; z += tile)
             for (double x = g.originX; x < g.originX + g.sizeX - 0.001; x += tile)
             {
-                double high = terrain.Height(x, z);
-                int tone = (int)Math.Clamp(55 + high * 3, 35, 150);
+                var tint = WorldGeometry.SurfaceColor(world, terrain, x, z);
                 sb.Append("<rect x=\"" + N(X(x)) + "\" y=\"" + N(Z(Math.Min(z + tile, g.originZ + g.sizeZ))) + "\" width=\"" + N(Math.Min(tile, g.originX + g.sizeX - x) * factor + 0.1) +
-                    "\" height=\"" + N(Math.Min(tile, g.originZ + g.sizeZ - z) * factor + 0.1) + "\" fill=\"rgb(" + (tone - 18) + "," + tone + "," + (tone - 8) + ")\"/>");
+                    "\" height=\"" + N(Math.Min(tile, g.originZ + g.sizeZ - z) * factor + 0.1) + "\" fill=\"rgb(" + tint[0] + "," + tint[1] + "," + tint[2] + ")\"/>");
             }
+        foreach (var lake in world.terrain.lakes)
+            sb.Append("<ellipse cx=\"" + N(X(lake.x)) + "\" cy=\"" + N(Z(lake.z)) + "\" rx=\"" + N(lake.radiusX * factor) + "\" ry=\"" + N(lake.radiusZ * factor) + "\" fill=\"#3b7e8a\" stroke=\"#b1aa7c\" stroke-width=\"3\"/>");
         foreach (var road in world.roads)
         {
             string points = string.Join(" ", road.points.Select(p => N(X(p.x)) + "," + N(Z(p.z))));
@@ -89,7 +92,8 @@ public static class ReviewWriter
             sb.Append("<text x=\"" + N(X(m.x) + 7) + "\" y=\"" + N(Z(m.z)) + "\" font-size=\"9\">" + E(m.id) + "</text>");
         }
         sb.Append("<text x=\"64\" y=\"" + N(height + 95) + "\" font-size=\"12\">" + world.objects.Length + " objects / " + nx * nz + " cells / " + N(g.sizeX) + " × " + N(g.sizeZ) + " m / seed " + world.seed + "</text>");
-        sb.Append("<text x=\"64\" y=\"" + N(height + 116) + "\" font-size=\"11\" fill=\"#a2b4bd\">Terrain + roads + stable object IDs. Schematic authoring view; final art and gameplay are later stages.</text></g></svg>\n");
+        var design = WorldDesign.Analyze(world, registry);
+        sb.Append("<text x=\"64\" y=\"" + N(height + 116) + "\" font-size=\"11\" fill=\"#a2b4bd\">" + design.buildings + " buildings / " + design.trees + " trees / " + world.routes.Length + " reserved routes / " + N(design.buildingFootprintRatio * 100) + "% building footprint</text></g></svg>\n");
         return sb.ToString();
     }
 }

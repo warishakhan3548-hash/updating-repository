@@ -1,0 +1,13 @@
+{
+  "expectedRevision": 2,
+  "start": { "x": -140, "z": 30 },
+  "end": { "x": 160, "z": 30 },
+  "options": {
+    "spacing": 8,
+    "clearanceRadius": 2.5,
+    "maxSlopeDegrees": 25,
+    "slopeWeight": 6,
+    "maxNodes": 70000,
+    "maxExpansions": 50000
+  }
+}

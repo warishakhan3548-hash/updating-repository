@@ -54,5 +54,28 @@ namespace Aaris.World.Tests
             Assert.That(mesh.triangles.Length, Is.EqualTo(6 * segments * segments));
             Assert.That(mesh.normals.All(n => n.y > 0), Is.True);
         }
+
+        [Test]
+        public void RepeatedProceduralAssetsShareMeshesAndKeepThreeLods()
+        {
+            WorldEditor.Compile();
+            var instances = Object.FindObjectsByType<WorldObjectIdentity>(FindObjectsSortMode.None)
+                .Where(o => o.assetId == "courtyard_house").Take(2).ToArray();
+            Assert.That(instances.Length, Is.EqualTo(2));
+            var first = instances[0].GetComponentsInChildren<MeshFilter>(true);
+            var second = instances[1].GetComponentsInChildren<MeshFilter>(true);
+            Assert.That(first.Length, Is.EqualTo(second.Length));
+            for (int i = 0; i < first.Length; i++) Assert.That(first[i].sharedMesh, Is.SameAs(second[i].sharedMesh));
+            Assert.That(instances[0].GetComponent<LODGroup>().GetLODs().Length, Is.EqualTo(3));
+            Assert.That(instances[0].GetComponent<MeshCollider>().sharedMesh, Is.SameAs(instances[1].GetComponent<MeshCollider>().sharedMesh));
+        }
+
+        [Test]
+        public void BiomeShaderImportsWithoutCompilerErrors()
+        {
+            var shader = Shader.Find("Aaris/Biome Terrain");
+            Assert.That(shader, Is.Not.Null);
+            Assert.That(ShaderUtil.ShaderHasError(shader), Is.False);
+        }
     }
 }

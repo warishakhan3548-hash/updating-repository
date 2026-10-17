@@ -1,20 +1,21 @@
-# Milestone 1 status
+# Revision 2 validation status
 
-Implemented: Unity/C# project scaffold; versioned source data; deterministic terrain; stable object/asset IDs; rotated overlap, road clearance and terrain checks; owner/reference cell plans; estimated per-cell budgets; revision-checked moves; schematic review; Unity scene compiler and PNG exporter source; no-APK GitHub checks.
+Implemented: six-district layout; bounded settlement/vegetation density; hill/lake/biome authoring; reserved walking corridors; redundant district connections; sampled cover proximity and slope checks; original procedural architecture/trees/rocks/props; shared templates; three LODs; albedo/normal material generation; URP scene authoring; exact-source offline geometry export; bounded terrain-weighted route proposals with exact endpoints and safe shortcut checks.
 
-Initial world: `Aaris_Highlands`, revision 1, 1024 × 1024 m, 128 m cells, 4 districts, 72 placements and 3 road polylines.
+Current world: 1024 × 1024 m, 64 cells, 375 placements: **55 buildings, 4 towers, 210 trees, 82 boulders and 24 props**. All 72 original placement IDs remain present. Source schema is v2; v1 remains readable.
 
-## Verification performed in the authoring environment
+## Checks performed
 
-- The shared C# core and command tool compiled using .NET SDK 8.0.413's Roslyn compiler against .NET 8 reference assemblies, with code warnings treated as errors.
-- All **38 C# regression/invariant tests passed**.
-- Checked-in sample passed world validation, repeated canonical compilation and the example marker move dry run.
-- The schematic preview and metrics were generated directly from the checked-in source. The PNG in `Docs/Review/` is a rasterized schematic, not a Unity screenshot.
+- **72 C# regression/invariant tests passed** using the actual .NET 8 SDK compiler/runtime: v1 behaviour plus density, connectivity, water restrictions, mesh bounds/indices/degeneracy, LOD counts, doorways, trunk-only tree collision, materials, non-overlapping road junctions and terrain-aware routing (obstacle/water detours, budgets, invalid requests, stable results).
+- Core sources also compile against .NET Standard 2.1 with C# 9, the intended Unity-compatible API/language boundary.
+- The r2 source validates and the marker move dry run passes. Art catalog triangle counts match generated geometry; cell budgets derive procedural geometry costs directly and account for the configured texture resolution.
+- Blender 4.2 CPU Cycles rendered exact C# geometry into overview, Courts and Ridge views. Visual QA found stacked road-strip artifacts; mitered ribbons and polygon subtraction fixed them before the final images were produced.
+- The schematic, data fingerprint and metrics come from checked-in JSON. Offline review images and provenance are saved under `Docs/Review/`; large geometry exports remain disposable.
 
-The local execution environment's process metadata prevented the SDK's normal `dotnet build/run` frontend from starting. Local verification used the SDK's actual C# compiler and .NET runtime directly. Normal `dotnet build/run`, all 38 tests, source validation and review generation subsequently **passed on the GitHub runner**: [verified source run](https://github.com/warishakhan3548-hash/updating-repository/actions/runs/39022488744).
+GitHub's `World source checks (no APK)` workflow compiles the ordinary .NET project, runs all tests, validates source and generates a small review bundle. Its result on the published commit is authoritative for CI status.
 
-## Still requires a Unity runner
+## Unity/device checks pending
 
-Unity import/package resolution, editor compilation, three EditMode integration tests and actual URP perspective rendering have **not been executed locally**. They require Unity 6000.3.26f1 and a valid license, plus a graphics-capable runner for PNG export. Scripts and integration tests are included. No Unity Cloud service was provisioned or billed.
+Actual Unity import, URP shader compilation, **five EditMode integration tests**, editor PNG rendering and target-phone profiling have not run here. They require a licensed Unity editor and a graphics-capable runner. Blender uses different lighting/rendering; its images do not validate Unity behaviour, mobile memory, frame rate or battery usage.
 
-No APK/AAB was built. Runtime streaming/Addressables, LOD/HLOD, final models/textures, mobile controls, player movement, weapons, bots, networking and target-device performance validation are later work. Do not label this foundation as a commercial-ready game.
+No APK/AAB was compiled and no Unity Cloud service was provisioned. This is an authoring review scene. Runtime cell loading/cancellation, Addressables, HLOD, final prefab/texture compression, swimming, final road collision/cut-and-fill, player movement, weapons, bots and multiplayer remain later work. Development art does not establish commercial readiness or superiority to another game's final graphics.

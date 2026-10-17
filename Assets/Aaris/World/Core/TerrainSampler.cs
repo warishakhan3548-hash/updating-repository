@@ -42,6 +42,11 @@ namespace Aaris.World
                 total += weight; frequency *= 2; weight *= 0.5;
             }
             double y = t.baseHeight + t.amplitude * sum / total;
+            foreach (var hill in t.hills)
+            {
+                double dx = (x - hill.x) / hill.radius, dz = (z - hill.z) / hill.radius;
+                y += hill.height * Math.Exp(-2 * (dx * dx + dz * dz));
+            }
             // Pad order is authored and therefore part of deterministic world input.
             foreach (var pad in t.pads)
             {
@@ -49,6 +54,17 @@ namespace Aaris.World
                 double distance = Math.Sqrt(dx * dx + dz * dz);
                 double alpha = 1 - Smooth(Clamp((distance - pad.radius) / pad.blend));
                 y += (pad.height - y) * alpha;
+            }
+            foreach (var lake in t.lakes)
+            {
+                double dx = (x - lake.x) / lake.radiusX, dz = (z - lake.z) / lake.radiusZ;
+                double q = Math.Sqrt(dx * dx + dz * dz);
+                if (q <= 1) y = lake.surfaceY - lake.depth * (1 - q * q * q * q);
+                else if (q < 1 + lake.blend)
+                {
+                    double alpha = Smooth((q - 1) / lake.blend);
+                    y = lake.surfaceY + (y - lake.surfaceY) * alpha;
+                }
             }
             return y;
         }

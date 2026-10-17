@@ -60,6 +60,8 @@ namespace Aaris.World
         {
             var g = world.grid;
             var assets = registry.assets.ToDictionary(a => a.id, StringComparer.Ordinal);
+            var art = registry.assets.Where(a => !string.IsNullOrEmpty(a.archetype) && string.IsNullOrEmpty(a.prefabPath))
+                .ToDictionary(a => a.id, a => ProceduralArt.Create(a, 0), StringComparer.Ordinal);
             var owned = new Dictionary<CellKey, List<string>>();
             var refs = new Dictionary<CellKey, List<string>>();
             int nx = (int)Math.Round(g.sizeX / g.cellSize), nz = (int)Math.Round(g.sizeZ / g.cellSize);
@@ -87,9 +89,19 @@ namespace Aaris.World
                 foreach (var id in refs[key])
                 {
                     var a = assets[source[id].asset];
-                    cost.triangles += a.triangles; cost.materialSlots += a.materialSlots;
-                    cost.colliders += a.colliders; cost.shadowCasters += a.shadowCasters;
-                    if (countedTextures.Add(a.id)) cost.textureKiB += a.textureKiB;
+                    if (art.TryGetValue(a.id, out var generated))
+                    {
+                        cost.triangles += generated.TriangleCount; cost.materialSlots += generated.parts.Length;
+                        cost.colliders += generated.collision.vertices.Length > 0 ? 1 : 0;
+                        cost.shadowCasters += generated.parts.Count(p => p.material != "glass");
+                        if (countedTextures.Add(a.id)) cost.textureKiB += generated.parts.Length * (long)world.visuals.textureResolution * world.visuals.textureResolution * 8 * 4 / 3 / 1024;
+                    }
+                    else
+                    {
+                        cost.triangles += a.triangles; cost.materialSlots += a.materialSlots;
+                        cost.colliders += a.colliders; cost.shadowCasters += a.shadowCasters;
+                        if (countedTextures.Add(a.id)) cost.textureKiB += a.textureKiB;
+                    }
                 }
                 cells.Add(new CellPlan { key = key, ownedObjects = owned[key].ToArray(), references = refs[key].ToArray(), cost = cost });
             }

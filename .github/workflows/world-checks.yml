@@ -49,6 +49,8 @@ jobs:
         run: dotnet run --project Tools/WorldTool --configuration Release --no-build -- validate
       - name: Generate schematic, cell manifest and estimates
         run: dotnet run --project Tools/WorldTool --configuration Release --no-build -- review
+      - name: Exercise terrain-aware route proposal (source unchanged)
+        run: dotnet run --project Tools/WorldTool --configuration Release --no-build -- plan-route Tools/Commands/route-example.json Review/latest/route
       - name: Verify validation did not rewrite source
         run: git diff --exit-code
       - name: Save small review bundle (no player build)

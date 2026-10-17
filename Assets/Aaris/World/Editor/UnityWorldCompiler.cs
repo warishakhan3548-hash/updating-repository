@@ -42,12 +42,13 @@ namespace Aaris.World.Editor
             Directory.CreateDirectory(Generated + "/Meshes");
             Directory.CreateDirectory(Generated + "/Materials");
             AssetDatabase.Refresh();
-            ConfigureProject();
+            ConfigureProject(world);
+            ProceduralArtBuilder.Prepare(registry, world.visuals.textureResolution);
             var assets = registry.assets.ToDictionary(a => a.id, StringComparer.Ordinal);
             var materials = new Dictionary<string, Material>(StringComparer.Ordinal);
             var cells = new Dictionary<CellKey, Transform>();
             var terrain = new TerrainSampler(world);
-            var ground = Material("Terrain", new Color(0.22f, 0.34f, 0.25f));
+            var ground = ProceduralArtBuilder.GetMaterial(new PbrSurface { id = "terrain", color = "#ffffff", pattern = "stone", roughness = 0.95, bump = 0.08 });
             foreach (var cell in plan.cells)
             {
                 var root = new GameObject(cell.key.ToString()).transform;
@@ -72,6 +73,7 @@ namespace Aaris.World.Editor
                     if (prefab == null) throw new InvalidDataException("Missing prefab: " + a.prefabPath);
                     instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
                 }
+                else if (!string.IsNullOrEmpty(a.archetype)) instance = ProceduralArtBuilder.Instantiate(a);
                 else
                 {
                     if (!materials.TryGetValue(a.id, out var material))
@@ -89,12 +91,18 @@ namespace Aaris.World.Editor
                 identity.objectId = o.id; identity.assetId = o.asset;
                 identity.ownerCell = o.owner.ToString(); identity.worldRevision = world.revision;
             }
-            MakeRoads(world, terrain);
+            MakeRoads(world);
+            MakeWater(world);
             var sun = new GameObject("Sun").AddComponent<Light>();
-            sun.type = LightType.Directional; sun.intensity = 1.5f;
-            sun.shadows = LightShadows.Soft; sun.transform.rotation = Quaternion.Euler(48, -35, 0);
-            RenderSettings.ambientMode = AmbientMode.Flat;
-            RenderSettings.ambientLight = new Color(0.45f, 0.52f, 0.62f);
+            sun.type = LightType.Directional; sun.intensity = (float)world.visuals.sunIntensity;
+            sun.shadows = LightShadows.Soft; sun.transform.rotation = Quaternion.Euler((float)world.visuals.sunPitch, (float)world.visuals.sunYaw, 0);
+            RenderSettings.ambientMode = AmbientMode.Trilight;
+            RenderSettings.ambientSkyColor = new Color(0.55f, 0.65f, 0.78f);
+            RenderSettings.ambientEquatorColor = new Color(0.4f, 0.43f, 0.36f);
+            RenderSettings.ambientGroundColor = new Color(0.24f, 0.25f, 0.2f);
+            RenderSettings.fog = true; RenderSettings.fogMode = FogMode.Exponential;
+            RenderSettings.fogDensity = (float)world.visuals.fogDensity;
+            ColorUtility.TryParseHtmlString(world.visuals.fogColor, out var fogColor); RenderSettings.fogColor = fogColor;
             var skyShader = Shader.Find("Skybox/Procedural");
             if (skyShader != null)
             {
@@ -112,15 +120,17 @@ namespace Aaris.World.Editor
             Debug.Log("Compiled " + plan.objects.Length + " placements in " + plan.cells.Length + " cell groups. Full review scene only; runtime streaming and Android builds are not run.");
         }
 
-        private static void ConfigureProject()
+        private static void ConfigureProject(WorldSpec world)
         {
             EditorSettings.serializationMode = SerializationMode.ForceText;
             PlayerSettings.colorSpace = ColorSpace.Linear;
             var renderer = ScriptableObject.CreateInstance<UniversalRendererData>();
             AssetDatabase.CreateAsset(renderer, Generated + "/Renderer.asset");
             var pipeline = UniversalRenderPipelineAsset.Create(renderer);
-            pipeline.msaaSampleCount = 2; pipeline.shadowDistance = 100; pipeline.renderScale = 1;
+            pipeline.msaaSampleCount = 2; pipeline.shadowDistance = (float)world.visuals.shadowDistance; pipeline.renderScale = 1;
             pipeline.supportsHDR = false;
+            pipeline.shadowCascadeCount = 2;
+            GraphicsSettings.useScriptableRenderPipelineBatching = true;
             AssetDatabase.CreateAsset(pipeline, Generated + "/MobileURP.asset");
             GraphicsSettings.defaultRenderPipeline = pipeline;
             QualitySettings.renderPipeline = pipeline;
@@ -142,24 +152,9 @@ namespace Aaris.World.Editor
             float step = (float)world.terrain.gridSpacing;
             double minX = world.grid.originX + key.x * world.grid.cellSize;
             double minZ = world.grid.originZ + key.z * world.grid.cellSize;
-            var vertices = new Vector3[side * side]; var uv = new Vector2[vertices.Length];
-            for (int z = 0; z <= n; z++)
-                for (int x = 0; x <= n; x++)
-                {
-                    vertices[z * side + x] = new Vector3(x * step, (float)terrain.VertexHeight(minX + x * step, minZ + z * step), z * step);
-                    uv[z * side + x] = new Vector2((float)(minX + x * step) / 32, (float)(minZ + z * step) / 32);
-                }
-            var triangles = new int[n * n * 6]; int cursor = 0;
-            for (int z = 0; z < n; z++)
-                for (int x = 0; x < n; x++)
-                {
-                    int a = z * side + x, b = a + 1, c = a + side, d = c + 1;
-                    triangles[cursor++] = a; triangles[cursor++] = c; triangles[cursor++] = b;
-                    triangles[cursor++] = b; triangles[cursor++] = c; triangles[cursor++] = d;
-                }
-            var mesh = new Mesh { name = key.ToString(), vertices = vertices, uv = uv, triangles = triangles };
+            var mesh = ProceduralArtBuilder.Mesh(WorldGeometry.Terrain(world, key), key.ToString());
             // Use global height gradients so normals agree on opposite sides of a cell seam.
-            var normals = new Vector3[vertices.Length];
+            var normals = new Vector3[side * side];
             for (int z = 0; z <= n; z++)
                 for (int x = 0; x <= n; x++)
                 {
@@ -168,38 +163,32 @@ namespace Aaris.World.Editor
                     float dz = (float)(terrain.VertexHeight(wx, wz + 0.25) - terrain.VertexHeight(wx, wz - 0.25));
                     normals[z * side + x] = new Vector3(-dx, 0.5f, -dz).normalized;
                 }
-            mesh.normals = normals; mesh.RecalculateBounds(); return mesh;
+            mesh.normals = normals; mesh.RecalculateTangents(); return mesh;
         }
 
-        private static void MakeRoads(WorldSpec world, TerrainSampler terrain)
+        private static void MakeRoads(WorldSpec world)
         {
             var root = new GameObject("Roads - review surfaces only").transform;
-            var material = Material("Road", new Color(0.25f, 0.28f, 0.29f));
-            foreach (var road in world.roads)
+            var material = ProceduralArtBuilder.GetMaterial(new PbrSurface { id = "road", color = "#77766a", pattern = "stone", roughness = 0.9, bump = 0.05 });
             {
-                var vertices = new List<Vector3>(); var triangles = new List<int>();
-                for (int i = 1; i < road.points.Length; i++)
-                {
-                    var a = road.points[i - 1]; var b = road.points[i];
-                    double dx = b.x - a.x, dz = b.z - a.z, length = Math.Sqrt(dx * dx + dz * dz);
-                    int count = Math.Max(1, (int)Math.Ceiling(length / world.terrain.gridSpacing));
-                    double ox = -dz / length * road.width * 0.5, oz = dx / length * road.width * 0.5;
-                    for (int j = 0; j < count; j++)
-                    {
-                        double u = (double)j / count, v = (double)(j + 1) / count;
-                        int start = vertices.Count;
-                        foreach (var p in new[] { new Point2(a.x + dx * u - ox, a.z + dz * u - oz), new Point2(a.x + dx * u + ox, a.z + dz * u + oz),
-                            new Point2(a.x + dx * v - ox, a.z + dz * v - oz), new Point2(a.x + dx * v + ox, a.z + dz * v + oz) })
-                            vertices.Add(new Vector3((float)p.x, (float)terrain.Height(p.x, p.z) + 0.08f, (float)p.z));
-                        triangles.AddRange(new[] { start, start + 1, start + 2, start + 1, start + 3, start + 2 });
-                    }
-                }
-                var mesh = new Mesh { name = road.id, indexFormat = IndexFormat.UInt32, vertices = vertices.ToArray(), triangles = triangles.ToArray() };
-                mesh.RecalculateNormals(); mesh.RecalculateBounds();
-                AssetDatabase.CreateAsset(mesh, Generated + "/Meshes/" + road.id + ".asset");
-                var go = new GameObject(road.id); go.transform.SetParent(root, false);
+                var mesh = ProceduralArtBuilder.Mesh(RoadSurface.Network(world), "RoadNetwork");
+                AssetDatabase.CreateAsset(mesh, Generated + "/Meshes/RoadNetwork.asset");
+                var go = new GameObject("Merged road junction surface"); go.transform.SetParent(root, false);
                 go.AddComponent<MeshFilter>().sharedMesh = mesh; go.AddComponent<MeshRenderer>().sharedMaterial = material;
                 // Terrain remains the collider: road cut/fill, junctions and final collision are a later stage.
+            }
+        }
+
+        private static void MakeWater(WorldSpec world)
+        {
+            var material = ProceduralArtBuilder.GetMaterial(new PbrSurface { id = "water", color = "#386a70", pattern = "plain", roughness = 0.16, metallic = 0.15, bump = 0 });
+            foreach (var lake in world.terrain.lakes)
+            {
+                var mesh = ProceduralArtBuilder.Mesh(WorldGeometry.Water(lake), lake.id);
+                AssetDatabase.CreateAsset(mesh, Generated + "/Meshes/" + lake.id + ".asset");
+                var go = new GameObject(lake.id + " - visual water; swimming not implemented");
+                go.AddComponent<MeshFilter>().sharedMesh = mesh;
+                go.AddComponent<MeshRenderer>().sharedMaterial = material;
             }
         }
     }

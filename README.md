@@ -1,49 +1,70 @@
-# Aaris World Foundation
+# Aaris Highlands — world authoring v2
 
-Unity **6000.3.26f1 LTS** / C# / URP **17.3.0**. First milestone: an original, editable 3D world source and the tools to change and review it without rebuilding Android.
+Original Unity **6000.3.26f1** / C# / URP **17.3.0** mobile-world authoring. Map edits, review rendering and Android player builds remain separate.
 
-**भाई, अभी हर बदलाव पर APK नहीं बनेगा।** Map data और C# में काम होगा; checks और map review अलग हैं। Android build इस step में जोड़ा या चलाया नहीं गया है।
+**हर map edit पर APK नहीं बनेगा।** Source data और C# बदलते हैं; checks और previews अलग चलते हैं। Automatic Android player build इस repository में नहीं है।
 
-## What exists now
+## Current world
 
-- A 1024 × 1024 m original Highlands layout: 64 cells, 4 named districts, 72 placements, roads, terrain pads and target markers.
-- Engine-independent C# terrain sampler, rotated placement checks, cross-cell references and conservative authoring budgets.
-- Stable IDs and revision-checked move commands, with validation before applying edits.
-- Unity editor compiler for terrain meshes, modular architectural blockouts, prefab placements, URP lighting and a review scene.
-- APK-free schematic/manifest generation and a separate Unity perspective PNG exporter.
-- A small GitHub workflow that compiles/tests the C# authoring tool and produces a short-lived review bundle. It does not start Unity or make an APK.
+| Feature | Revision 2 |
+| --- | --- |
+| Terrain | 1024 × 1024 m, 64 cells, 4 m mesh spacing, hills and lake |
+| Settlements | 6 districts, 55 buildings and 4 lookout towers |
+| Environment | 210 trees, 82 boulders and 24 cover props; 375 placements total |
+| Traversal | 8 reserved routes, 2–3 distinct neighbours per district, redundant route graph |
+| Density | At most 9 building anchors in a cell; building footprints occupy 1.23% of the world |
+| Art | 13 original procedural development asset types, shared meshes/materials, 3 LODs |
 
-![Schematic world layout, not a Unity render](Docs/Review/map-layout.png)
+![World layout schematic](Docs/Review/map-layout.png)
 
-These are architectural blockouts for layout review. Final art, a playable character, guns and multiplayer are later milestones. This is not a finished commercial game. Actual Unity compilation/rendering still requires a licensed Unity runner; GitHub repository access does not provide one automatically.
+## 3D geometry reviews
 
-## Authoring commands
+These images render the **same C# geometry and material data** in Blender 4.2 CPU Cycles. They are offline art/layout reviews, **not Unity frames or proof of mobile performance**. The art is stylized development art; final production art and device validation remain separate work.
 
-Run from the repository root with .NET 8:
+![World geometry overview](Docs/Review/world-perspective.jpg)
+![Saffron Courts geometry review](Docs/Review/courts-perspective.jpg)
+
+[Ridge Station review](Docs/Review/ridge-perspective.jpg) · [Terrain-aware route proposal](Docs/Review/route-proposal.png) · [Authoring metrics](Docs/Review/metrics.json) · [Research and design decisions](Docs/RESEARCH.md)
+
+## Checks and rendering
+
+Stable IDs and revision guards protect edits. Validation checks rotated footprints, slope/relief, roads and water. Design rules constrain district populations, building/canopy density, countryside construction, route connectivity and walking corridors. Cover metrics sample **distance to nearby authored cover**, not line-of-sight protection or proven combat balance.
+
+The Unity compiler generates shared native meshes, PBR material/normal textures, window/door geometry, three LODs, fixed collision meshes, biome-tinted terrain, merged road junctions, sky, sun and fog. Actual shader compilation/Unity behaviour require a licensed Unity runner. The generated review scene is fully loaded; runtime streaming/Addressables and HLOD are not implemented yet.
+
+## Commands
+
+With .NET 8, from the repository root:
 
 ```bash
 dotnet run --project Tools/WorldTool -- self-test
 dotnet run --project Tools/WorldTool -- validate
 dotnet run --project Tools/WorldTool -- review
 dotnet run --project Tools/WorldTool -- move Tools/Commands/move-example.json
+dotnet run --project Tools/WorldTool -- plan-route Tools/Commands/route-example.json
 ```
 
-The example is a **dry run**: `BLD_COURTS_001` → `M001`. Add `--apply` to change source after validation. It increments the revision; adjust subsequent commands to the new revision. Invalid, ambiguous, overlapping or stale moves fail without changing the world. Commit the accepted source to preserve it; no Android build is required.
+The route command writes a fingerprinted JSON/SVG proposal under `Review/route/`, avoiding water, conservative object footprints and sampled steep slopes. It never rewrites the world. Review a route before promoting it; this is not runtime navigation.
 
-`Review/latest/` contains `top-view.svg`, `world-plan.json`, `metrics.json` and a README with the exact source hash. The schematic is a layout tool; it is not an engine screenshot. Checked-in `Docs/Review/` is the initial reviewed snapshot and must be regenerated when source changes.
+The move example is a dry run. `--apply` writes a validated edit and increments the revision. Update subsequent commands to the current revision. `world.json` and `assets.json` are editable source; generated Unity files are disposable.
 
-## Unity authoring
+Export exact procedural geometry for offline inspection:
 
-Open the root as a Unity project, restore pinned packages and use **Aaris → World**. The same entry points can run on a licensed cloud editor:
+```bash
+dotnet run --project Tools/WorldTool -- export-geometry
+blender -b --factory-startup -t 8 --python Tools/render_geometry.py -- \
+  --scene Review/geometry/scene.json --output Review/offline --samples 24
+```
+
+The one-time `prepare-highlands-v2` command generated a reviewed proposal from r1. It refuses to regenerate r2 or overwrite later hand edits. It is never invoked automatically.
+
+For a licensed Unity editor:
 
 ```bash
 export UNITY_EDITOR=/path/to/Unity
 bash Tools/unity-review.sh compile
 bash Tools/unity-review.sh test
-# A graphics runner is required; on Linux, for example:
 xvfb-run -a bash Tools/unity-review.sh render
 ```
 
-These commands produce generated scene assets, EditMode results or PNGs, never a player build. `Assets/Generated/` and `Review/` are disposable outputs. The editor asks to save unsaved work before replacing the active scene.
-
-Read [architecture](Docs/ARCHITECTURE.md), [current validation status](Docs/STATUS.md), and [asset contract](Docs/ASSETS.md) before adding systems.
+These authoring commands do not build an APK. See [architecture](Docs/ARCHITECTURE.md), [validation status](Docs/STATUS.md) and [asset contract](Docs/ASSETS.md).

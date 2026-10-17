@@ -4,7 +4,7 @@ using Aaris.World;
 try
 {
     if (args.Length == 0)
-        throw new ArgumentException("Commands: validate [--production], review [output-directory], move request.json [--apply], self-test. Run from repository root.");
+        throw new ArgumentException("Commands: validate [--production], review [directory], move request.json [--apply], plan-route request.json [directory], export-geometry [directory], prepare-highlands-v2, self-test. Run from repository root.");
     if (args[0] == "self-test")
     {
         if (args.Length != 1) throw new ArgumentException("self-test takes no arguments.");
@@ -14,6 +14,28 @@ try
     var assets = WorldFiles.Read<AssetRegistry>(WorldFiles.RegistryPath);
     switch (args[0])
     {
+        case "plan-route":
+        {
+            if (args.Length < 2 || args.Length > 3) throw new ArgumentException("plan-route request.json [directory]");
+            RouteCommand.Write(world, assets, WorldFiles.Read<RouteRequest>(args[1]), args.Length == 3 ? args[2] : "Review/route");
+            return 0;
+        }
+        case "export-geometry":
+        {
+            if (args.Length > 2) throw new ArgumentException("export-geometry [directory]");
+            GeometryExporter.Write(world, assets, args.Length == 2 ? args[1] : "Review/geometry");
+            return 0;
+        }
+        case "prepare-highlands-v2":
+        {
+            if (args.Length != 1) throw new ArgumentException("prepare-highlands-v2 takes no arguments and only writes a proposal.");
+            var proposal = HighlandsRecipe.Create(world);
+            Directory.CreateDirectory("Review/proposal");
+            File.WriteAllText("Review/proposal/world.json", WorldFiles.Serialize(proposal.world));
+            File.WriteAllText("Review/proposal/assets.json", WorldFiles.Serialize(proposal.assets));
+            Console.WriteLine("Validated v2 proposal saved. Current source was not rewritten. Review and promote both JSON files together.");
+            return 0;
+        }
         case "validate":
         {
             if (args.Length > 2 || (args.Length == 2 && args[1] != "--production")) throw new ArgumentException("validate [--production]");

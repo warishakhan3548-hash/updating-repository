@@ -19,6 +19,10 @@ namespace Aaris.World
         public LandmarkSpec[] landmarks = Array.Empty<LandmarkSpec>();
         public MarkerSpec[] markers = Array.Empty<MarkerSpec>();
         public ObjectSpec[] objects = Array.Empty<ObjectSpec>();
+        public BiomeSpec[] biomes = Array.Empty<BiomeSpec>();
+        public RouteSpec[] routes = Array.Empty<RouteSpec>();
+        public DesignSpec design = new DesignSpec();
+        public VisualSpec visuals = new VisualSpec();
     }
 
     [Serializable]
@@ -40,6 +44,8 @@ namespace Aaris.World
         public int octaves = 3;
         public double gridSpacing = 8;
         public TerrainPad[] pads = Array.Empty<TerrainPad>();
+        public HillSpec[] hills = Array.Empty<HillSpec>();
+        public LakeSpec[] lakes = Array.Empty<LakeSpec>();
     }
 
     [Serializable]
@@ -97,6 +103,9 @@ namespace Aaris.World
         public double x;
         public double z;
         public double radius = 60;
+        public int minBuildings;
+        public int maxBuildings = 100;
+        public int minApproaches;
     }
 
     [Serializable]
@@ -151,5 +160,84 @@ namespace Aaris.World
         public long textureKiB = 0;
         public long colliders = 1;
         public long shadowCasters = 1;
+        // Empty preserves v1 blockouts. A v2 archetype is original procedural development art.
+        public string archetype = "";
+        public string roofColor = "#874b35";
+        public bool providesCover;
+        public int artSeed = 1701;
+    }
+
+    [Serializable]
+    public sealed class HillSpec
+    {
+        public double x;
+        public double z;
+        public double radius = 100;
+        public double height = 25;
+    }
+
+    [Serializable]
+    public sealed class LakeSpec
+    {
+        public string id = "";
+        public double x;
+        public double z;
+        public double radiusX = 70;
+        public double radiusZ = 45;
+        public double surfaceY = 4;
+        public double depth = 5;
+        public double blend = 0.5;
+    }
+
+    [Serializable]
+    public sealed class BiomeSpec
+    {
+        public string id = "";
+        public string kind = "meadow";
+        public double x;
+        public double z;
+        public double radiusX = 100;
+        public double radiusZ = 100;
+        public string color = "#7d935b";
+        public int minTrees;
+        public int maxTrees = 100;
+    }
+
+    [Serializable]
+    public sealed class RouteSpec
+    {
+        public string id = "";
+        public string from = "";
+        public string to = "";
+        public Point2[] points = Array.Empty<Point2>();
+        public double width = 4;
+        public double maxCoverGap = 65;
+        public double coverSearchRadius = 26;
+        public double maxSlopeDegrees = 25;
+    }
+
+    [Serializable]
+    public sealed class DesignSpec
+    {
+        public bool enabled;
+        public int maxTotalBuildings = 100;
+        public int maxBuildingsPerCell = 12;
+        public int maxTreesPerCell = 36;
+        public double maxCellFootprintRatio = 0.3;
+        public double maxWorldBuildingRatio = 0.06;
+        public double minLandmarkSeparation = 120;
+        public bool requireRedundantRoutes = true;
+    }
+
+    [Serializable]
+    public sealed class VisualSpec
+    {
+        public double sunYaw = -35;
+        public double sunPitch = 42;
+        public double sunIntensity = 1.5;
+        public double shadowDistance = 110;
+        public double fogDensity = 0.0007;
+        public string fogColor = "#aabeca";
+        public int textureResolution = 128;
     }
 }

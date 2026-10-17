@@ -1,0 +1,49 @@
+{
+  "world": "Aaris_Highlands",
+  "revision": 2,
+  "sourceSha256": "382a9e022a78582b5482893a9e07cf7ffb95c67f3ba7809399fa7bbad53279e8",
+  "request": {
+    "expectedRevision": 2,
+    "start": {
+      "x": -140,
+      "z": 30
+    },
+    "end": {
+      "x": 160,
+      "z": 30
+    },
+    "options": {
+      "spacing": 8,
+      "clearanceRadius": 2.5,
+      "maxSlopeDegrees": 25,
+      "slopeWeight": 6,
+      "maxNodes": 70000,
+      "maxExpansions": 50000
+    }
+  },
+  "proposal": {
+    "points": [
+      {
+        "x": -140,
+        "z": 30
+      },
+      {
+        "x": -24,
+        "z": 104
+      },
+      {
+        "x": 88,
+        "z": 104
+      },
+      {
+        "x": 160,
+        "z": 30
+      }
+    ],
+    "expandedNodes": 811,
+    "length": 352.8408804956574,
+    "weightedCost": 435.27446268455503,
+    "maxSampledSlope": 11.19825381505987
+  },
+  "scope": "Outdoor authoring proposal. Continuous conservative footprint/water clearance, sampled centreline slope. Not NavMesh, vehicle suitability or approved combat balance. Source unchanged."
+}

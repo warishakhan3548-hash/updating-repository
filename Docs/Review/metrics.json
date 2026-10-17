@@ -1,15 +1,107 @@
 {
   "schemaVersion": 1,
   "world": "Aaris_Highlands",
-  "revision": 1,
+  "revision": 2,
   "seed": 1701,
-  "sourceSha256": "3f8e3c8321618ee0c438f106279881c447c4f8b9c4a945a6c3e90047555b3efd",
+  "sourceSha256": "382a9e022a78582b5482893a9e07cf7ffb95c67f3ba7809399fa7bbad53279e8",
   "cells": 64,
-  "objects": 72,
-  "blockoutAssets": 7,
-  "peakEstimatedTriangles": 5192,
-  "peakEstimatedMaterialSlots": 7,
-  "peakEstimatedTextureKiB": 0,
-  "peakEstimatedColliders": 85,
+  "objects": 375,
+  "blockoutAssets": 13,
+  "proceduralDevelopmentAssets": 13,
+  "design": {
+    "buildings": 55,
+    "trees": 210,
+    "coverObjects": 161,
+    "buildingFootprintRatio": 0.012270927429199219,
+    "peakCellBuildings": 9,
+    "peakCellTrees": 15,
+    "peakCellFootprintRatio": 0.188641357421875,
+    "districts": [
+      {
+        "id": "POI_COURTS",
+        "buildings": 14,
+        "approaches": 3
+      },
+      {
+        "id": "POI_FOUNDRY",
+        "buildings": 9,
+        "approaches": 3
+      },
+      {
+        "id": "POI_STATION",
+        "buildings": 8,
+        "approaches": 3
+      },
+      {
+        "id": "POI_DEPOT",
+        "buildings": 10,
+        "approaches": 2
+      },
+      {
+        "id": "POI_WILLOW",
+        "buildings": 8,
+        "approaches": 3
+      },
+      {
+        "id": "POI_QUARRY",
+        "buildings": 6,
+        "approaches": 2
+      }
+    ],
+    "routes": [
+      {
+        "id": "PATH_CF",
+        "length": 563.7135981431674,
+        "longestUncoveredMetres": 0,
+        "steepestSlopeDegrees": 7.165318501470898
+      },
+      {
+        "id": "PATH_FQ",
+        "length": 280.6015252651161,
+        "longestUncoveredMetres": 0,
+        "steepestSlopeDegrees": 14.694859407412308
+      },
+      {
+        "id": "PATH_QD",
+        "length": 255.93696079597598,
+        "longestUncoveredMetres": 0,
+        "steepestSlopeDegrees": 7.2595974323199375
+      },
+      {
+        "id": "PATH_DR",
+        "length": 581.2807089097719,
+        "longestUncoveredMetres": 0,
+        "steepestSlopeDegrees": 13.483286185948156
+      },
+      {
+        "id": "PATH_RW",
+        "length": 287.090365641527,
+        "longestUncoveredMetres": 0,
+        "steepestSlopeDegrees": 24.671843053350067
+      },
+      {
+        "id": "PATH_WC",
+        "length": 287.2013404866424,
+        "longestUncoveredMetres": 0,
+        "steepestSlopeDegrees": 8.975669317807204
+      },
+      {
+        "id": "PATH_WF",
+        "length": 667.9047823780908,
+        "longestUncoveredMetres": 0,
+        "steepestSlopeDegrees": 11.092412427991164
+      },
+      {
+        "id": "PATH_CR",
+        "length": 569.1518140711823,
+        "longestUncoveredMetres": 0,
+        "steepestSlopeDegrees": 15.397560624489344
+      }
+    ]
+  },
+  "peakEstimatedTriangles": 19344,
+  "peakEstimatedMaterialSlots": 84,
+  "peakEstimatedTextureKiB": 11603,
+  "peakEstimatedColliders": 28,
   "estimateScope": "Static placement references and terrain only. Not runtime memory, batching, GPU time or draw calls. Roads, effects and dynamic actors require profiling."
 }

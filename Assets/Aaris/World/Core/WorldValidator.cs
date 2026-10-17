@@ -30,8 +30,8 @@ namespace Aaris.World
             bool Id(string id) { return id != null && IdPattern.IsMatch(id); }
             if (world == null || registry == null)
             { Error("MISSING_DOCUMENT", "world", "World and asset registry are required."); return errors; }
-            if (world.schemaVersion != 1 || registry.schemaVersion != 1)
-                Error("SCHEMA_VERSION", "world", "Only schemaVersion 1 is supported; migrate explicitly.");
+            if ((world.schemaVersion != 1 && world.schemaVersion != 2) || (registry.schemaVersion != 1 && registry.schemaVersion != 2))
+                Error("SCHEMA_VERSION", "world", "Only schema versions 1 and 2 are supported.");
             if (!Id(world.id) || world.revision < 1) Error("WORLD_ID", "world", "Use a stable ID and a positive revision.");
             if (world.grid == null || world.terrain == null || world.budget == null || world.streaming == null ||
                 world.objects == null || world.roads == null || world.landmarks == null || world.markers == null || registry.assets == null)
@@ -56,6 +56,8 @@ namespace Aaris.World
             if (world.objects.Length > 20000 || registry.assets.Length > 2048 || world.roads.Length > 1024 || world.markers.Length > 4096 || world.landmarks.Length > 1024)
                 Error("AUTHORING_LIMIT", world.id, "Split this world before exceeding authoring limits.");
             if (errors.Count > 0) return errors;
+            errors.AddRange(WorldDesign.ValidateDefinitions(world, registry));
+            if (errors.Count > 0) return errors;
 
             foreach (var pad in t.pads)
                 if (pad == null || !Finite(pad.x, pad.z, pad.height, pad.radius, pad.blend) || pad.radius <= 0 || pad.blend <= 0 ||
@@ -79,7 +81,7 @@ namespace Aaris.World
                     (!a.prefabPath.StartsWith("Assets/Art/", StringComparison.Ordinal) || !a.prefabPath.EndsWith(".prefab", StringComparison.Ordinal) ||
                      a.prefabPath.Contains("..") || a.prefabPath.Contains("\\") || a.prefabPath.Contains(":"))))
                     Error("ASSET_PATH", a.id, "Prefab paths must stay below Assets/Art and end in .prefab.");
-                if (a.previewShape != "building" && a.previewShape != "tower" && a.previewShape != "rock" && a.previewShape != "tree")
+                if (a.previewShape != "building" && a.previewShape != "tower" && a.previewShape != "rock" && a.previewShape != "tree" && a.previewShape != "cover")
                     Error("PREVIEW_SHAPE", a.id, "Unsupported blockout shape.");
                 if (a.color == null || !ColorPattern.IsMatch(a.color) || string.IsNullOrWhiteSpace(a.source) || string.IsNullOrWhiteSpace(a.license))
                     Error("ASSET_METADATA", a.id, "Color, provenance and license are required.");
@@ -141,6 +143,8 @@ namespace Aaris.World
                 var asset = assets[o.asset];
                 var footprint = Geometry.Footprint(o, asset);
                 var padded = Geometry.Footprint(o, asset, asset.clearance * 0.5);
+                foreach (var lake in t.lakes)
+                    if (WorldDesign.IntersectsLake(footprint, lake)) Error("WATER_PLACEMENT", o.id, "Footprint intersects reserved water/shoreline " + lake.id + ".");
                 if (footprint.Any(p => !Inside(g, p.x, p.z))) Error("OUT_OF_BOUNDS", o.id, "Rotated footprint crosses the world boundary.");
                 var probes = new List<Point2> { new Point2(o.x, o.z) };
                 // Sample interiors as well as corners so a large foundation cannot hide a hill.
@@ -177,6 +181,8 @@ namespace Aaris.World
                     footprints.Add(o.id, padded);
                 }
             }
+            if (errors.Count > 0) return errors;
+            errors.AddRange(WorldDesign.CheckLayout(world, registry));
             if (errors.Count > 0) return errors;
             var plan = WorldCompiler.CompileValidated(world, registry);
             foreach (var cell in plan.cells)
