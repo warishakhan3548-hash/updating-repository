@@ -33,7 +33,11 @@ namespace Aaris.World
             foreach (var biome in w.biomes)
             {
                 double q = Math.Pow((x - biome.x) / biome.radiusX, 2) + Math.Pow((z - biome.z) / biome.radiusZ, 2);
-                double weight = Math.Max(0, Math.Min(1, 2 - q));
+                // Compact-support cubic blend; no biome tint outside the authored ellipse.
+                double radius = Math.Sqrt(q);
+                if (radius >= 1.0) continue;
+                double fade = Math.Max(0, Math.Min(1, (1.0 - radius) / 0.3));
+                double weight = fade * fade * (3 - 2 * fade) * 0.88;
                 for (int i = 0; i < 3; i++) color[i] += (Convert.ToInt32(biome.color.Substring(1 + i * 2, 2), 16) - color[i]) * weight;
             }
             double rock = Math.Max(0, Math.Min(0.85, (terrain.SlopeDegrees(x, z) - 18) / 22));
