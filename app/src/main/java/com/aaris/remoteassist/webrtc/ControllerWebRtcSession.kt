@@ -797,9 +797,9 @@ class ControllerWebRtcSession(
 
     /**
      * Called from EglRenderer's render thread after a real buffer swap.
-     * The synchronized tracker does O(1) work and normally returns null. Only
-     * when an authoritative applied-input probe completes do we hop to the
-     * main/session lane and emit one tiny freshness telemetry packet.
+     * The common no-input path is lock-free and allocation-free. Only when an
+     * authoritative applied-input probe completes do we hop to the main/session
+     * lane, record rolling diagnostics, and emit one tiny freshness packet.
      */
     fun onFramePresented(presentedAtMs: Long) {
         val sample = inputToGlass.onPresented(presentedAtMs) ?: return
@@ -814,6 +814,9 @@ class ControllerWebRtcSession(
             ) {
                 return@post
             }
+
+            // Rolling percentile history is not allowed to contend with EGL.
+            inputToGlass.record(sample)
 
             peer.sendTelemetry(
                 bytes =
