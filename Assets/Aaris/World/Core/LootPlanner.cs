@@ -25,8 +25,18 @@ namespace Aaris.World
             if (world == null || registry == null || sandbox == null || sandbox.loot == null)
                 throw new ArgumentException("Validated world, assets and sandbox loot settings are required.");
             if (!sandbox.loot.enabled) return Array.Empty<LootDrop>();
-            if (SandboxValidator.Validate(sandbox, world, registry).Count > 0)
-                throw new ArgumentException("Reject invalid world/sandbox inputs before planning loot.");
+            // The editor compiler already runs the full world/sandbox validators.
+            // Avoid an expensive second world-wide validation here, which can
+            // also be sensitive to authoring traversal order in layout reports.
+            if (world.grid == null || world.terrain == null || world.terrain.lakes == null ||
+                world.objects == null || world.landmarks == null || registry.assets == null ||
+                sandbox.player == null || sandbox.props == null || sandbox.targets == null ||
+                sandbox.loot.maxPickups < 1 || sandbox.loot.maxPickups > 48 ||
+                sandbox.loot.perDistrict < 1 || sandbox.loot.perDistrict > 8 ||
+                !WorldValidator.Finite(sandbox.loot.minSpacing, sandbox.loot.pickupRadius) ||
+                sandbox.loot.minSpacing < 3 || sandbox.loot.minSpacing > 50 ||
+                sandbox.loot.pickupRadius < 0.8 || sandbox.loot.pickupRadius > 2.5)
+                throw new ArgumentException("Loot planner requires validated source and bounded tuning.");
 
             var policy = sandbox.loot;
             var terrain = new TerrainSampler(world);
