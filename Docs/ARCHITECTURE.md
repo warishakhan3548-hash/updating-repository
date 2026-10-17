@@ -89,3 +89,9 @@ Requests carry the current world revision; results carry a source fingerprint. M
 ## Revision 3 collision/visibility audit
 
 Six natural cover placements were accepted using sampled static collision visibility, with all pre-existing object transforms preserved. A bounded median BVH is shared C# authoring code, not a runtime PhysX substitute. Closed roof collision panels preserve the visible geometry. Timestamped input pulses, touch-owner pruning, camera overlap/backward-shot guards and bounded prop recovery address failure paths in the local sandbox. See `AUDIT.md` for measured review values and the engine acceptance boundary.
+
+## Environment material refinement (dependent draft)
+
+The terrain tint replaces visible regular sine striping with two bounded, deterministic macro-noise scales sampled in C# during mesh authoring. Same seed + world coordinate gives the same RGB value on both sides of every cell seam; terrain triangles, physics, IDs, biomes and placement JSON are unchanged. A separate single-pass opaque `Aaris/Lake Water` shader reuses the existing radial lake UVs for shoreline accents, animates normals in world space and supports sun highlights/fog without grabbing the camera color/depth buffers. All lake instances share one generated material. Water is still non-interactive, not physically simulated.
+
+Source CI can check macro-noise continuity/determinism. Unity shader import and visual/mobile performance must be validated on an editor/phone before these techniques are accepted as final.

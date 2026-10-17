@@ -24,6 +24,15 @@ namespace Aaris.World
                 : d + (1 - u) * (c - d) + (1 - v) * (b - d);
         }
 
+        // Smooth, seeded macro-color fields evaluated at authoring time only.
+        // No runtime texture fetches or physics/heightfield changes.
+        public double SurfaceVariation(double x, double z)
+        {
+            double local = Noise(x / 37.0, z / 37.0, unchecked(world.seed + 5297));
+            double regional = Noise(x / 141.0, z / 141.0, unchecked(world.seed + 11731));
+            return 0.91 + 0.075 * local + 0.075 * regional;
+        }
+
         public double SlopeDegrees(double x, double z)
         {
             double h = 0.25;
