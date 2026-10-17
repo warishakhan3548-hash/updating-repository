@@ -26,8 +26,7 @@ internal class MotionVideoBudget {
     private var lastMotionAtMs = Long.MIN_VALUE / 2
     private var changedAtMs = Long.MIN_VALUE / 2
     private var lastMeasuredSenderAtMs = Long.MIN_VALUE / 2
-    private var lastMeasuredSenderStreamId: String? = null
-    private var lastMeasuredSenderCodec: String? = null
+    private var lastSenderIdentity: Triple<String, String?, String?>? = null
     private var pressureSamples = 0
     private var healthySamples = 0
     private var fastRecoverySamples = 0
@@ -80,6 +79,36 @@ internal class MotionVideoBudget {
     private var previousResidenceAtMs = Long.MIN_VALUE / 2
     private var previousResidenceUsesReceiver = false
     private var residenceGrowthSamples = 0
+
+    /**
+     * Observe component boundaries even when an early stats probe has no delta
+     * or the host spends this window on cadence instead of pixels. A replacement
+     * must establish its own pressure/recovery proof; the committed geometry and
+     * safety cooldowns survive. Missing vendor labels do not prove replacement.
+     */
+    fun onSenderEvidence(outbound: VideoHealthSnapshot) {
+        val previousIdentity = lastSenderIdentity
+        val sameStream =
+            previousIdentity?.first == outbound.streamId &&
+                previousIdentity.second == outbound.codec
+        val implementation = outbound.codecImplementation
+            ?.trim()?.lowercase()?.takeIf(String::isNotEmpty)
+            ?: previousIdentity?.third?.takeIf { sameStream }
+        val identity = Triple(outbound.streamId, outbound.codec, implementation)
+        val componentChanged =
+            previousIdentity?.third != null &&
+                implementation != null &&
+                implementation != previousIdentity.third
+        if (previousIdentity != null && (!sameStream || componentChanged)) {
+            pressureSamples = 0
+            healthySamples = 0
+            fastRecoverySamples = 0
+            resetResidenceGrowth()
+            lastMeasuredSenderAtMs = Long.MIN_VALUE / 2
+            lastImplementation = null
+        }
+        lastSenderIdentity = identity
+    }
 
     /**
      * New motion must not blindly pay a MediaCodec resolution restart.
@@ -535,6 +564,7 @@ internal class MotionVideoBudget {
         allowSpatialRelief: Boolean = true,
         minimumSpatialShortEdge: Int = CLARITY_FLOOR_SHORT_EDGE
     ): Boolean {
+        onSenderEvidence(outbound)
         val before = Triple(
             shortEdge,
             holdingResolution,
@@ -571,19 +601,6 @@ internal class MotionVideoBudget {
         holdingResolution = true
         lastMotionAtMs = nowMs
         val sender = outbound.recent?.takeIf { it.intervalMs in 500..6000 && it.frames >= 0 }
-        // A track/codec replacement starts a new pressure history even if its
-        // first WebRTC stats callbacks have no completed interval yet.
-        if (
-            lastMeasuredSenderStreamId != null &&
-            (outbound.streamId != lastMeasuredSenderStreamId ||
-                outbound.codec != lastMeasuredSenderCodec)
-        ) {
-            pressureSamples = 0
-            healthySamples = 0
-            fastRecoverySamples = 0
-            resetResidenceGrowth()
-            lastMeasuredSenderAtMs = Long.MIN_VALUE / 2
-        }
         if (sender == null) {
             // Short getStats probes do not have a complete sender interval.
             // Ignore them instead of erasing validated congestion evidence.
@@ -605,12 +622,11 @@ internal class MotionVideoBudget {
             resetResidenceGrowth()
         }
         lastMeasuredSenderAtMs = nowMs
-        lastMeasuredSenderStreamId = outbound.streamId
-        lastMeasuredSenderCodec = outbound.codec
 
         // Detect the encoder actually in use, not just the negotiated MIME type.
         // Hardware remains preferred; software fallback must stay usable as well.
-        val implementation = outbound.codecImplementation?.lowercase()
+        val implementation = outbound.codecImplementation
+            ?.trim()?.lowercase()?.takeIf(String::isNotEmpty)
         val softwarePath =
             !implementation.isNullOrBlank() &&
                 isSoftwareEncoder(implementation)
