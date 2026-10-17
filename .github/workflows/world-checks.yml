@@ -53,6 +53,8 @@ jobs:
         run: dotnet run --project Tools/WorldTool --configuration Release --no-build -- review
       - name: Review static collision visibility (sampled guidance, no APK)
         run: dotnet run --project Tools/WorldTool --configuration Release --no-build -- review-visibility Review/latest/visibility
+      - name: Review playable-grid standing and crouch exposure (no APK)
+        run: dotnet run --project Tools/WorldTool --configuration Release --no-build -- review-tactical Review/latest/tactical
       - name: Exercise terrain-aware route proposal (source unchanged)
         run: dotnet run --project Tools/WorldTool --configuration Release --no-build -- plan-route Tools/Commands/route-example.json Review/latest/route
       - name: Verify validation did not rewrite source
