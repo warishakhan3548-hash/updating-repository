@@ -13,6 +13,8 @@ namespace Aaris.World
         public int maxCatchUpSteps = 4;
         public double gravity = 9.81;
         public int maxDynamicBodies = 24;
+        // Visual-only character art. Native Rigidbody/capsule physics always owns movement.
+        public string characterPrefabPath = "";
         public MovementSpec movement = new MovementSpec();
         public WeaponSpec weapon = new WeaponSpec();
         public SpawnSpec player = new SpawnSpec { id = "PLAYER_LOCAL", x = -100, z = -190, yaw = 180 };
@@ -53,12 +55,25 @@ namespace Aaris.World
 
     public static class SandboxValidator
     {
+        // Generated content is disposable and may never be a character source.
+        public static bool SafeCharacterPrefabPath(string path)
+        {
+            if (path == "") return true;
+            if (string.IsNullOrEmpty(path) || path.Length > 240 ||
+                !path.StartsWith("Assets/", StringComparison.Ordinal) ||
+                path.StartsWith("Assets/Generated/", StringComparison.OrdinalIgnoreCase) ||
+                !path.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase) ||
+                path.IndexOf((char)92) >= 0 || path.IndexOf(':') >= 0 || path.Any(char.IsControl)) return false;
+            return path.Split('/').All(part => part.Length > 0 && part != "." && part != "..");
+        }
         public static List<string> Validate(SandboxSpec s, WorldSpec w, AssetRegistry registry)
         {
             var errors = new List<string>();
             if (s == null || s.schemaVersion != 1 || s.revision < 1 || s.movement == null || s.weapon == null || s.player == null || s.props == null || s.targets == null)
             { errors.Add("Sandbox schema, revision and every section are required."); return errors; }
             var m = s.movement; var gun = s.weapon;
+            if (!SafeCharacterPrefabPath(s.characterPrefabPath))
+                errors.Add("Character prefab must use a stable non-generated Assets/.../*.prefab path without relative segments.");
             bool Range(double value, double min, double max) => WorldValidator.Finite(value) && value >= min && value <= max;
             if (s.fixedHz < 30 || s.fixedHz > 120 || s.maxCatchUpSteps < 1 || s.maxCatchUpSteps > 8 || !Range(s.gravity, 1, 30) ||
                 s.maxDynamicBodies < 1 || s.maxDynamicBodies > 64 || s.props.Length + 1 > s.maxDynamicBodies || s.targets.Length > 16)
