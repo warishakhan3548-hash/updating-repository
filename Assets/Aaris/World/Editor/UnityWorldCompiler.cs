@@ -43,7 +43,7 @@ namespace Aaris.World.Editor
             Directory.CreateDirectory(Generated + "/Materials");
             AssetDatabase.Refresh();
             ConfigureProject(world);
-            ProceduralArtBuilder.Prepare(registry, world.visuals.textureResolution);
+            ProceduralArtBuilder.Prepare(registry, world.visuals);
             var assets = registry.assets.ToDictionary(a => a.id, StringComparer.Ordinal);
             var materials = new Dictionary<string, Material>(StringComparer.Ordinal);
             var cells = new Dictionary<CellKey, Transform>();
