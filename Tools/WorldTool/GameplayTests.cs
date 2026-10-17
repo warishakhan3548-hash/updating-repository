@@ -31,6 +31,8 @@ public static class GameplayTests
         yield return ("battle zone respects capsule margin and outside distance", ZoneDistance);
         yield return ("battle zone rejects unsafe movement and impossible footprints", ZoneBadSettings);
         yield return ("battle zone timeline refuses nonfinite and backward clocks", ZoneBadClock);
+        yield return ("offline bot tuning rejects unbounded counts and unsafe rates", BotLimits);
+        yield return ("50 bots spawn reproducibly with safe locations and unique IDs", BotSpawns);
     }
     private static void Assert(bool ok, string message = "Gameplay invariant failed.") { if (!ok) throw new Exception(message); }
     private static void Throws(Action action)
@@ -159,6 +161,36 @@ public static class GameplayTests
         var z = Zone(); Throws(() => BattleZoneTimeline.At(z, -0.1));
         Throws(() => BattleZoneTimeline.At(z, double.NaN));
         Throws(() => BattleZoneTimeline.At(z, double.PositiveInfinity));
+    }
+    private static void BotLimits()
+    {
+        var (s, w, a) = Fixture(); s.bots.enabled = true; s.bots.count = 101; Bad(s, w, a);
+        s.bots.count = 0; Bad(s, w, a);
+        s.bots.count = 50; s.bots.moveSpeed = double.NaN; Bad(s, w, a);
+        s.bots.moveSpeed = 4.3; s.bots.attackRange = 500; Bad(s, w, a);
+        s.bots.attackRange = 42; s.bots.spawnSeparation = 0.1; Bad(s, w, a);
+    }
+    private static void BotSpawns()
+    {
+        var s = WorldFiles.Read<SandboxSpec>("Assets/GameData/World/sandbox.json");
+        var w = WorldFiles.Read<WorldSpec>(WorldFiles.WorldPath);
+        var a = WorldFiles.Read<AssetRegistry>(WorldFiles.RegistryPath);
+        Assert(s.bots.enabled && s.bots.count == 50);
+        var first = BotSpawnPlanner.Plan(s, w, a);
+        var second = BotSpawnPlanner.Plan(s, w, a);
+        Assert(first.Length == 50 && second.Length == 50);
+        Assert(first.Select(b => b.id).Distinct(StringComparer.Ordinal).Count() == 50);
+        for (int i = 0; i < first.Length; i++)
+        {
+            var bot = first[i];
+            Assert(bot.id == second[i].id && bot.x == second[i].x && bot.z == second[i].z,
+                "Offline bot layout must be exactly reproducible.");
+            Assert(Math.Pow(bot.x - s.zone.startX, 2) + Math.Pow(bot.z - s.zone.startZ, 2) <
+                s.zone.startRadius * s.zone.startRadius);
+            for (int j = 0; j < i; j++)
+                Assert(Math.Pow(bot.x - first[j].x, 2) + Math.Pow(bot.z - first[j].z, 2) >=
+                    s.bots.spawnSeparation * s.bots.spawnSeparation, "Bot spawns overlap.");
+        }
     }
     private static void StrictSandbox()
     {
