@@ -54,6 +54,12 @@ namespace Aaris.World
             Vector3 goal;
             var zone = session.CurrentZone;
             if (session.settings.zone != null && session.settings.zone.enabled &&
+                zone.Outside(feet.x, feet.z, 0.3))
+            {
+                health.Apply((float)(session.settings.zone.damagePerSecond * elapsed));
+                if (health.Dead) return;
+            }
+            if (session.settings.zone != null && session.settings.zone.enabled &&
                 zone.Outside(feet.x, feet.z, 1.0))
                 goal = new Vector3((float)zone.x, feet.y, (float)zone.z);
             else if (visible) goal = player;
