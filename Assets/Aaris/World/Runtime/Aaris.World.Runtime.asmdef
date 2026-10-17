@@ -1,6 +1,6 @@
 {
   "name": "Aaris.World.Runtime",
   "rootNamespace": "Aaris.World",
-  "references": ["Aaris.World.Core", "Unity.RenderPipelines.Universal.Runtime"],
+  "references": ["Aaris.World.Core", "Unity.RenderPipelines.Universal.Runtime", "Unity.RenderPipelines.Core.Runtime"],
   "autoReferenced": true
 }
