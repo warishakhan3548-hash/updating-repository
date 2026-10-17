@@ -16,6 +16,10 @@ The latest audit also adds six measured cover placements, closed roof collision 
 
 GitHub's `World source checks (no APK)` workflow compiles the ordinary .NET project, runs all tests, validates source and generates a small review bundle. Its result on the published commit is authoritative for CI status.
 
+## October 17 gameplay/graphics source upgrade
+
+A sandbox-only adaptive URP frame-budget governor now manages render scale, LOD bias and shadow distance in bounded levels during mobile Play Mode, with baseline restoration on disable. Short touch/mouse fire taps are latched across render/physics timing; consumed pulses cannot fire later as ghost shots. The quality decision policy and pulse timing have additional .NET invariant tests. This change does not touch world revision 3, create original final-grade art, implement streaming or generate an APK. Real Unity compile/EditMode, mobile device GPU profiling and gameplay playtests remain pending.
+
 ## Unity/device checks pending
 
 Actual Unity import, URP shader compilation, **21 EditMode integration tests**, editor PNG rendering and target-phone profiling have not run here. Compilation/tests require a licensed Unity editor; PNG rendering additionally needs a graphics-capable runner. Blender uses different lighting/rendering; its images do not validate Unity behaviour, mobile memory, frame rate or battery usage.

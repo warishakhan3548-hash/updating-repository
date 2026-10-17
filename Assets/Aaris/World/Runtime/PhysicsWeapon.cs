@@ -35,7 +35,9 @@ namespace Aaris.World
             if (input == null || cameraRig == null || muzzle == null) return;
             if (state == null) ResetWeapon();
             double now = Time.fixedTimeAsDouble;
-            if (!state.Tick(now, input.Fire && cameraRig.ClearView, input.ConsumeReload())) return;
+            // Consume every tap, even during a held press or a blocked view, to avoid ghost shots later.
+            bool pressed = input.ConsumeFireTap();
+            if (!state.Tick(now, (input.Fire || pressed) && cameraRig.ClearView, input.ConsumeReload())) return;
             Vector3 feet = ownerBody != null ? ownerBody.position : transform.position;
             // Physics uses the current body pose, not the renderer's interpolated position.
             Vector3 barrelPoint = feet + (muzzle.position - transform.position);

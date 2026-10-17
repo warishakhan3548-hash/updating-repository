@@ -21,6 +21,7 @@ namespace Aaris.World.Tests
             Assert.That(session.props.All(p => p.GetComponent<BoxCollider>() != null && p.GetComponent<MeshCollider>() == null), Is.True);
             Assert.That(Object.FindObjectsByType<WorldObjectIdentity>(FindObjectsSortMode.None).All(o => o.GetComponent<Rigidbody>() == null), Is.True);
             Assert.That(session.weapon.cameraRig, Is.SameAs(session.cameraRig)); Assert.That(session.propStarts.Length, Is.EqualTo(session.props.Length));
+            Assert.That(session.cameraRig.GetComponent<MobileQualityGovernor>(), Is.Not.Null, "Sandbox camera must own the mobile graphics governor.");
         }
     }
 }

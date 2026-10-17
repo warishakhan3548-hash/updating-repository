@@ -26,6 +26,11 @@ public static class GameplayTests
         yield return ("duplicate owners and out-of-bounds touches are rejected", DuplicateTouch);
         yield return ("touch cancellation clears every held control", CancelTouch);
         yield return ("sandbox JSON rejects ambiguous or unknown tuning fields", StrictSandbox);
+        yield return ("short fire pulses expire and cannot turn into delayed ghost shots", FirePulse);
+        yield return ("frame governor ignores corrupted samples and isolated stalls", QualitySampleSafety);
+        yield return ("frame governor changes tiers only after sustained load", QualityHysteresis);
+        yield return ("frame governor gradually recovers fidelity after sustained good frames", QualityRecovery);
+        yield return ("render-scale policy respects native screen resolution", QualityReadability);
     }
     private static void Assert(bool ok, string message = "Gameplay invariant failed.") { if (!ok) throw new Exception(message); }
     private static void Throws(Action action)
@@ -111,6 +116,70 @@ public static class GameplayTests
         var t = new TouchOwnership(); Assert(t.Begin(0, 0.9, 0.4)); Assert(!t.Begin(0, 0.5, 0.5)); Assert(!t.Begin(1, 0.9, 0.4)); Assert(!t.Begin(2, -0.1, 0.1)); Assert(!t.Begin(3, double.NaN, 0.1));
     }
     private static void CancelTouch() { var t = new TouchOwnership(); t.Begin(0, 0.9, 0.4); t.Begin(1, 0.15, 0.2); t.Clear(); Assert(t.Count == 0 && !t.Held(TouchRole.Fire)); }
+    private static void FirePulse()
+    {
+        var pulse = new InputPulse();
+        pulse.Request(1);
+        Assert(!pulse.Consume(1.2, 0.16), "Expired fire press became a ghost shot.");
+        pulse.Request(2);
+        Assert(pulse.Consume(2.02, 0.16), "Rapid press before physics step was lost.");
+        Assert(!pulse.Consume(2.04, 0.16), "One press fired twice.");
+        pulse.Request(3);
+        pulse.Clear();
+        Assert(!pulse.Consume(3.01, 0.16), "Clearing input retained a queued fire shot.");
+    }
+
+    private static void QualitySampleSafety()
+    {
+        var governor = new MobileFrameBudget();
+        Assert(!governor.Observe(double.NaN) && !governor.Observe(double.PositiveInfinity) &&
+            !governor.Observe(0) && !governor.Observe(3) && governor.AverageFrameSeconds == 0);
+        for (int i = 0; i < 600; i++) governor.Observe(1.0 / 60);
+        Assert(governor.Tier == 0, "Stable 60 FPS must not lower visual fidelity.");
+        governor.Observe(0.23);
+        for (int i = 0; i < 200; i++) governor.Observe(1.0 / 60);
+        Assert(governor.Tier == 0, "A single long frame must not force a graphics downgrade.");
+        bool rejected = false;
+        try { _ = new MobileFrameBudget(10); } catch (ArgumentOutOfRangeException) { rejected = true; }
+        Assert(rejected, "Invalid FPS budget was accepted.");
+    }
+
+    private static void QualityHysteresis()
+    {
+        var governor = new MobileFrameBudget();
+        for (int i = 0; i < 400; i++) governor.Observe(1.0 / 40);
+        Assert(governor.Tier == 3, "Prolonged 40 FPS load failed to trigger bounded reductions.");
+        for (int i = 0; i < 200; i++) governor.Observe(1.0 / 40);
+        Assert(governor.Tier == 3, "Quality dropped below its lowest allowed tier.");
+    }
+
+    private static void QualityRecovery()
+    {
+        var governor = new MobileFrameBudget();
+        for (int i = 0; i < 400; i++) governor.Observe(1.0 / 40);
+        Assert(governor.Tier == 3);
+        for (int i = 0; i < 2400; i++) governor.Observe(1.0 / 60);
+        Assert(governor.Tier == 0, "Stable good frames should gradually restore the original fidelity.");
+        governor.Reset();
+        Assert(governor.Tier == 0 && governor.AverageFrameSeconds == 0);
+    }
+
+    private static void QualityReadability()
+    {
+        var governor = new MobileFrameBudget();
+        for (int i = 0; i < 400; i++) governor.Observe(1.0 / 40);
+        foreach (int shortEdge in new[] { 360, 540, 720, 1080, 1440 })
+        {
+            double scale = governor.RenderScale(shortEdge);
+            Assert(scale <= 1 && scale >= 0.74, "Render scale outside bounded range.");
+            Assert(shortEdge * scale + 0.0001 >= Math.Min(shortEdge, 540),
+                "The adaptive governor dropped resolution below its short-edge readability floor.");
+        }
+        Assert(governor.EffectiveRenderScale(720, 0.8) >= 0.75, "Authored 0.8 scale dropped 720p below the readability floor.");
+        Assert(governor.EffectiveRenderScale(720, 0.6) <= 0.6, "Adaptive settings raised the author's existing quality ceiling.");
+        Assert(governor.EffectiveRenderScale(1080, 0.65) >= 0.5, "Adaptive settings dropped 1080p below the floor.");
+        Assert(governor.LodMultiplier > 0 && governor.ShadowDistanceMetres >= 0);
+    }
     private static void StrictSandbox()
     {
         string path = Path.GetTempFileName();
