@@ -79,6 +79,30 @@ class VideoHealthComponentBoundaryTest {
         assertEquals(35, tracker.sample(snapshot(2_120, 140, "encoder-B")).recent?.frames)
     }
 
+    @Test fun missingVendorLabelAcrossStatsGapCannotMixReplacementCounters() {
+        val tracker = VideoHealthWindowTracker()
+        assertNull(tracker.sample(snapshot(1_000, 100, "encoder-A")).recent)
+        assertEquals(30, tracker.sample(snapshot(2_000, 130, "encoder-A")).recent?.frames)
+
+        // A 8s getStats interruption and a temporarily absent OEM label
+        // cannot erase our last *concrete* encoder identity on the same SSRC.
+        assertNull(tracker.sample(snapshot(10_000, 200, null)).recent)
+        // The resumed sample is from encoder B, so its cumulative deltas
+        // must not be misattributed to the baseline seeded by encoder A.
+        assertNull(tracker.sample(snapshot(11_000, 205, "encoder-B")).recent)
+        assertEquals(20, tracker.sample(snapshot(12_000, 225, "encoder-B")).recent?.frames)
+    }
+
+    @Test fun missingVendorLabelOnCounterResetCannotHideReplacement() {
+        val tracker = VideoHealthWindowTracker()
+        assertNull(tracker.sample(snapshot(1_000, 100, "encoder-A")).recent)
+        assertEquals(20, tracker.sample(snapshot(2_000, 120, "encoder-A")).recent?.frames)
+        // Vendor restarts cumulative counters before its codec label is ready.
+        assertNull(tracker.sample(snapshot(3_000, 1, null)).recent)
+        assertNull(tracker.sample(snapshot(4_000, 21, "encoder-B")).recent)
+        assertEquals(20, tracker.sample(snapshot(5_000, 41, "encoder-B")).recent?.frames)
+    }
+
     @Test fun newStreamAndDiscontinuousClockCannotInheritOldComponentIdentity() {
         val tracker = VideoHealthWindowTracker()
         tracker.sample(snapshot(1_000, 100, "encoder-A"))
