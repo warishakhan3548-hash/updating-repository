@@ -59,7 +59,7 @@ namespace Aaris.World
         }
     }
 
-    public enum TouchRole { Move, Look, Fire, Jump, Reload, Sprint, Aim }
+    public enum TouchRole { Move, Look, Fire, Jump, Reload, Sprint, Aim, Crouch }
     public struct ControlRect
     {
         public double x, y, width, height;
@@ -79,6 +79,7 @@ namespace Aaris.World
                 case TouchRole.Reload: return new ControlRect(0.68, 0.04, 0.13, 0.15);
                 case TouchRole.Aim: return new ControlRect(0.68, 0.23, 0.13, 0.15);
                 case TouchRole.Sprint: return new ControlRect(0.02, 0.50, 0.13, 0.15);
+                case TouchRole.Crouch: return new ControlRect(0.84, 0.54, 0.14, 0.14);
                 default: return new ControlRect(0.39, 0.02, 0.59, 0.94);
             }
         }
@@ -88,7 +89,7 @@ namespace Aaris.World
     {
         private struct Finger { public int id; public TouchRole role; public double startX, startY; }
         private readonly Finger[] fingers = new Finger[10];
-        private static readonly TouchRole[] Priority = { TouchRole.Fire, TouchRole.Jump, TouchRole.Reload, TouchRole.Aim, TouchRole.Sprint, TouchRole.Move };
+        private static readonly TouchRole[] Priority = { TouchRole.Fire, TouchRole.Jump, TouchRole.Reload, TouchRole.Aim, TouchRole.Crouch, TouchRole.Sprint, TouchRole.Move };
         private int count;
         public int Count => count;
         public bool Begin(int id, double x, double y)

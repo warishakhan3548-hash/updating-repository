@@ -55,3 +55,10 @@ There is no defensible percentage for being better/worse than a shipped game at 
 These support the implementation choices; the native engine/device acceptance gate remains necessary.
 
 The collision/visibility audit is documented in `AUDIT.md`. Fresh jump/reload pulses expire against wall time, lost finger IDs are pruned, camera volumes are overlap-checked and firing is blocked without a clear camera pose. Collision roof panels now have a closed underside. Native verification remains pending.
+
+## Proposed local TPS refinement (Unity acceptance pending)
+
+- Crouch is toggled by C (desktop) or the crouch safe-area touch button. Native capsule height is 1.15 m and movement speed 2.8 m/s; a solid ceiling prevents unsafe expansion. Crouching disables sprint and lowers the shoulder-camera pivot and development character mesh.
+- A clear sightline now retains configured range from the muzzle even with a shoulder-offset camera. Existing chest-overlap, muzzle-cover and backward-shot checks remain.
+- Terrain biome tint fades smoothly to zero at the exact authored ellipse boundary. World placements, identifiers and world.json remain unchanged.
+- .NET tests cover biome boundaries and tuning validation; new Unity-native tests cover standing headroom and full-range hitscan. Unity compilation/physics tests and mobile profiling are still pending; source CI does not compile an APK.

@@ -76,8 +76,12 @@ namespace Aaris.World
             // A chest inside solid geometry is a blocked shot, never a ray starting inside a wall.
             if (scene.OverlapSphere(chest, 0.04f, scratch, SandboxLayers.SolidMask, QueryTriggerInteraction.Ignore) > 0)
                 return new ShotTrace { blockedAtOrigin = true, end = chest };
-            Vector3 aimPoint = eye + aim.normalized * range;
-            if (scene.Raycast(eye, aim.normalized, out var cameraHit, range, SandboxLayers.SolidMask, QueryTriggerInteraction.Ignore)) aimPoint = cameraHit.point;
+            // The shoulder camera can be several metres behind the muzzle; extend the
+            // sight ray so a clear shot retains its full muzzle-measured range.
+            Vector3 aimDirection = aim.normalized;
+            float cameraDistance = range + Vector3.Distance(eye, muzzle);
+            Vector3 aimPoint = eye + aimDirection * cameraDistance;
+            if (scene.Raycast(eye, aimDirection, out var cameraHit, cameraDistance, SandboxLayers.SolidMask, QueryTriggerInteraction.Ignore)) aimPoint = cameraHit.point;
             if (Vector3.Dot(aim.normalized, aimPoint - muzzle) <= 0.01f) return new ShotTrace { blockedAtOrigin = true, end = muzzle };
             Vector3 barrel = muzzle - chest;
             if (barrel.sqrMagnitude > 0.0001f && scene.Raycast(chest, barrel.normalized, out var obstruction, barrel.magnitude, SandboxLayers.SolidMask, QueryTriggerInteraction.Ignore))

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": 1,
+  "revision": 2,
   "fixedHz": 50,
   "maxCatchUpSteps": 4,
   "gravity": 9.81,
@@ -9,6 +9,8 @@
     "radius": 0.35,
     "height": 1.8,
     "mass": 75,
+    "crouchHeight": 1.15,
+    "crouchSpeed": 2.8,
     "walkSpeed": 4.5,
     "sprintSpeed": 7.5,
     "groundAcceleration": 35,

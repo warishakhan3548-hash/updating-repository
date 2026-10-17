@@ -6,7 +6,7 @@ namespace Aaris.World
     public sealed class SandboxInput : MonoBehaviour
     {
         private readonly TouchOwnership ownership = new TouchOwnership();
-        private readonly InputPulse jump = new InputPulse(), reload = new InputPulse();
+        private readonly InputPulse jump = new InputPulse(), reload = new InputPulse(), crouch = new InputPulse();
         private bool autoSprint, focused = true, paused;
         private Rect safe;
         private Vector3 previousMouse;
@@ -18,10 +18,11 @@ namespace Aaris.World
         public Rect SafeArea => safe;
         public bool ConsumeJump() => jump.Consume(Time.realtimeSinceStartupAsDouble, 0.15);
         public bool ConsumeReload() => reload.Consume(Time.realtimeSinceStartupAsDouble, 0.3);
+        public bool ConsumeCrouch() => crouch.Consume(Time.realtimeSinceStartupAsDouble, 0.3);
         public void Clear()
         {
             ownership.Clear(); Move = Look = Vector2.zero;
-            Fire = Sprint = Aim = autoSprint = false; jump.Clear(); reload.Clear(); previousMouse = Input.mousePosition;
+            Fire = Sprint = Aim = autoSprint = false; jump.Clear(); reload.Clear(); crouch.Clear(); previousMouse = Input.mousePosition;
         }
         private void OnEnable() { safe = Screen.safeArea; Clear(); }
         private void OnDisable() { Clear(); }
@@ -46,13 +47,13 @@ namespace Aaris.World
                     var touch = Input.GetTouch(i);
                     double x = (touch.position.x - safe.x) / safe.width, y = (touch.position.y - safe.y) / safe.height;
                     if (touch.phase == TouchPhase.Began && ownership.Begin(touch.fingerId, x, y) && ownership.Get(touch.fingerId, out var begun, out _))
-                    { if (begun == TouchRole.Jump) jump.Request(Time.realtimeSinceStartupAsDouble); if (begun == TouchRole.Reload) reload.Request(Time.realtimeSinceStartupAsDouble); }
+                    { if (begun == TouchRole.Jump) jump.Request(Time.realtimeSinceStartupAsDouble); if (begun == TouchRole.Reload) reload.Request(Time.realtimeSinceStartupAsDouble); if (begun == TouchRole.Crouch) crouch.Request(Time.realtimeSinceStartupAsDouble); }
                     if (!ownership.Get(touch.fingerId, out var role, out var origin)) continue;
                     if (touch.phase == TouchPhase.Ended || touch.phase == TouchPhase.Canceled)
                     {
                         ownership.End(touch.fingerId);
                         if (role == TouchRole.Move) { Move = Vector2.zero; autoSprint = false; }
-                        if (touch.phase == TouchPhase.Canceled) { if (role == TouchRole.Jump) jump.Clear(); if (role == TouchRole.Reload) reload.Clear(); }
+                        if (touch.phase == TouchPhase.Canceled) { if (role == TouchRole.Jump) jump.Clear(); if (role == TouchRole.Reload) reload.Clear(); if (role == TouchRole.Crouch) crouch.Clear(); }
                         continue;
                     }
                     if (role == TouchRole.Move)
@@ -77,6 +78,7 @@ namespace Aaris.World
                 if (Aim) Look = (Vector2)(Input.mousePosition - previousMouse) / Mathf.Min(safe.width, safe.height);
                 if (Input.GetKeyDown(KeyCode.Space)) jump.Request(Time.realtimeSinceStartupAsDouble);
                 if (Input.GetKeyDown(KeyCode.R)) reload.Request(Time.realtimeSinceStartupAsDouble);
+                if (Input.GetKeyDown(KeyCode.C)) crouch.Request(Time.realtimeSinceStartupAsDouble);
             }
             previousMouse = Input.mousePosition;
         }

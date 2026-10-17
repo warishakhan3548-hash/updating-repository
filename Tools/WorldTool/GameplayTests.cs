@@ -9,6 +9,7 @@ public static class GameplayTests
         yield return ("sandbox data and spawn footprints validate on the actual map", CurrentSandbox);
         yield return ("physics budgets include the dynamic player", BodyBudget);
         yield return ("invalid capsule and nonfinite movement are rejected", MovementLimits);
+        yield return ("biome color influence stops at its authored elliptical boundary", BiomeBoundary);
         yield return ("unbounded physics time and weapon cadence are rejected", TimingLimits);
         yield return ("sandbox spawns reject bounds, water and object overlap", SpawnSafety);
         yield return ("sandbox actor identities cannot duplicate world identities", SpawnIds);
@@ -44,6 +45,22 @@ public static class GameplayTests
     {
         var (s, w, a) = Fixture(); s.movement.radius = 0.6; s.movement.height = 1; Bad(s, w, a);
         s.movement = new() { walkSpeed = double.NaN }; Bad(s, w, a);
+        s.movement = new() { crouchHeight = 0.2 }; Bad(s, w, a);
+        s.movement = new() { crouchSpeed = 20 }; Bad(s, w, a);
+    }
+    private static void BiomeBoundary()
+    {
+        var world = new WorldSpec { terrain = new TerrainSpec { amplitude = 0 },
+            biomes = new[] { new BiomeSpec { id = "BIOME_TEST", x = 0, z = 0, radiusX = 100, radiusZ = 100, color = "#ff0000" } } };
+        var terrain = new TerrainSampler(world);
+        var edge = WorldGeometry.SurfaceColor(world, terrain, 100, 0);
+        var outside = WorldGeometry.SurfaceColor(world, terrain, 105, 0);
+        var center = WorldGeometry.SurfaceColor(world, terrain, 0, 0);
+        var control = new WorldSpec { terrain = new TerrainSpec { amplitude = 0 } };
+        var baseline = new TerrainSampler(control);
+        Assert(edge.SequenceEqual(WorldGeometry.SurfaceColor(control, baseline, 100, 0)) &&
+            outside.SequenceEqual(WorldGeometry.SurfaceColor(control, baseline, 105, 0)), "Biome bleeds beyond the authored radius.");
+        Assert(center[0] > edge[0], "Biome center does not influence terrain color.");
     }
     private static void TimingLimits()
     {

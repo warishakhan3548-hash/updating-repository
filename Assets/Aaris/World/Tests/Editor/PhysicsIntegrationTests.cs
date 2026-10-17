@@ -120,6 +120,29 @@ namespace Aaris.World.Tests
             Assert.That(shot.hit, Is.True); Assert.That(shot.contact.collider.gameObject, Is.SameAs(cover));
         }
         [Test]
+        public void ClearLongRangeShotUsesTheFullMuzzleRange()
+        {
+            var eye = new Vector3(0, 1.5f, -3.7f);
+            var muzzle = new Vector3(0.2f, 1.35f, 0.66f);
+            var shot = PhysicsWeapon.Trace(physics, eye, Vector3.forward, Vector3.up * 1.35f,
+                muzzle, 180, new Collider[1]);
+            Assert.That(shot.hit || shot.blockedAtOrigin, Is.False);
+            Assert.That(Vector3.Distance(muzzle, shot.end), Is.EqualTo(180).Within(0.001f));
+        }
+        [Test]
+        public void CrouchCapsuleCannotExpandIntoOverheadCover()
+        {
+            Floor(); var pawn = Pawn(); Physics.SyncTransforms();
+            Assert.That(pawn.ToggleCrouch(), Is.True);
+            Assert.That(pawn.GetComponent<CapsuleCollider>().height, Is.EqualTo(pawn.settings.crouchHeight).Within(0.001));
+            var ceiling = Box(new Vector3(0, 1.4f, 0), new Vector3(3, 0.2f, 3)); Physics.SyncTransforms();
+            Assert.That(pawn.ToggleCrouch(), Is.False);
+            Assert.That(pawn.Crouched, Is.True);
+            Object.DestroyImmediate(ceiling); Physics.SyncTransforms();
+            Assert.That(pawn.ToggleCrouch(), Is.True);
+            Assert.That(pawn.Crouched, Is.False);
+        }
+        [Test]
         public void BarrelInsideAWallCannotStartAShotBeyondIt()
         {
             var cover = Box(new Vector3(0, 1.5f, 0.55f), new Vector3(1, 3, 0.2f)); Physics.SyncTransforms();
