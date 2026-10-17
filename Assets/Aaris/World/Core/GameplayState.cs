@@ -59,6 +59,47 @@ namespace Aaris.World
         }
     }
 
+
+    // Pure deterministic battle-zone policy. Linear centre/radius interpolation and
+    // |end-centre - start-centre| <= startRadius - endRadius guarantee nested circles.
+    public enum BattleZonePhase { Waiting, Shrinking, Final }
+    public struct BattleZoneSnapshot
+    {
+        public double x, z, radius, timeRemaining;
+        public BattleZonePhase phase;
+        public double ExcessDistance(double px, double pz, double capsuleRadius = 0)
+        {
+            if (!WorldValidator.Finite(px) || !WorldValidator.Finite(pz) || !WorldValidator.Finite(capsuleRadius) || capsuleRadius < 0) throw new ArgumentException("Finite zone query required.");
+            double dx = px - x, dz = pz - z;
+            return Math.Max(0, Math.Sqrt(dx * dx + dz * dz) - radius - capsuleRadius);
+        }
+        public bool Outside(double px, double pz, double capsuleRadius = 0) => ExcessDistance(px, pz, capsuleRadius) > 0;
+    }
+    public static class BattleZoneTimeline
+    {
+        public static BattleZoneSnapshot At(BattleZoneSpec spec, double elapsed)
+        {
+            if (spec == null || !WorldValidator.Finite(elapsed) || elapsed < 0 ||
+                (!WorldValidator.Finite(spec.startRadius) || !WorldValidator.Finite(spec.endRadius)) || spec.startRadius <= spec.endRadius ||
+                !WorldValidator.Finite(spec.shrinkSeconds) || spec.shrinkSeconds <= 0 ||
+                !WorldValidator.Finite(spec.waitSeconds) || spec.waitSeconds < 0 ||
+                !WorldValidator.Finite(spec.startX) || !WorldValidator.Finite(spec.startZ) || !WorldValidator.Finite(spec.endX) || !WorldValidator.Finite(spec.endZ))
+                throw new ArgumentException("Finite nonnegative battle-zone time and valid settings are required.");
+            if (elapsed < spec.waitSeconds)
+                return new BattleZoneSnapshot { x = spec.startX, z = spec.startZ, radius = spec.startRadius,
+                    phase = BattleZonePhase.Waiting, timeRemaining = spec.waitSeconds - elapsed };
+            double fraction = Math.Min(1, (elapsed - spec.waitSeconds) / spec.shrinkSeconds);
+            return new BattleZoneSnapshot
+            {
+                x = spec.startX + (spec.endX - spec.startX) * fraction,
+                z = spec.startZ + (spec.endZ - spec.startZ) * fraction,
+                radius = spec.startRadius + (spec.endRadius - spec.startRadius) * fraction,
+                phase = fraction >= 1 ? BattleZonePhase.Final : BattleZonePhase.Shrinking,
+                timeRemaining = fraction >= 1 ? 0 : spec.shrinkSeconds * (1 - fraction)
+            };
+        }
+    }
+
     public enum TouchRole { Move, Look, Fire, Jump, Reload, Sprint, Aim }
     public struct ControlRect
     {

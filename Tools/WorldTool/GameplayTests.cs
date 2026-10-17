@@ -26,6 +26,11 @@ public static class GameplayTests
         yield return ("duplicate owners and out-of-bounds touches are rejected", DuplicateTouch);
         yield return ("touch cancellation clears every held control", CancelTouch);
         yield return ("sandbox JSON rejects ambiguous or unknown tuning fields", StrictSandbox);
+        yield return ("battle zone circles stay nested while shifting", ZoneNested);
+        yield return ("battle zone wait shrink final boundaries are continuous", ZoneTiming);
+        yield return ("battle zone respects capsule margin and outside distance", ZoneDistance);
+        yield return ("battle zone rejects unsafe movement and impossible footprints", ZoneBadSettings);
+        yield return ("battle zone timeline refuses nonfinite and backward clocks", ZoneBadClock);
     }
     private static void Assert(bool ok, string message = "Gameplay invariant failed.") { if (!ok) throw new Exception(message); }
     private static void Throws(Action action)
@@ -111,6 +116,50 @@ public static class GameplayTests
         var t = new TouchOwnership(); Assert(t.Begin(0, 0.9, 0.4)); Assert(!t.Begin(0, 0.5, 0.5)); Assert(!t.Begin(1, 0.9, 0.4)); Assert(!t.Begin(2, -0.1, 0.1)); Assert(!t.Begin(3, double.NaN, 0.1));
     }
     private static void CancelTouch() { var t = new TouchOwnership(); t.Begin(0, 0.9, 0.4); t.Begin(1, 0.15, 0.2); t.Clear(); Assert(t.Count == 0 && !t.Held(TouchRole.Fire)); }
+    private static BattleZoneSpec Zone() => new BattleZoneSpec
+    { enabled = true, startX = 0, startZ = 0, endX = 260, endZ = 245, startRadius = 490, endRadius = 75,
+      waitSeconds = 45, shrinkSeconds = 220, damagePerSecond = 4 };
+    private static void ZoneNested()
+    {
+        var z = Zone(); var states = Enumerable.Range(0, 101).Select(i => BattleZoneTimeline.At(z, 45 + i * 2.2)).ToArray();
+        for (int i = 1; i < states.Length; i++)
+        {
+            double dx = states[i].x - states[i-1].x, dz = states[i].z - states[i-1].z;
+            Assert(Math.Sqrt(dx*dx + dz*dz) + states[i].radius <= states[i-1].radius + 1e-8, "Zone expands outside its prior circle.");
+        }
+    }
+    private static void ZoneTiming()
+    {
+        var z = Zone(); var a = BattleZoneTimeline.At(z, 0); var b = BattleZoneTimeline.At(z, 45);
+        var c = BattleZoneTimeline.At(z, 155); var d = BattleZoneTimeline.At(z, 265);
+        Assert(a.phase == BattleZonePhase.Waiting && a.radius == z.startRadius && a.timeRemaining == 45);
+        Assert(b.phase == BattleZonePhase.Shrinking && b.radius == z.startRadius);
+        Assert(Math.Abs(c.radius - 282.5) < 1e-8 && Math.Abs(c.x - 130) < 1e-8);
+        Assert(d.phase == BattleZonePhase.Final && d.radius == z.endRadius && d.timeRemaining == 0);
+        Assert(BattleZoneTimeline.At(z, 100000).radius == z.endRadius);
+    }
+    private static void ZoneDistance()
+    {
+        var state = BattleZoneTimeline.At(Zone(), 265);
+        Assert(!state.Outside(260, 245) && !state.Outside(335.3, 245, 0.35));
+        Assert(state.Outside(337, 245, 0.35) && Math.Abs(state.ExcessDistance(337, 245, 0.35) - 1.65) < 1e-8);
+    }
+    private static void ZoneBadSettings()
+    {
+        var (s, w, a) = Fixture(); s.zone = Zone(); s.player.x = -30; s.player.z = -30;
+        Assert(SandboxValidator.Validate(s, w, a).Count == 0);
+        s.zone.endX = 430; Bad(s, w, a);
+        s.zone = Zone(); s.zone.damagePerSecond = double.PositiveInfinity; Bad(s, w, a);
+        s.zone = Zone(); s.zone.startRadius = 100; Bad(s, w, a);
+        s.zone = Zone(); s.zone.endRadius = 490; Bad(s, w, a);
+        s.zone = Zone(); s.zone.waitSeconds = -1; Bad(s, w, a);
+    }
+    private static void ZoneBadClock()
+    {
+        var z = Zone(); Throws(() => BattleZoneTimeline.At(z, -0.1));
+        Throws(() => BattleZoneTimeline.At(z, double.NaN));
+        Throws(() => BattleZoneTimeline.At(z, double.PositiveInfinity));
+    }
     private static void StrictSandbox()
     {
         string path = Path.GetTempFileName();

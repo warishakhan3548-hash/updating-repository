@@ -1,6 +1,6 @@
 # Native Unity physics and local TPS sandbox
 
-The map is world revision 3; `Assets/GameData/World/sandbox.json` is a separate revisioned gameplay/physics source (currently r1). Compiling a sandbox reads the existing world and adds the local harness. It never rewrites world JSON or builds an Android player.
+The map is world revision 3; `Assets/GameData/World/sandbox.json` is a separate revisioned gameplay/physics source (currently r2). Compiling a sandbox reads the existing world and adds the local harness. It never rewrites world JSON or builds an Android player.
 
 ## Implemented code
 
@@ -28,7 +28,7 @@ Layers 8–11 are reserved for AarisWorld/AarisProp/AarisPlayer/AarisTarget; com
 
 ## Validation boundary
 
-102 .NET core/tool tests cover source safety, budgets, jump timing, touch ownership, ammunition/cadence/reload and all previous world invariants. These tests do not execute Unity, PhysX, input hardware, rendering or actual collision callbacks.
+107 .NET core/tool tests cover source safety, budgets, jump timing, touch ownership, ammunition/cadence/reload and all previous world invariants. These tests do not execute Unity, PhysX, input hardware, rendering or actual collision callbacks.
 
 21 Unity EditMode tests are authored: five existing world/render tests, fifteen isolated native physics/combat/camera tests, and one sandbox assembly test. They remain **pending** a licensed Unity runner. Do not call movement, collision, headshots, CCD or frame rate verified from the .NET results. CCD is a mitigation, not a guarantee against tunnelling under arbitrary geometry, scale or speed.
 
@@ -55,3 +55,9 @@ There is no defensible percentage for being better/worse than a shipped game at 
 These support the implementation choices; the native engine/device acceptance gate remains necessary.
 
 The collision/visibility audit is documented in `AUDIT.md`. Fresh jump/reload pulses expire against wall time, lost finger IDs are pruned, camera volumes are overlap-checked and firing is blocked without a clear camera pose. Collision roof panels now have a closed underside. Native verification remains pending.
+
+## Battle-zone authoring milestone (sandbox revision 2)
+
+The checked-in local test sandbox now uses a configurable **moving, shrinking circular battle zone**. It waits 45 seconds, then moves from (0, 0) to (260, 245) while shrinking from 490 m to 75 m over 220 seconds. The final centre is near Orchard Depot. A world-ground-following 96-segment cyan outline is refreshed at most twice per second; physics queries ignore dynamic actors. Outside the boundary the local player loses 4 health per simulation second, with a whole-capsule margin. Zero health restarts the local sandbox and zone clock; this is **not** a multiplayer knockout or revival implementation.
+
+The safe-circle nesting invariant is enforced at source validation: the total centre shift may not exceed the total radius decrease. The pure timeline is independent of frame rate and has boundary, non-finite input and nested-circle tests. HUD shows player health, phase, countdown and outside distance. The old world revision and its existing placements are not modified, and no APK build is triggered. Shader compilation, LineRenderer visuals, native timing and performance still require Unity editor/device acceptance.

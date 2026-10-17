@@ -87,6 +87,21 @@ namespace Aaris.World.Editor
             session.playerStart = player.transform.position; session.propStarts = props.Select(p => p.position).ToArray(); session.propRotations = props.Select(p => p.rotation).ToArray();
             session.worldMin = new Vector2((float)world.grid.originX, (float)world.grid.originZ);
             session.worldMax = session.worldMin + new Vector2((float)world.grid.sizeX, (float)world.grid.sizeZ);
+            if (spec.zone != null && spec.zone.enabled)
+            {
+                var zoneObject = new GameObject("Battle Zone Boundary");
+                zoneObject.transform.SetParent(rootObject.transform, false);
+                var ring = zoneObject.AddComponent<LineRenderer>();
+                ring.positionCount = 96; ring.loop = true; ring.useWorldSpace = true;
+                ring.widthMultiplier = 1.7f;
+                ring.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                ring.receiveShadows = false;
+                var ringMaterial = new Material(shader);
+                ringMaterial.SetColor("_BaseColor", new Color(0.2f, 0.85f, 1f));
+                AssetDatabase.CreateAsset(ringMaterial, UnityWorldCompiler.Generated + "/Materials/BattleZone.asset");
+                ring.sharedMaterial = ringMaterial;
+                session.zoneLine = ring;
+            }
             rootObject.AddComponent<SandboxHud>().session = session;
             AssetDatabase.SaveAssets();
             if (!EditorSceneManager.SaveScene(scene, ScenePath)) throw new IOException("Unable to save physics sandbox scene.");

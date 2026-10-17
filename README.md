@@ -14,7 +14,7 @@ Six natural cover rocks reduce the longest flagged standing-visibility run from 
 
 Native Unity C# now includes a Rigidbody capsule motor, gravity/collision settings, jump/sprint, stable multitouch joystick/swipe controls, camera obstruction, a local hitscan rifle, reload/damage targets and six physical box props. `PhysicsSandboxCompiler` assembles a separate sandbox from the existing map.
 
-**Engine/device acceptance is pending.** The 102 .NET tests validate policies/source, not native physics. Twenty-one Unity integration tests are authored but have not run here. Current character/gun/HUD are development harnesses. [Gameplay details and remaining gaps](Docs/GAMEPLAY.md).
+**Engine/device acceptance is pending.** The 107 .NET tests validate policies/source, not native physics. Twenty-one Unity integration tests are authored but have not run here. Current character/gun/HUD are development harnesses. Sandbox revision 2 adds a moving/shrinking battle-zone practice loop, outside damage, a boundary and HUD timing; it is not multiplayer. [Gameplay details and remaining gaps](Docs/GAMEPLAY.md).
 
 ## Current world
 
