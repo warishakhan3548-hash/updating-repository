@@ -57,6 +57,8 @@ class FallbackScreenStreamer(
     private val lastObservedFallbackFrameAtMs = AtomicLong(Long.MIN_VALUE / 2)
     private val clarity = FallbackClarityPolicy()
     private val readbackBudget = FallbackReadbackBudget()
+    private val primaryRecoveryReadbackGate =
+        FallbackPrimaryRecoveryReadbackGate()
     private val worker =
         Executors.newSingleThreadScheduledExecutor { runnable ->
             Thread(
@@ -86,6 +88,21 @@ class FallbackScreenStreamer(
         // Update before admission: a natural sample proves the producer is
         // alive even when this optional JPEG/delta encoder is backpressured.
         lastObservedFallbackFrameAtMs.set(now)
+
+        /*
+         * Compatibility recovery is visible insurance, not a peer of primary
+         * RTP. Once the controller proves that primary decode has restarted,
+         * yield this synchronous texture->I420 readback for one short bounded
+         * runway. SurfaceTextureHelper can expose only one texture frame at a
+         * time; avoiding recovery readback here lets fresh primary frames reach
+         * encoder/RTP/EGL without the fallback lane extending the producer
+         * callback. If glass still does not recover, the gate expires and the
+         * already-visible fallback stream resumes automatically.
+         */
+        if (primaryRecoveryReadbackGate.shouldSuppress(now)) {
+            return@VideoSink
+        }
+
         // Only successful single-flight admission may advance the cadence
         // deadline. Blocked DataChannel or worker must not delay recovery.
         when (
@@ -183,6 +200,21 @@ class FallbackScreenStreamer(
         }
     }
 
+    /**
+     * Primary decoder progress is weaker than proof-of-glass, so it must never
+     * hide compatibility recovery indefinitely. Grant exactly one bounded
+     * capture runway per fallback episode; real EGL presentation still owns the
+     * normal disable path through PrimaryVideoReady.
+     */
+    fun notePrimaryDecoderProgress(nowMs: Long) {
+        if (closed.get() || !enabled.get()) return
+        if (primaryRecoveryReadbackGate.noteDecoderProgress(nowMs)) {
+            onDiagnostic(
+                "Primary decoder resumed • compatibility readback yielded briefly"
+            )
+        }
+    }
+
     fun setDeltaCapable(capable: Boolean) {
         val changed = deltaCapable.getAndSet(capable) != capable
         if (!changed) return
@@ -222,6 +254,7 @@ class FallbackScreenStreamer(
          * visible to ScreenCaptureTrack when that frame arrives.
          */
         readbackBudget.reset()
+        primaryRecoveryReadbackGate.arm()
         lastObservedFallbackFrameAtMs.set(Long.MIN_VALUE / 2)
         attachSinkIfNeeded()
         enabled.set(true)
@@ -266,6 +299,7 @@ class FallbackScreenStreamer(
             lastKeyframeAtMs = 0L
             detachSinkIfNeeded()
             readbackBudget.reset()
+            primaryRecoveryReadbackGate.stop()
             onDiagnostic("Compatibility screen stream disabled")
         }
     }
@@ -840,6 +874,60 @@ class FallbackScreenStreamer(
         private const val MAX_DELTA_JPEG_BYTES = 56_000
         private const val MAX_JPEG_ESTIMATE_BYTES = 320_000
         private const val MAX_PATCH_ESTIMATE_BYTES = 96_000
+    }
+}
+
+/**
+ * One-shot priority handoff from compatibility recovery back to primary RTP.
+ *
+ * Decoder progress is only a candidate-recovery signal: it earns a short quiet
+ * window, never a permanent fallback shutdown. The gate is armed again only by
+ * a new compatibility-recovery episode. Atomic state is required because decode
+ * telemetry arrives on the policy lane while admission runs on the capture
+ * callback thread.
+ */
+internal class FallbackPrimaryRecoveryReadbackGate(
+    private val graceMs: Long = DEFAULT_GRACE_MS
+) {
+    init {
+        require(graceMs in 1L..MAX_GRACE_MS)
+    }
+
+    private val armed = AtomicBoolean(false)
+    private val quietUntilMs = AtomicLong(NO_DEADLINE)
+
+    fun arm() {
+        quietUntilMs.set(NO_DEADLINE)
+        armed.set(true)
+    }
+
+    fun noteDecoderProgress(nowMs: Long): Boolean {
+        if (nowMs < 0L || !armed.compareAndSet(true, false)) return false
+        val deadline =
+            if (nowMs > Long.MAX_VALUE - graceMs) {
+                Long.MAX_VALUE
+            } else {
+                nowMs + graceMs
+            }
+        quietUntilMs.set(deadline)
+        return true
+    }
+
+    fun shouldSuppress(nowMs: Long): Boolean {
+        if (nowMs < 0L) return false
+        val deadline = quietUntilMs.get()
+        return deadline != NO_DEADLINE && nowMs < deadline
+    }
+
+    fun stop() {
+        armed.set(false)
+        quietUntilMs.set(NO_DEADLINE)
+    }
+
+    private companion object {
+        const val DEFAULT_GRACE_MS = 300L
+        const val MAX_GRACE_MS = 1_000L
+        const val NO_DEADLINE = Long.MIN_VALUE
     }
 }
 
