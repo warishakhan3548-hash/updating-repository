@@ -14,17 +14,23 @@ namespace Aaris.World.Editor
         private static readonly Dictionary<string, Material> Materials = new Dictionary<string, Material>(StringComparer.Ordinal);
         private static readonly Dictionary<string, GameObject> Templates = new Dictionary<string, GameObject>(StringComparer.Ordinal);
         private static int resolution;
+        private static float windStrength, windSpeed;
 
-        public static void Prepare(AssetRegistry registry, int textureResolution)
+        public static void Prepare(AssetRegistry registry, VisualSpec visuals)
         {
-            Materials.Clear(); Templates.Clear(); resolution = textureResolution;
+            Materials.Clear(); Templates.Clear(); resolution = visuals.textureResolution;
+            windStrength = (float)visuals.windStrength; windSpeed = (float)visuals.windSpeed;
             System.IO.Directory.CreateDirectory(UnityWorldCompiler.Generated + "/Templates");
             System.IO.Directory.CreateDirectory(UnityWorldCompiler.Generated + "/Textures"); AssetDatabase.Refresh();
             foreach (var a in registry.assets.Where(a => !string.IsNullOrEmpty(a.archetype) && string.IsNullOrEmpty(a.prefabPath)))
             {
                 var geometryLevels = Enumerable.Range(0, 3).Select(lod => ProceduralArt.Create(a, lod)).ToArray();
                 var used = new HashSet<string>(geometryLevels.SelectMany(g => g.parts.Select(p => p.material)), StringComparer.Ordinal);
-                foreach (var surface in ArtPalette.Surfaces(a).Where(s => used.Contains(s.id))) GetMaterial(surface);
+                foreach (var surface in ArtPalette.Surfaces(a).Where(s => used.Contains(s.id)))
+                {
+                    var material = GetMaterial(surface);
+                    if (surface.pattern == "leaf") material.SetFloat("_WindHeight", (float)a.height);
+                }
                 var root = new GameObject(a.id + "_ProceduralDevelopmentArt");
                 var levels = new LOD[3];
                 for (int lod = 0; lod < 3; lod++)
@@ -36,6 +42,11 @@ namespace Aaris.World.Editor
                     {
                         var source = geometry.parts[part];
                         var mesh = Mesh(source, a.id + "_LOD" + lod + "_" + part);
+                        // Allow animated canopies extra culling room without changing collisions.
+                        if (source.material.EndsWith("_leaf", StringComparison.Ordinal))
+                        {
+                            var bounds = mesh.bounds; bounds.Expand(1.5f); mesh.bounds = bounds;
+                        }
                         AssetDatabase.CreateAsset(mesh, UnityWorldCompiler.Generated + "/Meshes/" + mesh.name + ".asset");
                         var go = new GameObject(source.material); go.transform.SetParent(parent.transform, false);
                         go.AddComponent<MeshFilter>().sharedMesh = mesh;
@@ -76,11 +87,17 @@ namespace Aaris.World.Editor
         public static Material GetMaterial(PbrSurface surface)
         {
             if (Materials.TryGetValue(surface.id, out var material)) return material;
-            string shaderName = surface.id == "terrain" ? "Aaris/Biome Terrain" : "Universal Render Pipeline/Lit";
+            string shaderName = surface.pattern == "leaf" ? "Aaris/Wind Foliage" :
+                surface.id == "terrain" ? "Aaris/Biome Terrain" : "Universal Render Pipeline/Lit";
             var shader = Shader.Find(shaderName);
             if (shader == null) throw new InvalidOperationException("Missing shader: " + shaderName);
             material = new Material(shader) { name = surface.id, enableInstancing = true };
             material.SetColor("_BaseColor", Color.white);
+            if (surface.pattern == "leaf")
+            {
+                material.SetFloat("_WindStrength", windStrength);
+                material.SetFloat("_WindSpeed", windSpeed);
+            }
             if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", (float)(1 - surface.roughness));
             if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", (float)surface.metallic);
             var albedo = new Texture2D(resolution, resolution, TextureFormat.RGBA32, true, false) { name = surface.id + "_albedo", wrapMode = TextureWrapMode.Repeat, anisoLevel = 2 };
