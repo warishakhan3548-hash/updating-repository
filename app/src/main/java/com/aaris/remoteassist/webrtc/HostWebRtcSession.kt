@@ -960,8 +960,35 @@ class HostWebRtcSession(
 
             is ControlPacket.VideoFeedback -> policyHandler.post {
                 val current = lease
-                if (!closed.get() && current != null && SessionRuntime.isAuthorized(sessionId, current.leaseSecret, current.displayGeneration)) {
-                    receiverFeedback.accept(packet, current.leaseSecret, current.displayGeneration, android.os.SystemClock.elapsedRealtime())
+                val now =
+                    android.os.SystemClock.elapsedRealtime()
+                if (
+                    !closed.get() &&
+                    current != null &&
+                    SessionRuntime.isAuthorized(
+                        sessionId,
+                        current.leaseSecret,
+                        current.displayGeneration
+                    ) &&
+                    receiverFeedback.accept(
+                        packet,
+                        current.leaseSecret,
+                        current.displayGeneration,
+                        now
+                    )
+                ) {
+                    /*
+                     * Fallback GPU readback shares the MediaProjection texture
+                     * callback with primary capture. Fresh decoded frames prove
+                     * that primary RTP is reaching the controller again, but
+                     * they do not yet prove EGL/glass health. Give primary one
+                     * bounded clean capture runway; the fallback image remains
+                     * visible and readback resumes automatically if glass does
+                     * not confirm recovery.
+                     */
+                    if (packet.decodedFrames > 0) {
+                        fallbackStreamer.notePrimaryDecoderProgress(now)
+                    }
                 }
             }
             is ControlPacket.PresentationFeedback -> policyHandler.post {
