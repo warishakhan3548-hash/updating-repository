@@ -1,6 +1,6 @@
 # Native Unity physics and local TPS sandbox
 
-The map is world revision 3; `Assets/GameData/World/sandbox.json` is a separate revisioned gameplay/physics source (currently r1). Compiling a sandbox reads the existing world and adds the local harness. It never rewrites world JSON or builds an Android player.
+The map is world revision 3; `Assets/GameData/World/sandbox.json` is a separate revisioned gameplay/physics source (currently r2). Compiling a sandbox reads the existing world and adds the local harness. It never rewrites world JSON or builds an Android player.
 
 ## Implemented code
 
@@ -28,7 +28,7 @@ Layers 8–11 are reserved for AarisWorld/AarisProp/AarisPlayer/AarisTarget; com
 
 ## Validation boundary
 
-102 .NET core/tool tests cover source safety, budgets, jump timing, touch ownership, ammunition/cadence/reload and all previous world invariants. These tests do not execute Unity, PhysX, input hardware, rendering or actual collision callbacks.
+107 .NET core/tool tests cover source safety, budgets, jump timing, touch ownership, ammunition/cadence/reload and all previous world invariants. These tests do not execute Unity, PhysX, input hardware, rendering or actual collision callbacks.
 
 21 Unity EditMode tests are authored: five existing world/render tests, fifteen isolated native physics/combat/camera tests, and one sandbox assembly test. They remain **pending** a licensed Unity runner. Do not call movement, collision, headshots, CCD or frame rate verified from the .NET results. CCD is a mitigation, not a guarantee against tunnelling under arbitrary geometry, scale or speed.
 
