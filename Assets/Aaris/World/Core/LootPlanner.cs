@@ -41,6 +41,8 @@ namespace Aaris.World
             bool Place(string id, string district, LootKind kind, double x, double z)
             {
                 if (drops.Count >= policy.maxPickups) return false;
+                // Quantize before geometry checks so checks and authored output agree.
+                x = Math.Round(x, 3); z = Math.Round(z, 3);
                 const double margin = 1.5;
                 if (!WorldValidator.Inside(world.grid, x - margin, z - margin) ||
                     !WorldValidator.Inside(world.grid, x + margin, z + margin) ||
