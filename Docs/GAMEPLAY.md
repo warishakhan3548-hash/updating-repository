@@ -19,6 +19,13 @@ The map is world revision 3; `Assets/GameData/World/sandbox.json` is a separate 
 - The sandbox camera now contains `MobileQualityGovernor`. On a real mobile player with an active URP asset, it samples rendered-frame intervals, smooths and caps isolated stalls, reduces URP render scale/LOD bias/shadow distance in bounded tiers only after sustained overload, and restores quality gradually after sustained healthy intervals. All modified global quality values are restored on component disable. The scale policy avoids downgrading below a 540-pixel short edge when the display and existing authored URP baseline permit it; it never increases the baseline.
 - This is a frame-time heuristic, **not GPU-time telemetry, dynamic world streaming, verified 60 FPS, or a final art upgrade**. In particular CPU-bound stalls may not improve with a lower render scale. Test target devices, inspect URP asset sharing, frame pacing, thermal throttling and visual readability before production acceptance. No APK pipeline was added.
 
+## Art-ready character visual upgrade (source only)
+
+- The default local actor is no longer a single visible capsule: the **development fallback** now uses a torso, head, legs, arms and boots with a bounded procedural gait. It is explicitly stylized blockout artwork, not a photorealistic or professionally animated human.
+- `Assets/GameData/World/sandbox.json` is now revision 2. Optional `characterPrefabPath` defaults to an empty string; set it to a stable source path such as `Assets/Art/Characters/Scout.prefab` when a **licensed/original Humanoid** prefab with an Avatar, Animator controller and visible renderers is available. Prefabs must have feet at local origin, +Z forward, approximately 1.8m height, and NO Rigidbodies, Colliders or Cameras. Invalid paths and missing/incompatible prefabs fail before scene regeneration.
+- `CharacterVisualDriver` consumes physics velocity, grounded and input state and writes only compatible existing Animator parameters: floats `Speed`, `MoveX`, `MoveY`, `VerticalSpeed`; bools `Grounded`, `Aiming`, `Sprinting`. The author sets up animation clips/blend trees; unknown Animator parameters are skipped safely, and Animator root motion is disabled to preserve native Rigidbody authority. The development prototype uses `PrototypeGait` instead.
+- Skin texture realism, animation quality, aim poses, visual alignment and device rendering have **not** been established. No final character model or proprietary assets were downloaded. Physical collision, muzzle, weapons, terrain IDs and original game data remain unchanged.
+
 ## Native scene generation
 
 ```bash

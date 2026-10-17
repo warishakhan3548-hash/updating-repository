@@ -6,6 +6,8 @@ Current world: 1024 × 1024 m, 64 cells, 381 placements: **55 buildings, 4 tower
 
 The latest audit also adds six measured cover placements, closed roof collision panels, a BVH visibility review, input expiration/pruning, camera overlap/backward-ray guards and bounded prop recovery. See `AUDIT.md`. All 375 pre-audit object transforms/IDs are preserved.
 
+Visual-source milestone (separate dependent feature branch): custom humanoid asset hook, type-aware Animator parameter driver, low-cost articulated development avatar and source tests. The legacy authoritative capsule and 381 world objects remain unchanged, and no Android player build was requested. This branch is based on the prior unmerged mobile-quality draft PR. **Native Unity import, animation and device rendering are still unverified**; do not confuse a source integration with AAA-quality art or performance.
+
 ## Checks performed
 
 - **102 C# regression/invariant tests passed** using the actual .NET 8 SDK compiler/runtime: v1 behaviour plus density, connectivity, water restrictions, mesh bounds/indices/degeneracy, LOD counts, doorways, trunk-only tree collision, materials, non-overlapping road junctions and terrain-aware routing (obstacle/water detours, budgets, invalid requests, stable results), plus sandbox placement/budgets, jump timing, ammunition/cadence/reload and independent touch ownership.

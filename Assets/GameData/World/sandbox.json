@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
-  "revision": 1,
+  "revision": 2,
+  "characterPrefabPath": "",
   "fixedHz": 50,
   "maxCatchUpSteps": 4,
   "gravity": 9.81,
