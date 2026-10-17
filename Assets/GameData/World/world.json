@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "id": "Aaris_Highlands",
-  "revision": 3,
+  "revision": 4,
   "seed": 1701,
   "grid": {
     "originX": -512,
@@ -6649,6 +6649,8 @@
     "shadowDistance": 110,
     "fogDensity": 0.0007,
     "fogColor": "#aabeca",
-    "textureResolution": 256
+    "textureResolution": 256,
+    "windStrength": 0.24,
+    "windSpeed": 1.2
   }
 }

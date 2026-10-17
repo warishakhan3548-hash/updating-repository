@@ -18,14 +18,14 @@ Native Unity C# now includes a Rigidbody capsule motor, gravity/collision settin
 
 ## Current world
 
-| Feature | Revision 3 |
+| Feature | Revision 4 |
 | --- | --- |
 | Terrain | 1024 × 1024 m, 64 cells, 4 m mesh spacing, hills and lake |
 | Settlements | 6 districts, 55 buildings and 4 lookout towers |
 | Environment | 210 trees, 88 boulders and 24 cover props; 381 placements total |
 | Traversal | 8 reserved routes, 2–3 distinct neighbours per district, redundant route graph |
 | Density | At most 9 building anchors in a cell; building footprints occupy 1.23% of the world |
-| Art | 13 original procedural development asset types, shared meshes/materials, 3 LODs |
+| Art | 13 original procedural development asset types, shared meshes/materials, 3 LODs; authored GPU foliage wind (Unity validation pending) |
 
 ![World layout schematic](Docs/Review/map-layout.png)
 

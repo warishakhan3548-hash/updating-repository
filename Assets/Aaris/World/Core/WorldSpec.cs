@@ -239,5 +239,8 @@ namespace Aaris.World
         public double fogDensity = 0.0007;
         public string fogColor = "#aabeca";
         public int textureResolution = 128;
+        // Maximum visual displacement in metres; no physics/collision movement.
+        public double windStrength = 0.24;
+        public double windSpeed = 1.2;
     }
 }

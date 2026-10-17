@@ -58,10 +58,11 @@ namespace Aaris.World
                 d.maxTreesPerCell < 1 || d.maxTreesPerCell > 512 || d.maxCellFootprintRatio <= 0 || d.maxCellFootprintRatio > 0.75 ||
                 d.maxWorldBuildingRatio <= 0 || d.maxWorldBuildingRatio > 0.5 || d.minLandmarkSeparation < 0 || d.minLandmarkSeparation > 8192)
                 Error(w.id, "Invalid building/tree density or landmark spacing limits.");
-            if (!WorldValidator.Finite(v.sunYaw, v.sunPitch, v.sunIntensity, v.shadowDistance, v.fogDensity) ||
+            if (!WorldValidator.Finite(v.sunYaw, v.sunPitch, v.sunIntensity, v.shadowDistance, v.fogDensity, v.windStrength, v.windSpeed) ||
                 Math.Abs(v.sunYaw) > 360 || v.sunPitch < 5 || v.sunPitch > 85 || v.sunIntensity < 0.1 || v.sunIntensity > 5 ||
                 v.shadowDistance < 10 || v.shadowDistance > 300 || v.fogDensity < 0 || v.fogDensity > 0.01 || !Color(v.fogColor) ||
-                v.textureResolution < 32 || v.textureResolution > 512 || (v.textureResolution & (v.textureResolution - 1)) != 0)
+                v.textureResolution < 32 || v.textureResolution > 512 || (v.textureResolution & (v.textureResolution - 1)) != 0 ||
+                 v.windStrength < 0 || v.windStrength > 0.75 || v.windSpeed < 0 || v.windSpeed > 4)
                 Error(w.id, "Invalid bounded visual profile or texture resolution.");
             var used = new HashSet<string>(w.objects.Where(o => o != null).Select(o => o.id)
                 .Concat(w.landmarks.Where(p => p != null).Select(p => p.id))

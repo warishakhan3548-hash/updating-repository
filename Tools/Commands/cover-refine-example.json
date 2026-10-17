@@ -1,5 +1,5 @@
 {
-  "expectedRevision": 3,
+  "expectedRevision": 4,
   "maxPairs": 6,
   "targetLongestRun": 80
 }
