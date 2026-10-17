@@ -1,5 +1,8 @@
 package com.aaris.remoteassist.control
 
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
+
 /**
  * One-clock applied-ACK-to-next-swap responsiveness proxy.
  *
@@ -24,59 +27,107 @@ internal data class InputToGlassSample(
 )
 
 internal class InputToGlassTracker {
-    private var pending: AppliedCommandAck? = null
-    private var lastCompletedSequence = 0L
+    /*
+     * EglRenderer calls onPresented() on the latency-critical render lane.
+     * Pending ACK ownership is therefore lock-free: the common no-input path is
+     * one AtomicReference read, and a completed probe is claimed with CAS.
+     */
+    private val pending = AtomicReference<AppliedCommandAck?>(null)
+    private val lastCompletedSequence = AtomicLong(0L)
+
+    /*
+     * Rolling diagnostics are deliberately off the render lane. record() is
+     * called after ControllerWebRtcSession hops to its main/session handler.
+     */
     private val upperBoundSamples = ArrayDeque<Int>()
     private val postAckSamples = ArrayDeque<Int>()
 
-    @Synchronized
     fun applied(ack: AppliedCommandAck) {
         if (
-            ack.sequence <= lastCompletedSequence ||
             ack.ackLatencyMs !in 0..MAX_INPUT_TO_GLASS_MS
         ) {
             return
         }
 
-        val current = pending
-        if (current == null || ack.sequence > current.sequence) {
+        while (true) {
+            if (ack.sequence <= lastCompletedSequence.get()) return
+
+            val current = pending.get()
+            if (current != null && ack.sequence <= current.sequence) {
+                return
+            }
+
             // Freshness-first: if two authoritative commands are applied before
             // the next swap, the newer command is the one the user now cares about.
-            pending = ack
+            if (pending.compareAndSet(current, ack)) {
+                return
+            }
         }
     }
 
-    @Synchronized
     fun onPresented(presentedAtMs: Long): InputToGlassSample? {
-        val ack = pending ?: return null
-        if (presentedAtMs < ack.acknowledgedAtMs) return null
+        while (true) {
+            val ack = pending.get() ?: return null
 
-        val upper = presentedAtMs - ack.sentAtMs
-        val postAck = presentedAtMs - ack.acknowledgedAtMs
-        if (
-            upper !in 0..MAX_INPUT_TO_GLASS_MS ||
-            postAck !in 0..MAX_POST_ACK_PRESENT_MS
-        ) {
-            pending = null
-            lastCompletedSequence = maxOf(lastCompletedSequence, ack.sequence)
-            return null
+            /*
+             * A completion can race a newer ACK on another thread. Never let an
+             * older sequence survive after the completion watermark advanced.
+             */
+            if (ack.sequence <= lastCompletedSequence.get()) {
+                pending.compareAndSet(ack, null)
+                continue
+            }
+
+            if (presentedAtMs < ack.acknowledgedAtMs) return null
+
+            val upper = presentedAtMs - ack.sentAtMs
+            val postAck = presentedAtMs - ack.acknowledgedAtMs
+            if (
+                upper !in 0..MAX_INPUT_TO_GLASS_MS ||
+                postAck !in 0..MAX_POST_ACK_PRESENT_MS
+            ) {
+                if (!pending.compareAndSet(ack, null)) {
+                    continue
+                }
+                markCompleted(ack.sequence)
+                return null
+            }
+
+            val sample =
+                InputToGlassSample(
+                    sequence = ack.sequence,
+                    upperBoundMs = upper.toInt(),
+                    commandAckMs = ack.ackLatencyMs.toInt(),
+                    postAckPresentMs = postAck.toInt()
+                )
+
+            /*
+             * Claim exactly the ACK we measured. If a fresher command replaced
+             * it while this swap was being processed, retry against that newer
+             * command instead of clearing user-relevant evidence.
+             */
+            if (!pending.compareAndSet(ack, null)) {
+                continue
+            }
+
+            markCompleted(ack.sequence)
+            return sample
         }
+    }
 
-        pending = null
-        lastCompletedSequence = maxOf(lastCompletedSequence, ack.sequence)
-
-        val sample =
-            InputToGlassSample(
-                sequence = ack.sequence,
-                upperBoundMs = upper.toInt(),
-                commandAckMs = ack.ackLatencyMs.toInt(),
-                postAckPresentMs = postAck.toInt()
-            )
+    /**
+     * Record a completed proxy sample after leaving the EGL render thread.
+     */
+    @Synchronized
+    fun record(sample: InputToGlassSample) {
         upperBoundSamples.addLast(sample.upperBoundMs)
         postAckSamples.addLast(sample.postAckPresentMs)
-        while (upperBoundSamples.size > MAX_SAMPLES) upperBoundSamples.removeFirst()
-        while (postAckSamples.size > MAX_SAMPLES) postAckSamples.removeFirst()
-        return sample
+        while (upperBoundSamples.size > MAX_SAMPLES) {
+            upperBoundSamples.removeFirst()
+        }
+        while (postAckSamples.size > MAX_SAMPLES) {
+            postAckSamples.removeFirst()
+        }
     }
 
     @Synchronized
@@ -99,12 +150,23 @@ internal class InputToGlassTracker {
             "n=${upper.size}"
     }
 
-    @Synchronized
     fun reset() {
-        pending = null
-        lastCompletedSequence = 0L
-        upperBoundSamples.clear()
-        postAckSamples.clear()
+        pending.set(null)
+        lastCompletedSequence.set(0L)
+        synchronized(this) {
+            upperBoundSamples.clear()
+            postAckSamples.clear()
+        }
+    }
+
+    private fun markCompleted(sequence: Long) {
+        while (true) {
+            val current = lastCompletedSequence.get()
+            if (sequence <= current) return
+            if (lastCompletedSequence.compareAndSet(current, sequence)) {
+                return
+            }
+        }
     }
 
     private companion object {
