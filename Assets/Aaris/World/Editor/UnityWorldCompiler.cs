@@ -109,6 +109,10 @@ namespace Aaris.World.Editor
                 var sky = new Material(skyShader); AssetDatabase.CreateAsset(sky, Generated + "/Materials/Sky.asset");
                 RenderSettings.skybox = sky;
             }
+            // A single bounded atmosphere controller animates existing lighting only in Play Mode.
+            // Static EditMode reviews and all authored terrain/object transforms remain unchanged.
+            var atmosphere = sun.gameObject.AddComponent<AtmosphereCycle>();
+            atmosphere.sun = sun;
             var camera = new GameObject("Review Camera").AddComponent<Camera>();
             camera.tag = "MainCamera"; camera.farClipPlane = 3000;
             camera.transform.position = new Vector3(0, 700, -650);
