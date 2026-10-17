@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": 1,
+  "revision": 2,
   "fixedHz": 50,
   "maxCatchUpSteps": 4,
   "gravity": 9.81,
@@ -28,18 +28,110 @@
     "range": 180,
     "impactImpulse": 12
   },
-  "player": { "id": "PLAYER_LOCAL", "x": -100, "z": -190, "yaw": 180 },
+  "player": {
+    "id": "PLAYER_LOCAL",
+    "x": -100,
+    "z": -190,
+    "yaw": 180
+  },
   "props": [
-    { "id": "PROP_BOX_01", "x": -106, "z": -198, "yaw": 12, "sizeX": 1, "sizeY": 1, "sizeZ": 1, "mass": 15, "dropHeight": 0.6 },
-    { "id": "PROP_BOX_02", "x": -104, "z": -200, "yaw": 38, "sizeX": 1.2, "sizeY": 0.8, "sizeZ": 1, "mass": 20, "dropHeight": 0.9 },
-    { "id": "PROP_BOX_03", "x": -102, "z": -202, "yaw": 63, "sizeX": 0.8, "sizeY": 1.2, "sizeZ": 0.8, "mass": 10, "dropHeight": 1.1 },
-    { "id": "PROP_BOX_04", "x": -94, "z": -198, "yaw": 5, "sizeX": 1, "sizeY": 1, "sizeZ": 1, "mass": 15, "dropHeight": 0.6 },
-    { "id": "PROP_BOX_05", "x": -92, "z": -200, "yaw": 25, "sizeX": 1.2, "sizeY": 0.8, "sizeZ": 1, "mass": 20, "dropHeight": 0.9 },
-    { "id": "PROP_BOX_06", "x": -90, "z": -202, "yaw": 48, "sizeX": 0.8, "sizeY": 1.2, "sizeZ": 0.8, "mass": 10, "dropHeight": 1.1 }
+    {
+      "id": "PROP_BOX_01",
+      "x": -106,
+      "z": -198,
+      "yaw": 12,
+      "sizeX": 1,
+      "sizeY": 1,
+      "sizeZ": 1,
+      "mass": 15,
+      "dropHeight": 0.6
+    },
+    {
+      "id": "PROP_BOX_02",
+      "x": -104,
+      "z": -200,
+      "yaw": 38,
+      "sizeX": 1.2,
+      "sizeY": 0.8,
+      "sizeZ": 1,
+      "mass": 20,
+      "dropHeight": 0.9
+    },
+    {
+      "id": "PROP_BOX_03",
+      "x": -102,
+      "z": -202,
+      "yaw": 63,
+      "sizeX": 0.8,
+      "sizeY": 1.2,
+      "sizeZ": 0.8,
+      "mass": 10,
+      "dropHeight": 1.1
+    },
+    {
+      "id": "PROP_BOX_04",
+      "x": -94,
+      "z": -198,
+      "yaw": 5,
+      "sizeX": 1,
+      "sizeY": 1,
+      "sizeZ": 1,
+      "mass": 15,
+      "dropHeight": 0.6
+    },
+    {
+      "id": "PROP_BOX_05",
+      "x": -92,
+      "z": -200,
+      "yaw": 25,
+      "sizeX": 1.2,
+      "sizeY": 0.8,
+      "sizeZ": 1,
+      "mass": 20,
+      "dropHeight": 0.9
+    },
+    {
+      "id": "PROP_BOX_06",
+      "x": -90,
+      "z": -202,
+      "yaw": 48,
+      "sizeX": 0.8,
+      "sizeY": 1.2,
+      "sizeZ": 0.8,
+      "mass": 10,
+      "dropHeight": 1.1
+    }
   ],
   "targets": [
-    { "id": "TARGET_01", "x": -108, "z": -220, "yaw": 0 },
-    { "id": "TARGET_02", "x": -100, "z": -225, "yaw": 0 },
-    { "id": "TARGET_03", "x": -92, "z": -220, "yaw": 0 }
-  ]
+    {
+      "id": "TARGET_01",
+      "x": -108,
+      "z": -220,
+      "yaw": 0
+    },
+    {
+      "id": "TARGET_02",
+      "x": -100,
+      "z": -225,
+      "yaw": 0
+    },
+    {
+      "id": "TARGET_03",
+      "x": -92,
+      "z": -220,
+      "yaw": 0
+    }
+  ],
+  "zone": {
+    "enabled": true,
+    "startX": 0,
+    "startZ": 0,
+    "endX": 260,
+    "endZ": 245,
+    "startRadius": 490,
+    "endRadius": 75,
+    "waitSeconds": 45,
+    "shrinkSeconds": 220,
+    "damagePerSecond": 4
+  }
 }

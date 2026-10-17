@@ -24,8 +24,20 @@ namespace Aaris.World
                 GUI.Box(GuiRect(ControlLayout.Rect(role)), text, button);
             }
             var state = session.weapon.State; int alive = 0; foreach (var target in session.targets) if (!target.Dead) alive++;
-            GUI.Box(new Rect(safe.x + 12, Screen.height - safe.yMax + 12, Mathf.Min(650, safe.width - 24), 72),
-                "AARIS / LOCAL PHYSICS SANDBOX\n" + (state.Reloading ? "RELOADING" : state.Ammo + " / " + state.Reserve) + "   Targets: " + alive + "/" + session.targets.Length + "   " + (!session.cameraRig.ClearView ? "VIEW BLOCKED" : session.pawn.Grounded ? "GROUNDED" : "AIRBORNE"), label);
+            string zoneStatus = "";
+            if (session.settings.zone != null && session.settings.zone.enabled)
+            {
+                var z = session.CurrentZone;
+                var p = session.pawn.Body.position;
+                zoneStatus = "\nHP " + session.PlayerHealth.ToString("F0") +
+                    "  ZONE " + z.phase.ToString().ToUpperInvariant() +
+                    "  " + z.timeRemaining.ToString("F0") + "s  OUTSIDE " +
+                    z.ExcessDistance(p.x, p.z, session.settings.movement.radius).ToString("F0") + "m";
+            }
+            GUI.Box(new Rect(safe.x + 12, Screen.height - safe.yMax + 12, Mathf.Min(650, safe.width - 24), 104),
+                "AARIS / LOCAL PHYSICS SANDBOX\n" +
+                (state.Reloading ? "RELOADING" : state.Ammo + " / " + state.Reserve) + "   Targets: " + alive + "/" + session.targets.Length +
+                "   " + (!session.cameraRig.ClearView ? "VIEW BLOCKED" : session.pawn.Grounded ? "GROUNDED" : "AIRBORNE") + zoneStatus, label);
             if (GUI.Button(new Rect(safe.xMax - 160, Screen.height - safe.yMax + 95, 145, 42), "RESET SANDBOX")) session.ResetSandbox();
             GUI.color = session.weapon.HitMarker ? Color.red : Color.white;
             GUI.Label(new Rect(Screen.width / 2f - 8, Screen.height / 2f - 14, 28, 28), "+"); GUI.color = Color.white;

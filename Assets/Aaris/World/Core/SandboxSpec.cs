@@ -15,6 +15,7 @@ namespace Aaris.World
         public int maxDynamicBodies = 24;
         public MovementSpec movement = new MovementSpec();
         public WeaponSpec weapon = new WeaponSpec();
+        public BattleZoneSpec zone = new BattleZoneSpec();
         public SpawnSpec player = new SpawnSpec { id = "PLAYER_LOCAL", x = -100, z = -190, yaw = 180 };
         public PropSpec[] props = Array.Empty<PropSpec>();
         public SpawnSpec[] targets = Array.Empty<SpawnSpec>();
@@ -36,6 +37,16 @@ namespace Aaris.World
         public int magazine = 30, reserve = 120;
         public double roundsPerSecond = 8, reloadSeconds = 1.8;
         public double damage = 25, headMultiplier = 2, range = 180, impactImpulse = 12;
+    }
+
+    [Serializable]
+    public sealed class BattleZoneSpec
+    {
+        // Optional in older sandbox files; the checked-in r2 sandbox enables it explicitly.
+        public bool enabled;
+        public double startX, startZ, endX, endZ;
+        public double startRadius = 490, endRadius = 75;
+        public double waitSeconds = 45, shrinkSeconds = 220, damagePerSecond = 4;
     }
 
     [Serializable]
@@ -73,6 +84,22 @@ namespace Aaris.World
             if (errors.Count != 0) return errors;
             var sourceErrors = WorldValidator.Validate(w, registry);
             if (sourceErrors.Count != 0) { errors.Add("World must validate before checking sandbox spawns: " + sourceErrors[0]); return errors; }
+            if (s.zone != null && s.zone.enabled)
+            {
+                var z = s.zone;
+                bool InWorld(double x, double v) => WorldValidator.Finite(x, v) &&
+                    x >= w.grid.originX && x <= w.grid.originX + w.grid.sizeX &&
+                    v >= w.grid.originZ && v <= w.grid.originZ + w.grid.sizeZ;
+                double shift = Math.Sqrt((z.endX - z.startX) * (z.endX - z.startX) + (z.endZ - z.startZ) * (z.endZ - z.startZ));
+                if (!InWorld(z.startX, z.startZ) || !InWorld(z.endX, z.endZ) ||
+                    !Range(z.startRadius, 80, 1000) || !Range(z.endRadius, 20, z.startRadius) ||
+                    !Range(z.waitSeconds, 0, 900) || !Range(z.shrinkSeconds, 30, 1800) ||
+                    !Range(z.damagePerSecond, 0.1, 100) ||
+                    !WorldValidator.Finite(shift) || shift > z.startRadius - z.endRadius + 1e-8 ||
+                    Math.Sqrt((s.player.x - z.startX) * (s.player.x - z.startX) +
+                              (s.player.z - z.startZ) * (s.player.z - z.startZ)) + m.radius > z.startRadius)
+                    errors.Add("Battle zone must start around the player, have bounded timing/damage and shrink through nested circles inside the world.");
+            }
             var terrain = new TerrainSampler(w); var assets = registry.assets.ToDictionary(a => a.id);
             var ids = new HashSet<string>(w.objects.Select(o => o.id), StringComparer.Ordinal);
             var reserved = new List<Point2[]>();
