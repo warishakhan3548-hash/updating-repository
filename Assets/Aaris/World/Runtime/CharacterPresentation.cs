@@ -86,8 +86,17 @@ namespace Aaris.World
             Vector3 toTarget = target - shoulder;
             float distance = Mathf.Clamp(toTarget.magnitude, 0.001f, upperLength + lowerLength - 0.0001f);
             Vector3 forward = toTarget.sqrMagnitude > 0.000001f ? toTarget.normalized : Vector3.down;
-            Vector3 bend = Vector3.ProjectOnPlane(pole - shoulder, forward).normalized;
-            if (bend.sqrMagnitude < 0.0001f) bend = Vector3.Cross(forward, upper.parent.right).normalized;
+            Vector3 bend = Vector3.ProjectOnPlane(pole - shoulder, forward);
+            if (bend.sqrMagnitude < 0.0001f)
+            {
+                // A collinear pole has no bend plane. Pick an axis that cannot
+                // be parallel to the bone, rather than normalizing a zero cross.
+                Vector3 reference = upper.parent.right;
+                if (Mathf.Abs(Vector3.Dot(forward, reference)) > 0.9f)
+                    reference = upper.parent.forward;
+                bend = Vector3.Cross(forward, reference);
+            }
+            bend.Normalize();
             float along = Mathf.Clamp((upperLength * upperLength - lowerLength * lowerLength + distance * distance) / (2 * distance), -upperLength, upperLength);
             Vector3 elbow = shoulder + forward * along + bend * Mathf.Sqrt(Mathf.Max(0, upperLength * upperLength - along * along));
             upper.localRotation = Quaternion.FromToRotation(Vector3.down, upper.parent.InverseTransformDirection(elbow - shoulder));
