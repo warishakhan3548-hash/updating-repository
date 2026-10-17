@@ -14,6 +14,7 @@ namespace Aaris.World
         public ThirdPersonRig cameraRig;
         public Damageable[] targets = System.Array.Empty<Damageable>();
         public Rigidbody[] props = System.Array.Empty<Rigidbody>();
+        public LocalLootPickup[] loot = System.Array.Empty<LocalLootPickup>();
         public Vector3 playerStart;
         public Vector3[] propStarts;
         public Quaternion[] propRotations;
@@ -21,7 +22,7 @@ namespace Aaris.World
         public LineRenderer zoneLine;
         public double PlayerHealth { get; private set; } = 100;
         public BattleZoneSnapshot CurrentZone { get; private set; }
-        private double zoneClock, nextZoneVisualUpdate;
+        private double zoneClock, nextZoneVisualUpdate, lootClock;
         private const int ZoneSegments = 96;
         private static SandboxSession owner;
         private float oldStep, oldMaxTime;
@@ -35,7 +36,7 @@ namespace Aaris.World
         {
             if (owner != null && owner != this) { Debug.LogError("Only one sandbox session can own global physics settings."); enabled = false; return; }
             owner = this; ownsGlobals = true;
-            PlayerHealth = 100; zoneClock = 0; nextZoneVisualUpdate = 0;
+            PlayerHealth = 100; zoneClock = 0; nextZoneVisualUpdate = 0; lootClock = 0;
             if (settings.zone != null && settings.zone.enabled) CurrentZone = BattleZoneTimeline.At(settings.zone, 0);
             oldGravity = Physics.gravity; oldStep = Time.fixedDeltaTime; oldMaxTime = Time.maximumDeltaTime;
             oldMode = Physics.simulationMode; oldSync = Physics.autoSyncTransforms; oldReuse = Physics.reuseCollisionCallbacks;
@@ -60,7 +61,9 @@ namespace Aaris.World
         }
         private void FixedUpdate()
         {
-            if (pawn == null || settings.zone == null || !settings.zone.enabled) return;
+            if (pawn == null) return;
+            CollectNearbyLoot();
+            if (settings.zone == null || !settings.zone.enabled) return;
             zoneClock += Time.fixedDeltaTime;
             CurrentZone = BattleZoneTimeline.At(settings.zone, zoneClock);
             Vector3 feet = pawn.Body.position;
@@ -68,6 +71,35 @@ namespace Aaris.World
             {
                 PlayerHealth = System.Math.Max(0, PlayerHealth - settings.zone.damagePerSecond * Time.fixedDeltaTime);
                 if (PlayerHealth <= 0) ResetSandbox(); // Local practice restart, not network elimination.
+            }
+        }
+        // One bounded scan every 0.2s. World-only line of sight prevents items
+        // behind solid buildings from being collected through walls.
+        private void CollectNearbyLoot()
+        {
+            if (loot == null || loot.Length == 0 || settings.loot == null || !settings.loot.enabled ||
+                weapon == null || weapon.State == null) return;
+            lootClock += Time.fixedDeltaTime;
+            if (lootClock < 0.2) return;
+            lootClock = 0;
+            Vector3 feet = pawn.Body.position;
+            Vector3 eye = feet + Vector3.up * 1.1f;
+            double radius = settings.loot.pickupRadius;
+            var physicsScene = gameObject.scene.GetPhysicsScene();
+            foreach (var item in loot)
+            {
+                if (item == null || !item.gameObject.activeSelf) continue;
+                Vector3 diff = item.transform.position - feet;
+                if (diff.x * diff.x + diff.z * diff.z > radius * radius || Mathf.Abs(diff.y) > 2f) continue;
+                if (item.kind == LootKind.Medical && PlayerHealth >= 100) continue;
+                if (item.kind == LootKind.Ammunition && weapon.State.Reserve >= 1000) continue;
+                Vector3 toward = (item.transform.position + Vector3.up * 0.55f) - eye;
+                if (toward.sqrMagnitude > 0.0001f &&
+                    physicsScene.Raycast(eye, toward.normalized, toward.magnitude,
+                        1 << SandboxLayers.World, QueryTriggerInteraction.Ignore)) continue;
+                if (item.kind == LootKind.Medical) PlayerHealth = System.Math.Min(100, PlayerHealth + item.amount);
+                else if (!weapon.State.TryAddReserve(item.amount)) continue;
+                item.gameObject.SetActive(false);
             }
         }
         private void LateUpdate()
@@ -99,6 +131,7 @@ namespace Aaris.World
             PlayerHealth = 100; zoneClock = 0; nextZoneVisualUpdate = 0;
             if (settings.zone != null && settings.zone.enabled) CurrentZone = BattleZoneTimeline.At(settings.zone, 0);
             foreach (var target in targets) target.ResetHealth();
+            foreach (var item in loot) if (item != null) item.gameObject.SetActive(true);
             for (int i = 0; i < props.Length; i++) ResetProp(i);
             Physics.SyncTransforms(); // Explicit reset only; ordinary movement stays in the solver.
         }

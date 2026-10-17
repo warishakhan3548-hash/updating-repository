@@ -37,10 +37,14 @@ namespace Aaris.World
             foreach (var target in session.targets) if (target != null && !target.Dead) active++;
             ammunition = (state.Reloading ? "RELOADING" : state.Ammo + " / " + state.Reserve) +
                 "   TARGETS " + active + "/" + session.targets.Length;
+            int supplies = 0;
+            if (session.loot != null)
+                foreach (var item in session.loot)
+                    if (item != null && item.gameObject.activeSelf) supplies++;
             int heading = Mathf.RoundToInt((float)TacticalNavigation.NormalizeHeading(session.cameraRig.Yaw)) % 360;
             navigation = Headings[((heading + 22) / 45) % 8] + " " + heading.ToString("000") + "   " +
                 (!session.cameraRig.ClearView ? "VIEW BLOCKED" : session.weapon.BarrelBlocked ? "BARREL BLOCKED" :
-                session.pawn.Grounded ? "GROUNDED" : "AIRBORNE");
+                session.pawn.Grounded ? "GROUNDED" : "AIRBORNE") + "   LOOT " + supplies;
             health = "HP " + Mathf.CeilToInt((float)session.PlayerHealth);
             outsideZone = false;
             if (session.settings.zone != null && session.settings.zone.enabled)

@@ -84,6 +84,33 @@ namespace Aaris.World.Editor
                 var headRegion = head.AddComponent<HitRegion>(); headRegion.receiver = receiver; headRegion.head = true;
                 receiver.ResetHealth(); SandboxLayers.SetRecursively(go, SandboxLayers.Target); targets.Add(receiver);
             }
+            var pickups = new List<LocalLootPickup>();
+            if (spec.loot != null && spec.loot.enabled)
+            {
+                // Immutable source-derived layout, without touching any existing
+                // world object identity, collision layer or generated scene source.
+                var ammoArt = Material("LootAmmunition", new Color(0.15f, 0.72f, 0.94f));
+                var medArt = Material("LootMedical", new Color(0.32f, 0.95f, 0.48f));
+                var pedestalArt = Material("LootPedestal", new Color(0.10f, 0.14f, 0.16f));
+                var group = new GameObject("Practice Loot - source generated");
+                group.transform.SetParent(rootObject.transform, false);
+                foreach (var drop in LootPlanner.Generate(world, registry, spec))
+                {
+                    var go = new GameObject(drop.id);
+                    go.transform.SetParent(group.transform, false);
+                    go.transform.position = new Vector3((float)drop.x, (float)terrain.Height(drop.x, drop.z), (float)drop.z);
+                    var crystal = Part(go.transform, PrimitiveType.Cube, new Vector3(0, 0.68f, 0),
+                        Vector3.one * 0.46f, drop.kind == LootKind.Ammunition ? ammoArt : medArt, false);
+                    crystal.transform.localRotation = Quaternion.Euler(34, 45, 34);
+                    Part(go.transform, PrimitiveType.Cylinder, new Vector3(0, 0.07f, 0),
+                        new Vector3(0.68f, 0.07f, 0.68f), pedestalArt, false);
+                    var pickup = go.AddComponent<LocalLootPickup>();
+                    pickup.kind = drop.kind;
+                    pickup.amount = drop.kind == LootKind.Ammunition ? spec.loot.ammunition : spec.loot.healing;
+                    pickups.Add(pickup);
+                }
+            }
+            session.loot = pickups.ToArray();
             session.pawn = pawn; session.weapon = weapon; session.cameraRig = rig; session.targets = targets.ToArray(); session.props = props.ToArray();
             session.playerStart = player.transform.position; session.propStarts = props.Select(p => p.position).ToArray(); session.propRotations = props.Select(p => p.rotation).ToArray();
             session.worldMin = new Vector2((float)world.grid.originX, (float)world.grid.originZ);
@@ -106,7 +133,7 @@ namespace Aaris.World.Editor
             rootObject.AddComponent<SandboxHud>().session = session;
             AssetDatabase.SaveAssets();
             if (!EditorSceneManager.SaveScene(scene, ScenePath)) throw new IOException("Unable to save physics sandbox scene.");
-            Debug.Log("Physics sandbox authored: native Rigidbody capsule, bounded props, touch controls and local target shooting. No APK compiled; run Unity physics tests and Play Mode before acceptance.");
+            Debug.Log("Physics sandbox authored: native Rigidbody capsule, touch combat, bounded props and district practice loot. No APK compiled; run Unity physics tests and Play Mode before acceptance.");
         }
 
         private static GameObject Part(Transform parent, PrimitiveType primitive, Vector3 position, Vector3 scale, Material material, bool collision)

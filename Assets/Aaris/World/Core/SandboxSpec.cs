@@ -16,6 +16,7 @@ namespace Aaris.World
         public MovementSpec movement = new MovementSpec();
         public WeaponSpec weapon = new WeaponSpec();
         public BattleZoneSpec zone = new BattleZoneSpec();
+        public LootSpec loot = new LootSpec();
         public SpawnSpec player = new SpawnSpec { id = "PLAYER_LOCAL", x = -100, z = -190, yaw = 180 };
         public PropSpec[] props = Array.Empty<PropSpec>();
         public SpawnSpec[] targets = Array.Empty<SpawnSpec>();
@@ -50,6 +51,14 @@ namespace Aaris.World
     }
 
     [Serializable]
+    public sealed class LootSpec
+    {
+        public bool enabled;
+        public int perDistrict = 3, maxPickups = 24, ammunition = 30, healing = 30;
+        public double minSpacing = 18, pickupRadius = 1.4;
+    }
+
+    [Serializable]
     public class SpawnSpec
     {
         public string id = "";
@@ -81,6 +90,13 @@ namespace Aaris.World
             if (gun.magazine < 1 || gun.magazine > 100 || gun.reserve < 0 || gun.reserve > 1000 || !Range(gun.roundsPerSecond, 1, Math.Min(20, s.fixedHz)) ||
                 !Range(gun.reloadSeconds, 0.3, 10) || !Range(gun.damage, 1, 100) || !Range(gun.headMultiplier, 1, 4) || !Range(gun.range, 5, 500) ||
                 !Range(gun.impactImpulse, 0, 50)) errors.Add("Invalid ammunition, cadence, damage or impulse limits.");
+            if (s.loot == null) errors.Add("Loot section cannot be null.");
+            else if (s.loot.enabled && (s.loot.perDistrict < 1 || s.loot.perDistrict > 8 ||
+                s.loot.maxPickups < 1 || s.loot.maxPickups > 48 ||
+                s.loot.ammunition < 1 || s.loot.ammunition > 200 ||
+                s.loot.healing < 1 || s.loot.healing > 100 ||
+                !Range(s.loot.minSpacing, 3, 50) || !Range(s.loot.pickupRadius, 0.8, 2.5)))
+                errors.Add("Loot density, rewards, radius and memory/CPU budget must be bounded.");
             if (errors.Count != 0) return errors;
             var sourceErrors = WorldValidator.Validate(w, registry);
             if (sourceErrors.Count != 0) { errors.Add("World must validate before checking sandbox spawns: " + sourceErrors[0]); return errors; }
