@@ -29,3 +29,9 @@ Actual Unity import, URP shader compilation, **21 EditMode integration tests**, 
 Native Rigidbody movement, touch controls, camera obstruction, local hitscan shooting/targets, friction materials and bounded physical props are now implemented as source in a separate sandbox scene compiler. See `GAMEPLAY.md` for the exact boundary and remaining work. These have not been executed in Unity here.
 
 No APK/AAB was compiled and no Unity Cloud service was provisioned. This is an authoring review scene. Runtime cell loading/cancellation, Addressables, HLOD, final prefab/texture compression, swimming, final road collision/cut-and-fill, native player/combat acceptance, animated characters, full weapon systems, bots and multiplayer remain later work. Development art does not establish commercial readiness or superiority to another game's final graphics.
+
+## Environment surface art upgrade (dependent draft PR)
+
+The terrain's authoring-time color variation now uses bounded, world-seeded smooth macro noise instead of repeated diagonal sine bands. Adjacent cell vertices reuse the same world-coordinate field; geometry heights, collision, world revision and every placement ID are unchanged. A new single-pass, opaque URP lake shader provides animated small-wave normals, view-dependent sky tint, sun highlights, shoreline accents and fog without screen-color/depth copy or physics simulation. The shared lake material has no runtime allocations per lake.
+
+These are source-level visual improvements, **not final realistic environment artwork**. Unity shader import/render verification, visual comparison, GPU cost, phones/thermals, licensed character art, real streaming and swimming remain pending. No APK/AAB was generated.

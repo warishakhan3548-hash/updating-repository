@@ -27,6 +27,7 @@ public static class UpgradeTests
         yield return ("house collision has an actual central front doorway", Doorway);
         yield return ("procedural material data is repeatable and tileable", Materials);
         yield return ("terrain and water triangles face upward", GroundWinding);
+        yield return ("seeded macro terrain tint is deterministic and cell-seam safe", MacroTint);
         yield return ("v2 registry budgets match generated mesh geometry", ArtCosts);
         yield return ("road junction union has the correct surface area", RoadUnionArea);
         yield return ("road junctions have a single surface without holes", RoadUnionCoverage);
@@ -155,6 +156,28 @@ public static class UpgradeTests
         Assert(ArtPalette.Albedo(s, 32).SequenceEqual(ArtPalette.Albedo(s, 32)), "Material generation changed between runs.");
         Assert(Math.Abs(ArtPalette.Height("tile", 0.23, 0.4) - ArtPalette.Height("tile", 1.23, 1.4)) < 1e-8, "Tile material does not wrap.");
     }
+    private static void MacroTint()
+    {
+        var (world, _) = Fixture();
+        var sampler = new TerrainSampler(world);
+        double variation = sampler.SurfaceVariation(-37.5, 91.25);
+        Assert(variation >= 0.91 && variation <= 1.06, "Macro tint escaped its bounded color range.");
+        Assert(variation == sampler.SurfaceVariation(-37.5, 91.25), "Macro tint is not repeatable.");
+        Assert(Math.Abs(sampler.SurfaceVariation(-1e-5, 13) - sampler.SurfaceVariation(1e-5, 13)) < 0.001,
+            "Macro tint has a discontinuity across a cell boundary.");
+        world.seed++;
+        Assert(Math.Abs(variation - new TerrainSampler(world).SurfaceVariation(-37.5, 91.25)) > 1e-6,
+            "Macro tint does not respond to the world seed.");
+        int n = (int)Math.Round(world.grid.cellSize / world.terrain.gridSpacing), side = n + 1;
+        var left = WorldGeometry.Terrain(world, new CellKey(0, 0)).vertices;
+        var right = WorldGeometry.Terrain(world, new CellKey(1, 0)).vertices;
+        for (int z = 0; z <= n; z++)
+        {
+            var a = left[z * side + n]; var b = right[z * side];
+            Assert(a.r == b.r && a.g == b.g && a.b == b.b, "Macro terrain color split at a cell seam.");
+        }
+    }
+
     private static void GroundWinding()
     {
         var (w, _) = Fixture();

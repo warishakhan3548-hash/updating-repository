@@ -181,7 +181,19 @@ namespace Aaris.World.Editor
 
         private static void MakeWater(WorldSpec world)
         {
-            var material = ProceduralArtBuilder.GetMaterial(new PbrSurface { id = "water", color = "#386a70", pattern = "plain", roughness = 0.16, metallic = 0.15, bump = 0 });
+            if (world.terrain.lakes.Length == 0) return;
+            // Shared opaque, single-pass water material: no scene-color or depth copies
+            // and no per-lake material/property-block allocations in the renderer.
+            var shader = Shader.Find("Aaris/Lake Water");
+            if (shader == null) throw new InvalidOperationException("Missing Aaris/Lake Water shader.");
+            var material = new Material(shader) { name = "LakeWater", enableInstancing = true };
+            material.SetColor("_BaseColor", new Color(0.09f, 0.28f, 0.32f, 1));
+            material.SetColor("_HorizonColor", new Color(0.28f, 0.47f, 0.56f, 1));
+            material.SetColor("_FoamColor", new Color(0.63f, 0.77f, 0.76f, 1));
+            material.SetFloat("_WaveStrength", 0.095f);
+            material.SetFloat("_WaveFrequency", 0.45f);
+            material.SetFloat("_WaveSpeed", 0.62f);
+            AssetDatabase.CreateAsset(material, Generated + "/Materials/LakeWater.asset");
             foreach (var lake in world.terrain.lakes)
             {
                 var mesh = ProceduralArtBuilder.Mesh(WorldGeometry.Water(lake), lake.id);

@@ -40,6 +40,12 @@ namespace Aaris.World.Tests
             Assert.That(File.Exists(WorldEditor.ScenePath), Is.True);
             Assert.That(GraphicsSettings.defaultRenderPipeline, Is.Not.Null);
             Assert.That(AssetDatabase.LoadAssetAtPath<Mesh>(WorldEditor.Generated + "/Meshes/cell_0_0.asset"), Is.Not.Null);
+            if (world.terrain.lakes.Length > 0)
+            {
+                var lake = AssetDatabase.LoadAssetAtPath<Material>(WorldEditor.Generated + "/Materials/LakeWater.asset");
+                Assert.That(lake, Is.Not.Null);
+                Assert.That(lake.shader.name, Is.EqualTo("Aaris/Lake Water"));
+            }
         }
 
         [Test]
@@ -71,11 +77,14 @@ namespace Aaris.World.Tests
         }
 
         [Test]
-        public void BiomeShaderImportsWithoutCompilerErrors()
+        public void EnvironmentShadersImportWithoutCompilerErrors()
         {
-            var shader = Shader.Find("Aaris/Biome Terrain");
-            Assert.That(shader, Is.Not.Null);
-            Assert.That(ShaderUtil.ShaderHasError(shader), Is.False);
+            foreach (var name in new[] { "Aaris/Biome Terrain", "Aaris/Lake Water" })
+            {
+                var shader = Shader.Find(name);
+                Assert.That(shader, Is.Not.Null, name + " must import before generating a scene.");
+                Assert.That(ShaderUtil.ShaderHasError(shader), Is.False, name + " failed shader compilation.");
+            }
         }
     }
 }

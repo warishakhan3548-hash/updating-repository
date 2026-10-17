@@ -46,7 +46,9 @@ namespace Aaris.World
                 double[] shore = { 162, 151, 113 };
                 for (int i = 0; i < 3; i++) color[i] += (shore[i] - color[i]) * sand;
             }
-            double variation = 0.95 + 0.05 * Math.Sin(x * 0.071 + z * 0.043);
+            // Avoid visible periodic striping; the seed-locked broad and local
+            // variation agrees exactly where neighbouring terrain cells meet.
+            double variation = terrain.SurfaceVariation(x, z);
             return color.Select(c => (byte)Math.Max(0, Math.Min(255, c * variation))).ToArray();
         }
 
