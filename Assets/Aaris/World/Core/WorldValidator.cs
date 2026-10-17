@@ -20,6 +20,7 @@ namespace Aaris.World
     {
         private static readonly Regex IdPattern = new Regex("^[A-Za-z][A-Za-z0-9_-]{0,63}$");
         private static readonly Regex ColorPattern = new Regex("^#[0-9a-fA-F]{6}$");
+        public static bool Finite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
         public static bool Finite(params double[] values)
         { return values.All(v => !double.IsNaN(v) && !double.IsInfinity(v)); }
 

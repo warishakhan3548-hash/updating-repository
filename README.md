@@ -1,8 +1,14 @@
-# Aaris Highlands — world authoring v2
+# Aaris Highlands — world authoring and native physics sandbox
 
 Original Unity **6000.3.26f1** / C# / URP **17.3.0** mobile-world authoring. Map edits, review rendering and Android player builds remain separate.
 
 **हर map edit पर APK नहीं बनेगा।** Source data और C# बदलते हैं; checks और previews अलग चलते हैं। Automatic Android player build इस repository में नहीं है।
+
+## Local gameplay / physics milestone
+
+Native Unity C# now includes a Rigidbody capsule motor, gravity/collision settings, jump/sprint, stable multitouch joystick/swipe controls, camera obstruction, a local hitscan rifle, reload/damage targets and six physical box props. `PhysicsSandboxCompiler` assembles a separate sandbox from the existing map.
+
+**Engine/device acceptance is pending.** The 92 .NET tests validate policies/source, not native physics. Fifteen Unity integration tests are authored but have not run here. Current character/gun/HUD are development harnesses. [Gameplay details and remaining gaps](Docs/GAMEPLAY.md).
 
 ## Current world
 
@@ -39,6 +45,7 @@ With .NET 8, from the repository root:
 ```bash
 dotnet run --project Tools/WorldTool -- self-test
 dotnet run --project Tools/WorldTool -- validate
+dotnet run --project Tools/WorldTool -- validate-sandbox
 dotnet run --project Tools/WorldTool -- review
 dotnet run --project Tools/WorldTool -- move Tools/Commands/move-example.json
 dotnet run --project Tools/WorldTool -- plan-route Tools/Commands/route-example.json
@@ -63,6 +70,7 @@ For a licensed Unity editor:
 ```bash
 export UNITY_EDITOR=/path/to/Unity
 bash Tools/unity-review.sh compile
+bash Tools/unity-review.sh sandbox
 bash Tools/unity-review.sh test
 xvfb-run -a bash Tools/unity-review.sh render
 ```

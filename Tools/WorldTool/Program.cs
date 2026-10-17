@@ -4,7 +4,7 @@ using Aaris.World;
 try
 {
     if (args.Length == 0)
-        throw new ArgumentException("Commands: validate [--production], review [directory], move request.json [--apply], plan-route request.json [directory], export-geometry [directory], prepare-highlands-v2, self-test. Run from repository root.");
+        throw new ArgumentException("Commands: validate [--production], validate-sandbox, review [directory], move request.json [--apply], plan-route request.json [directory], export-geometry [directory], prepare-highlands-v2, self-test. Run from repository root.");
     if (args[0] == "self-test")
     {
         if (args.Length != 1) throw new ArgumentException("self-test takes no arguments.");
@@ -14,6 +14,16 @@ try
     var assets = WorldFiles.Read<AssetRegistry>(WorldFiles.RegistryPath);
     switch (args[0])
     {
+        case "validate-sandbox":
+        {
+            if (args.Length != 1) throw new ArgumentException("validate-sandbox takes no arguments.");
+            var sandbox = WorldFiles.Read<SandboxSpec>("Assets/GameData/World/sandbox.json");
+            var errors = SandboxValidator.Validate(sandbox, world, assets);
+            foreach (var error in errors) Console.Error.WriteLine(error);
+            if (errors.Count != 0) return 1;
+            Console.WriteLine($"VALID sandbox r{sandbox.revision}: {sandbox.fixedHz} Hz, {sandbox.props.Length + 1} dynamic bodies, {sandbox.targets.Length} targets. Native physics is tested separately in Unity; no APK compiled.");
+            return 0;
+        }
         case "plan-route":
         {
             if (args.Length < 2 || args.Length > 3) throw new ArgumentException("plan-route request.json [directory]");

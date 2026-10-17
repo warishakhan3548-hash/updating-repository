@@ -49,7 +49,7 @@ public static class SelfTests
             ("strict JSON rejects typos and duplicate keys", StrictJson),
             ("atomic file replacement leaves no temporary file", AtomicReplacement),
             ("schematic preview escapes user text", Escaping)
-        }.Concat(UpgradeTests.Cases()).Concat(RouteTests.Cases()).ToArray();
+        }.Concat(UpgradeTests.Cases()).Concat(RouteTests.Cases()).Concat(GameplayTests.Cases()).ToArray();
         int failed = 0;
         foreach (var test in tests)
         {

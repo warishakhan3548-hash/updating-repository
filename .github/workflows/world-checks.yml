@@ -47,6 +47,8 @@ jobs:
         run: dotnet run --project Tools/WorldTool --configuration Release --no-build -- self-test
       - name: Validate checked-in source
         run: dotnet run --project Tools/WorldTool --configuration Release --no-build -- validate
+      - name: Validate physics settings, budgets and sandbox spawns
+        run: dotnet run --project Tools/WorldTool --configuration Release --no-build -- validate-sandbox
       - name: Generate schematic, cell manifest and estimates
         run: dotnet run --project Tools/WorldTool --configuration Release --no-build -- review
       - name: Exercise terrain-aware route proposal (source unchanged)

@@ -9,6 +9,10 @@ cd "$repo_root"
 mkdir -p Review
 
 case "${1:-compile}" in
+  sandbox)
+    "$UNITY_EDITOR" -batchmode -nographics -quit -projectPath "$repo_root" \
+      -executeMethod Aaris.World.Editor.PhysicsSandboxCompiler.Compile -logFile "$repo_root/Review/unity-sandbox.log"
+    ;;
   compile)
     "$UNITY_EDITOR" -batchmode -nographics -quit -projectPath "$repo_root" \
       -executeMethod Aaris.World.Editor.UnityWorldCompiler.Compile -logFile "$repo_root/Review/unity-compile.log"
@@ -23,5 +27,5 @@ case "${1:-compile}" in
     "$UNITY_EDITOR" -batchmode -nographics -projectPath "$repo_root" -runTests -testPlatform EditMode \
       -testResults "$repo_root/Review/unity-tests.xml" -logFile "$repo_root/Review/unity-tests.log"
     ;;
-  *) printf '%s\n' 'Usage: bash Tools/unity-review.sh [compile|render|test]' >&2; exit 2 ;;
+  *) printf '%s\n' 'Usage: bash Tools/unity-review.sh [compile|sandbox|render|test]' >&2; exit 2 ;;
 esac
