@@ -16,6 +16,10 @@ The latest audit also adds six measured cover placements, closed roof collision 
 
 GitHub's `World source checks (no APK)` workflow compiles the ordinary .NET project, runs all tests, validates source and generates a small review bundle. Its result on the published commit is authoritative for CI status.
 
+## Visual wind / mobile index optimization (proposed, unverified)
+
+On branch `feature/gpu-foliage-wind-mobile-index-budgets`, original GPU-only wind motion is connected to the existing oak/pine leaf material path; shadow and depth passes receive matching displacement, and procedural meshes choose 16-bit indices when possible. The saved world revision, placements, Unity scene source and gameplay sandbox are not modified. Unity shader compilation and on-device frame-time/thermal validation are **pending**; do not interpret this proposal as shipped graphics, measured FPS or a finished AAA game. [Implementation and acceptance checklist](VISUAL_UPGRADE.md).
+
 ## Unity/device checks pending
 
 Actual Unity import, URP shader compilation, **21 EditMode integration tests**, editor PNG rendering and target-phone profiling have not run here. Compilation/tests require a licensed Unity editor; PNG rendering additionally needs a graphics-capable runner. Blender uses different lighting/rendering; its images do not validate Unity behaviour, mobile memory, frame rate or battery usage.
