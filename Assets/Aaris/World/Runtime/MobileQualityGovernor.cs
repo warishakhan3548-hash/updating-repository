@@ -51,7 +51,7 @@ namespace Aaris.World
         {
             int edge = Mathf.Max(1, Mathf.Min(Screen.width, Screen.height));
             // Never raise render cost above the author-chosen URP quality baseline.
-            pipeline.renderScale = Mathf.Min(originalScale, originalScale * (float)policy.RenderScale(edge));
+            pipeline.renderScale = (float)policy.EffectiveRenderScale(edge, originalScale);
             QualitySettings.lodBias = Mathf.Max(0.1f, originalLod * (float)policy.LodMultiplier);
             QualitySettings.shadowDistance = Mathf.Min(originalShadow, (float)policy.ShadowDistanceMetres);
         }
