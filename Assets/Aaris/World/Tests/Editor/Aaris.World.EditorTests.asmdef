@@ -1,0 +1,8 @@
+{
+  "name": "Aaris.World.EditorTests",
+  "rootNamespace": "Aaris.World.Tests",
+  "references": ["Aaris.World.Core", "Aaris.World.Runtime", "Aaris.World.Editor"],
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"],
+  "autoReferenced": false
+}

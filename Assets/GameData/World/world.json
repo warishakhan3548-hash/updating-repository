@@ -1,0 +1,888 @@
+{
+  "schemaVersion": 1,
+  "id": "Aaris_Highlands",
+  "revision": 1,
+  "seed": 1701,
+  "grid": {
+    "originX": -512,
+    "originZ": -512,
+    "sizeX": 1024,
+    "sizeZ": 1024,
+    "cellSize": 128
+  },
+  "terrain": {
+    "baseHeight": 4,
+    "amplitude": 12,
+    "noiseScale": 180,
+    "octaves": 3,
+    "gridSpacing": 8,
+    "pads": [
+      {
+        "x": -220,
+        "z": -220,
+        "height": 8,
+        "radius": 90,
+        "blend": 32
+      },
+      {
+        "x": 220,
+        "z": -220,
+        "height": 6,
+        "radius": 90,
+        "blend": 32
+      },
+      {
+        "x": -220,
+        "z": 220,
+        "height": 13,
+        "radius": 90,
+        "blend": 32
+      },
+      {
+        "x": 220,
+        "z": 220,
+        "height": 9,
+        "radius": 90,
+        "blend": 32
+      }
+    ]
+  },
+  "budget": {
+    "triangles": 120000,
+    "materialSlots": 200,
+    "textureKiB": 65536,
+    "colliders": 240,
+    "shadowCasters": 240,
+    "objects": 128
+  },
+  "streaming": {
+    "loadRadius": 160,
+    "unloadRadius": 208,
+    "maxResidentCells": 32
+  },
+  "roads": [
+    {
+      "id": "ROAD_RING",
+      "width": 10,
+      "clearance": 4,
+      "points": [
+        {
+          "x": -220,
+          "z": -220
+        },
+        {
+          "x": 220,
+          "z": -220
+        },
+        {
+          "x": 220,
+          "z": 220
+        },
+        {
+          "x": -220,
+          "z": 220
+        },
+        {
+          "x": -220,
+          "z": -220
+        }
+      ]
+    },
+    {
+      "id": "ROAD_EAST_WEST",
+      "width": 12,
+      "clearance": 4,
+      "points": [
+        {
+          "x": -470,
+          "z": 0
+        },
+        {
+          "x": 470,
+          "z": 0
+        }
+      ]
+    },
+    {
+      "id": "ROAD_NORTH_SOUTH",
+      "width": 12,
+      "clearance": 4,
+      "points": [
+        {
+          "x": 0,
+          "z": -470
+        },
+        {
+          "x": 0,
+          "z": 470
+        }
+      ]
+    }
+  ],
+  "landmarks": [
+    {
+      "id": "POI_COURTS",
+      "name": "Saffron Courts",
+      "x": -220,
+      "z": -220,
+      "radius": 90
+    },
+    {
+      "id": "POI_FOUNDRY",
+      "name": "Copper Foundry",
+      "x": 220,
+      "z": -220,
+      "radius": 90
+    },
+    {
+      "id": "POI_STATION",
+      "name": "Ridge Station",
+      "x": -220,
+      "z": 220,
+      "radius": 90
+    },
+    {
+      "id": "POI_DEPOT",
+      "name": "Orchard Depot",
+      "x": 220,
+      "z": 220,
+      "radius": 90
+    }
+  ],
+  "markers": [
+    {
+      "id": "M001",
+      "x": -290,
+      "z": -265,
+      "yaw": 90
+    },
+    {
+      "id": "M002",
+      "x": 285,
+      "z": 280,
+      "yaw": 180
+    }
+  ],
+  "objects": [
+    {
+      "id": "BLD_COURTS_001",
+      "asset": "courtyard_house",
+      "landmark": "POI_COURTS",
+      "x": -260,
+      "z": -260,
+      "yaw": 0,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "BLD_COURTS_002",
+      "asset": "courtyard_house",
+      "landmark": "POI_COURTS",
+      "x": -180,
+      "z": -260,
+      "yaw": 0,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "BLD_COURTS_003",
+      "asset": "courtyard_house",
+      "landmark": "POI_COURTS",
+      "x": -260,
+      "z": -180,
+      "yaw": 180,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "BLD_COURTS_004",
+      "asset": "courtyard_house",
+      "landmark": "POI_COURTS",
+      "x": -180,
+      "z": -180,
+      "yaw": 180,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TWR_COURTS_001",
+      "asset": "lookout_tower",
+      "landmark": "POI_COURTS",
+      "x": -292,
+      "z": -220,
+      "yaw": 0,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "BLD_FOUNDRY_001",
+      "asset": "foundry_hall",
+      "landmark": "POI_FOUNDRY",
+      "x": 180,
+      "z": -260,
+      "yaw": 0,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "BLD_FOUNDRY_002",
+      "asset": "foundry_hall",
+      "landmark": "POI_FOUNDRY",
+      "x": 260,
+      "z": -260,
+      "yaw": 0,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "BLD_FOUNDRY_003",
+      "asset": "foundry_hall",
+      "landmark": "POI_FOUNDRY",
+      "x": 180,
+      "z": -180,
+      "yaw": 180,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "BLD_FOUNDRY_004",
+      "asset": "foundry_hall",
+      "landmark": "POI_FOUNDRY",
+      "x": 260,
+      "z": -180,
+      "yaw": 180,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TWR_FOUNDRY_001",
+      "asset": "lookout_tower",
+      "landmark": "POI_FOUNDRY",
+      "x": 292,
+      "z": -220,
+      "yaw": 0,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "BLD_STATION_001",
+      "asset": "station_house",
+      "landmark": "POI_STATION",
+      "x": -260,
+      "z": 180,
+      "yaw": 0,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "BLD_STATION_002",
+      "asset": "station_house",
+      "landmark": "POI_STATION",
+      "x": -180,
+      "z": 180,
+      "yaw": 0,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "BLD_STATION_003",
+      "asset": "station_house",
+      "landmark": "POI_STATION",
+      "x": -260,
+      "z": 260,
+      "yaw": 180,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "BLD_STATION_004",
+      "asset": "station_house",
+      "landmark": "POI_STATION",
+      "x": -180,
+      "z": 260,
+      "yaw": 180,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TWR_STATION_001",
+      "asset": "lookout_tower",
+      "landmark": "POI_STATION",
+      "x": -292,
+      "z": 220,
+      "yaw": 0,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "BLD_DEPOT_001",
+      "asset": "depot_store",
+      "landmark": "POI_DEPOT",
+      "x": 180,
+      "z": 180,
+      "yaw": 0,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "BLD_DEPOT_002",
+      "asset": "depot_store",
+      "landmark": "POI_DEPOT",
+      "x": 260,
+      "z": 180,
+      "yaw": 0,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "BLD_DEPOT_003",
+      "asset": "depot_store",
+      "landmark": "POI_DEPOT",
+      "x": 180,
+      "z": 260,
+      "yaw": 180,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "BLD_DEPOT_004",
+      "asset": "depot_store",
+      "landmark": "POI_DEPOT",
+      "x": 260,
+      "z": 260,
+      "yaw": 180,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TWR_DEPOT_001",
+      "asset": "lookout_tower",
+      "landmark": "POI_DEPOT",
+      "x": 292,
+      "z": 220,
+      "yaw": 0,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "ROCK_001",
+      "asset": "ridge_boulder",
+      "landmark": "",
+      "x": -406.56,
+      "z": 386.94,
+      "yaw": 82,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "ROCK_002",
+      "asset": "ridge_boulder",
+      "landmark": "",
+      "x": 423.86,
+      "z": -206.89,
+      "yaw": 309,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "ROCK_003",
+      "asset": "ridge_boulder",
+      "landmark": "",
+      "x": 374.46,
+      "z": -108.32,
+      "yaw": 31,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "ROCK_004",
+      "asset": "ridge_boulder",
+      "landmark": "",
+      "x": 133.25,
+      "z": 272.12,
+      "yaw": 311,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "ROCK_005",
+      "asset": "ridge_boulder",
+      "landmark": "",
+      "x": -268.03,
+      "z": 343.09,
+      "yaw": 93,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "ROCK_006",
+      "asset": "ridge_boulder",
+      "landmark": "",
+      "x": 97.51,
+      "z": 130.24,
+      "yaw": 89,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "ROCK_007",
+      "asset": "ridge_boulder",
+      "landmark": "",
+      "x": -241.36,
+      "z": 89.45,
+      "yaw": 114,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "ROCK_008",
+      "asset": "ridge_boulder",
+      "landmark": "",
+      "x": 198.43,
+      "z": 169.3,
+      "yaw": 120,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "ROCK_009",
+      "asset": "ridge_boulder",
+      "landmark": "",
+      "x": -290.72,
+      "z": -190.18,
+      "yaw": 86,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "ROCK_010",
+      "asset": "ridge_boulder",
+      "landmark": "",
+      "x": -452.86,
+      "z": 170.07,
+      "yaw": 243,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "ROCK_011",
+      "asset": "ridge_boulder",
+      "landmark": "",
+      "x": 335.08,
+      "z": 100.4,
+      "yaw": 247,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "ROCK_012",
+      "asset": "ridge_boulder",
+      "landmark": "",
+      "x": -236.42,
+      "z": 48.29,
+      "yaw": 311,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_001",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -21.6,
+      "z": -43.02,
+      "yaw": 346,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_002",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 141.3,
+      "z": -191.89,
+      "yaw": 36,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_003",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -246.75,
+      "z": 315.93,
+      "yaw": 127,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_004",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -92.45,
+      "z": 428.13,
+      "yaw": 164,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_005",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 237.26,
+      "z": 212.77,
+      "yaw": 297,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_006",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 347.47,
+      "z": -367.09,
+      "yaw": 13,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_007",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -308.45,
+      "z": 438.84,
+      "yaw": 194,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_008",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 306.57,
+      "z": 295.02,
+      "yaw": 138,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_009",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -228.33,
+      "z": -413.96,
+      "yaw": 233,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_010",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -155.88,
+      "z": -59.49,
+      "yaw": 121,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_011",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 448.04,
+      "z": 417.47,
+      "yaw": 155,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_012",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 408.51,
+      "z": 403.69,
+      "yaw": 283,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_013",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 225.88,
+      "z": -295.13,
+      "yaw": 83,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_014",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 355.84,
+      "z": -417.83,
+      "yaw": 140,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_015",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -442.66,
+      "z": -67.95,
+      "yaw": 24,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_016",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 276.3,
+      "z": -398.31,
+      "yaw": 118,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_017",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -31.96,
+      "z": 167.43,
+      "yaw": 296,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_018",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -138.81,
+      "z": 151.7,
+      "yaw": 184,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_019",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 172.06,
+      "z": -397.34,
+      "yaw": 337,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_020",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -121.41,
+      "z": -263.81,
+      "yaw": 59,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_021",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 434.12,
+      "z": 303.49,
+      "yaw": 78,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_022",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 459.31,
+      "z": -290.93,
+      "yaw": 8,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_023",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 221.55,
+      "z": -336.96,
+      "yaw": 342,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_024",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 127.93,
+      "z": -371.85,
+      "yaw": 26,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_025",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 403.26,
+      "z": 128.17,
+      "yaw": 207,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_026",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -318.54,
+      "z": -137.58,
+      "yaw": 211,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_027",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -314.18,
+      "z": 311.34,
+      "yaw": 193,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_028",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -218.9,
+      "z": -307.33,
+      "yaw": 135,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_029",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -305.71,
+      "z": -361.44,
+      "yaw": 268,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_030",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -253.27,
+      "z": 134.42,
+      "yaw": 147,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_031",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -437.73,
+      "z": -254.87,
+      "yaw": 296,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_032",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 355.36,
+      "z": 228.34,
+      "yaw": 180,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_033",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 105.21,
+      "z": -185.8,
+      "yaw": 271,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_034",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 73.04,
+      "z": -72.4,
+      "yaw": 113,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_035",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -393.22,
+      "z": 269.05,
+      "yaw": 339,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_036",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 247.57,
+      "z": -83.9,
+      "yaw": 124,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_037",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": 337.87,
+      "z": -173.63,
+      "yaw": 255,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_038",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -223.96,
+      "z": 328.76,
+      "yaw": 199,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_039",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -112.48,
+      "z": -325.44,
+      "yaw": 33,
+      "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "TREE_040",
+      "asset": "canopy_tree",
+      "landmark": "",
+      "x": -437.9,
+      "z": -202.41,
+      "yaw": 329,
+      "scale": 1,
+      "groundOffset": 0
+    }
+  ]
+}

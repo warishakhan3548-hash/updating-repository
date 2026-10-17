@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "world": "Aaris_Highlands",
+  "revision": 1,
+  "seed": 1701,
+  "sourceSha256": "3f8e3c8321618ee0c438f106279881c447c4f8b9c4a945a6c3e90047555b3efd",
+  "cells": 64,
+  "objects": 72,
+  "blockoutAssets": 7,
+  "peakEstimatedTriangles": 5192,
+  "peakEstimatedMaterialSlots": 7,
+  "peakEstimatedTextureKiB": 0,
+  "peakEstimatedColliders": 85,
+  "estimateScope": "Static placement references and terrain only. Not runtime memory, batching, GPU time or draw calls. Roads, effects and dynamic actors require profiling."
+}

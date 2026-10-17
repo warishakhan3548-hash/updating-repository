@@ -1,0 +1,7 @@
+{
+  "name": "Aaris.World.Core",
+  "rootNamespace": "Aaris.World",
+  "references": [],
+  "autoReferenced": true,
+  "noEngineReferences": true
+}

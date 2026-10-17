@@ -1,0 +1,22 @@
+# Unity caches and generated assets; world JSON is the editable source.
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Bb]uilds/
+/Assets/Generated/
+/Assets/Generated.meta
+/Review/
+**/bin/
+**/obj/
+.vs/
+.idea/
+*.csproj.user
+*.sln
+*.keystore
+*.jks
+*.apk
+*.aab
+*.unitypackage
+.DS_Store
