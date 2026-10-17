@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": 2,
+  "revision": 3,
   "fixedHz": 50,
   "maxCatchUpSteps": 4,
   "gravity": 9.81,
@@ -133,5 +133,15 @@
     "waitSeconds": 45,
     "shrinkSeconds": 220,
     "damagePerSecond": 4
+  },
+  "bots": {
+    "enabled": true,
+    "count": 50,
+    "moveSpeed": 4.3,
+    "detectionRange": 75,
+    "attackRange": 42,
+    "attackInterval": 0.8,
+    "attackDamage": 5,
+    "spawnSeparation": 7
   }
 }
