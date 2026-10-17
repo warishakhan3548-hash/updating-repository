@@ -87,13 +87,11 @@ internal class CaptureRefreshPolicy {
         }
         if (nowMs - appliedAt < INTERACTION_GRACE_MS) return false
 
-        val previousRequest = lastRequestAtMs
-        if (previousRequest != null && previousRequest >= appliedAt) {
-            interactionAppliedAtMs = null
-            interactionSampleGeneration = null
-            return false
-        }
-
+        // Idle liveness pulls use lastRequestAtMs too, but can race with a
+        // newly applied gesture before the next display tick. An old-texture
+        // heartbeat is not proof of post-input pixels; do not let it consume
+        // this one-shot causal probe. Only a genuinely new producer texture
+        // (onSample advancing sampleGeneration) cancels the pending request.
         lastRequestAtMs = nowMs
         interactionAppliedAtMs = null
         interactionSampleGeneration = null
