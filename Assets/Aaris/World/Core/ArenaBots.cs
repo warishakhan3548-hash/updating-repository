@@ -58,7 +58,10 @@ namespace Aaris.World
                 double x = Math.Round(world.grid.originX + margin + width * Fraction(Halton(attempt, 2) + phaseX), 3);
                 double z = Math.Round(world.grid.originZ + margin + depth * Fraction(Halton(attempt, 3) + phaseZ), 3);
                 if (terrain.SlopeDegrees(x, z) > 28 ||
-                    Geometry.PlanarDistance(x - sandbox.player.x, z - sandbox.player.z) < 35)
+                    Geometry.PlanarDistance(x - sandbox.player.x, z - sandbox.player.z) < 35 ||
+                    (sandbox.zone != null && sandbox.zone.enabled &&
+                     Geometry.PlanarDistance(x - sandbox.zone.startX, z - sandbox.zone.startZ) >
+                     sandbox.zone.startRadius - 4))
                     continue;
                 bool blocked = false;
                 foreach (var lake in world.terrain.lakes)
