@@ -27,6 +27,7 @@ class ScreenCaptureTrack(
     private val factory = WebRtcRuntime.factory(appContext)
     private val eglBase = WebRtcRuntime.eglBase(appContext)
     private val closed = AtomicBoolean(false)
+    private val firstProducerFrameSeen = AtomicBoolean(false)
     private val realtimePriorityActive = AtomicBoolean(false)
     private val snapshotSinks = CopyOnWriteArraySet<VideoSink>()
     private val sampleClock = CaptureSampleClock()
@@ -96,6 +97,7 @@ class ScreenCaptureTrack(
                 override fun onCapturerStarted(success: Boolean) { videoSource.capturerObserver.onCapturerStarted(success) }
                 override fun onCapturerStopped() { videoSource.capturerObserver.onCapturerStopped() }
                 override fun onFrameCaptured(frame: VideoFrame) {
+                    firstProducerFrameSeen.set(true)
                     refreshPolicy.onSample(
                         android.os.SystemClock.elapsedRealtime(),
                         frame.timestampNs
@@ -193,6 +195,33 @@ class ScreenCaptureTrack(
         // sample keeps still screens from looking like a dead RTP/decoder path
         // to the controller's liveness and first-frame watchdogs.
         surfaceTextureHelper.handler.postDelayed(idleRefresh, CaptureRefreshPolicy.INTERVAL_MS)
+    }
+
+    /**
+     * Actual first-frame recovery on Android 12+ only. Calling update() again
+     * with an unchanged profile never touches ScreenCapturerAndroid's existing
+     * VirtualDisplay, so the old watchdog retries were no-ops. Rebinding its
+     * current Surface on S+ can recover a stalled initial producer without
+     * allocating a second MediaProjection or adding any frame queue.
+     *
+     * Once a capture callback has arrived, the projection is not the proven
+     * failure point: leave VideoSource/codec/receiver recovery to their owners.
+     */
+    fun retryInitialFrameCapture(): Boolean {
+        if (!StartupCaptureRecoveryPolicy.shouldRebindVirtualDisplay(
+                sdkInt = Build.VERSION.SDK_INT,
+                started = started,
+                closed = closed.get(),
+                producerFrameSeen = firstProducerFrameSeen.get()
+            )
+        ) return false
+
+        val geometry = sourceGeometry ?: return false
+        val fps = outputFormat?.third ?: return false
+        return runCatching {
+            capturer.changeCaptureFormat(geometry.width, geometry.height, fps)
+            true
+        }.getOrDefault(false)
     }
 
     fun update(profile: CaptureProfile) {
