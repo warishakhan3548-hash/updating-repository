@@ -1071,11 +1071,76 @@ internal class MotionVideoBudget {
          */
         val currentSourceShortEdge =
             admittedSourceShortEdge(profile)
-        val scopedSpatialFloor =
+
+        /*
+         * The caller may protect a 720-class hardware operating point. Keep
+         * that guard local to this single spatial owner so native WebRTC quality
+         * scaling cannot fight it. A software encoder is explicitly exempt:
+         * forcing 720-class pixels through a CPU codec can build stale encoder
+         * residence faster than cadence relief can drain it.
+         */
+        val requestedSpatialFloor =
             minimumSpatialShortEdge.coerceIn(
                 CLARITY_FLOOR_SHORT_EDGE,
-                DETAIL_CLARITY_FLOOR_SHORT_EDGE
+                NATIVE_WARM_START_SHORT_EDGE
             )
+        val scopedSpatialFloor =
+            if (softwarePath) {
+                minOf(
+                    requestedSpatialFloor,
+                    DETAIL_CLARITY_FLOOR_SHORT_EDGE
+                )
+            } else {
+                requestedSpatialFloor
+            }
+
+        /*
+         * A preferred floor is not an absolute no-video cliff. Under measured
+         * severe pressure, allow exactly one emergency rung below it; if severe
+         * pressure persists after that committed operating point has settled,
+         * the universal 360 readability floor remains the terminal escape.
+         *
+         * Crucially, pressure is never allowed to *upshift* an already-committed
+         * lower rung. Higher detail returns only through the existing clean,
+         * multi-window recovery path.
+         */
+        fun pressureFloor(severePressure: Boolean): Int {
+            val requested =
+                if (!severePressure) {
+                    scopedSpatialFloor
+                } else {
+                    val firstEmergencyFloor =
+                        when {
+                            scopedSpatialFloor >=
+                                NATIVE_WARM_START_SHORT_EDGE ->
+                                DETAIL_CLARITY_FLOOR_SHORT_EDGE
+
+                            scopedSpatialFloor >=
+                                DETAIL_CLARITY_FLOOR_SHORT_EDGE ->
+                                CLARITY_FLOOR_SHORT_EDGE
+
+                            else ->
+                                CLARITY_FLOOR_SHORT_EDGE
+                        }
+                    if (
+                        currentSourceShortEdge <=
+                            firstEmergencyFloor
+                    ) {
+                        CLARITY_FLOOR_SHORT_EDGE
+                    } else {
+                        firstEmergencyFloor
+                    }
+                }
+
+            return if (currentSourceShortEdge > shortEdge) {
+                // The control budget is still speculative; protect the real
+                // source from committing below the selected quality floor.
+                requested
+            } else {
+                // Pressure must never become a quality-promotion mechanism.
+                minOf(requested, shortEdge)
+            }
+        }
 
         fun nextPressureRung(severePressure: Boolean): Int =
             when {
@@ -1084,38 +1149,40 @@ internal class MotionVideoBudget {
                  * path and is allowed to spend the universal 360 floor.
                  */
                 severeProducerStarvation &&
-                    shortEdge > CLARITY_FLOOR_SHORT_EDGE ->
+                    currentSourceShortEdge >
+                        CLARITY_FLOOR_SHORT_EDGE ->
                     CLARITY_FLOOR_SHORT_EDGE
 
                 /*
-                 * Preserve the existing warm-start contract: if the control
-                 * plane already selected a readable budget, commit that exact
-                 * budget when pressure proves a real resize is needed. The
-                 * scoped floor only prevents the new local-compute lane from
-                 * turning that single decision into a <540p clarity collapse.
+                 * Preserve the warm-start contract, but do not blindly commit a
+                 * speculative 360/540 budget on capable hardware. Ordinary
+                 * pressure keeps the protected quality floor; severe pressure
+                 * receives one bounded emergency rung.
                  */
                 currentSourceShortEdge > shortEdge ->
-                    if (severePressure) {
-                        shortEdge
-                    } else {
-                        maxOf(
-                            shortEdge,
-                            scopedSpatialFloor
-                        )
-                    }
+                    maxOf(
+                        shortEdge,
+                        pressureFloor(severePressure)
+                    )
+
                 shortEdge > NATIVE_WARM_START_SHORT_EDGE ->
-                    NATIVE_WARM_START_SHORT_EDGE
+                    maxOf(
+                        NATIVE_WARM_START_SHORT_EDGE,
+                        pressureFloor(severePressure)
+                    )
+
                 shortEdge > DETAIL_CLARITY_FLOOR_SHORT_EDGE ->
                     maxOf(
                         DETAIL_CLARITY_FLOOR_SHORT_EDGE,
-                        scopedSpatialFloor
+                        pressureFloor(severePressure)
                     )
+
                 shortEdge > CLARITY_FLOOR_SHORT_EDGE ->
-                    if (severePressure) {
-                        CLARITY_FLOOR_SHORT_EDGE
-                    } else {
-                        scopedSpatialFloor
-                    }
+                    maxOf(
+                        CLARITY_FLOOR_SHORT_EDGE,
+                        pressureFloor(severePressure)
+                    )
+
                 else ->
                     shortEdge
             }

@@ -181,6 +181,45 @@ internal object RealtimeMediaPolicy {
                 RtpParameters.DegradationPreference.BALANCED
         }
 
+    /*
+     * Primary motion clarity guard.
+     *
+     * On a device with a realtime hardware screen encoder, ordinary adaptive
+     * pressure should spend cadence before collapsing a readable 720-class
+     * source to 540/360. This is a minimum operating preference, not an
+     * upscaler: MotionVideoBudget never enlarges a profile whose physical
+     * short edge is already below the returned value.
+     *
+     * A 540-class profile still gets a 540 floor when hardware is available.
+     * Software-only paths retain the 360 compatibility floor because forcing
+     * 720-class pixels through a software codec can create exactly the stale
+     * encoder queue this policy is trying to prevent. MotionVideoBudget owns
+     * the bounded emergency escape below this preferred floor when measured
+     * pressure remains severe.
+     */
+    const val PRIMARY_HARDWARE_CLARITY_FLOOR_SHORT_EDGE = 720
+    const val MID_HARDWARE_CLARITY_FLOOR_SHORT_EDGE = 540
+    const val COMPATIBILITY_CLARITY_FLOOR_SHORT_EDGE = 360
+
+    fun minimumMotionSpatialShortEdge(
+        profileShortEdgePx: Int,
+        hardwareRealtimeEncoderAvailable: Boolean
+    ): Int {
+        val sourceEdge = profileShortEdgePx.coerceAtLeast(1)
+        return when {
+            hardwareRealtimeEncoderAvailable &&
+                sourceEdge >= PRIMARY_HARDWARE_CLARITY_FLOOR_SHORT_EDGE ->
+                PRIMARY_HARDWARE_CLARITY_FLOOR_SHORT_EDGE
+
+            hardwareRealtimeEncoderAvailable &&
+                sourceEdge >= MID_HARDWARE_CLARITY_FLOOR_SHORT_EDGE ->
+                MID_HARDWARE_CLARITY_FLOOR_SHORT_EDGE
+
+            else ->
+                COMPATIBILITY_CLARITY_FLOOR_SHORT_EDGE
+        }
+    }
+
     /**
      * Identify transitions that can expose a new codec/pacer throughput limit.
      * The result only requests one earlier health sample; it never changes media

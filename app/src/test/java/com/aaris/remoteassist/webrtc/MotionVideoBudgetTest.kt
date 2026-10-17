@@ -93,6 +93,138 @@ class MotionVideoBudgetTest {
         assertEquals(720, budget.shortEdge)
     }
 
+    @Test fun requestedHardwareFloorProtectsSevenTwentyUnderOrdinaryPressure() {
+        val nativeProfile =
+            profile.copy(
+                captureWidthPx = 1080,
+                captureHeightPx = 2400,
+                displayWidthPx = 1080,
+                displayHeightPx = 2400,
+                maxVideoBitrateBps = 25_000_000
+            )
+        val budget = MotionVideoBudget()
+
+        // Unknown quiet-path capacity still starts with a speculative 360
+        // control budget, but the real source remains native until pressure is
+        // measured.
+        assertTrue(
+            budget.primeForMotion(
+                profile = nativeProfile,
+                nowMs = 0L,
+                targetFps = 30
+            )
+        )
+        assertEquals(360, budget.shortEdge)
+        assertEquals(1080, budget.apply(nativeProfile, true).captureWidthPx)
+
+        val pressured =
+            sender(
+                fps = 20,
+                encode = 35.0,
+                queue = 5.0,
+                implementation = "c2.qti.avc.encoder"
+            )
+
+        assertFalse(
+            budget.observe(
+                outbound = pressured,
+                receiver = receiver(fps = 20, presented = 20),
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = 4_000L,
+                interactionActive = true,
+                profile = nativeProfile,
+                allowSpatialRelief = true,
+                minimumSpatialShortEdge = 720
+            )
+        )
+        assertTrue(
+            budget.observe(
+                outbound = pressured,
+                receiver = receiver(fps = 20, presented = 20),
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = 5_000L,
+                interactionActive = true,
+                profile = nativeProfile,
+                allowSpatialRelief = true,
+                minimumSpatialShortEdge = 720
+            )
+        )
+
+        val adapted = budget.apply(nativeProfile, true)
+        assertEquals(720, adapted.captureWidthPx)
+        assertEquals(1600, adapted.captureHeightPx)
+        assertEquals(720, budget.shortEdge)
+    }
+
+    @Test fun protectedSevenTwentyUsesBoundedEmergencyEscapeInsteadOfDirectThreeSixty() {
+        val nativeProfile =
+            profile.copy(
+                captureWidthPx = 1080,
+                captureHeightPx = 2400,
+                displayWidthPx = 1080,
+                displayHeightPx = 2400,
+                maxVideoBitrateBps = 25_000_000
+            )
+        val budget = MotionVideoBudget()
+        assertTrue(
+            budget.primeForMotion(
+                profile = nativeProfile,
+                nowMs = 0L,
+                targetFps = 30
+            )
+        )
+
+        val severe =
+            sender(
+                fps = 20,
+                encode = 35.0,
+                queue = 200.0,
+                implementation = "c2.qti.avc.encoder"
+            )
+
+        // Severe pressure may escape the preferred 720 floor, but only one
+        // rung at a time. It must not cliff native detail directly to 360.
+        assertTrue(
+            budget.observe(
+                outbound = severe,
+                receiver = receiver(fps = 20, presented = 20),
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = 4_000L,
+                interactionActive = true,
+                profile = nativeProfile,
+                allowSpatialRelief = true,
+                minimumSpatialShortEdge = 720
+            )
+        )
+        assertEquals(540, budget.apply(nativeProfile, true).captureWidthPx)
+        assertEquals(540, budget.shortEdge)
+
+        // If severe pressure survives the settled 540 operating point, the
+        // universal 360 readability floor remains the final safety escape.
+        assertTrue(
+            budget.observe(
+                outbound = severe,
+                receiver = receiver(fps = 20, presented = 20),
+                sourceFps = 30.0,
+                motionActive = true,
+                targetFps = 30,
+                nowMs = 8_000L,
+                interactionActive = true,
+                profile = nativeProfile,
+                allowSpatialRelief = true,
+                minimumSpatialShortEdge = 720
+            )
+        )
+        assertEquals(360, budget.apply(nativeProfile, true).captureWidthPx)
+        assertEquals(360, budget.shortEdge)
+    }
+
     @Test fun isolatedHugeFrameWithoutRepairDoesNotSpendPixels() {
         val budget = nativeWarmBudget()
         val cleanHuge =
