@@ -12,6 +12,7 @@ public static class GameplayTests
         yield return ("unbounded physics time and weapon cadence are rejected", TimingLimits);
         yield return ("sandbox spawns reject bounds, water and object overlap", SpawnSafety);
         yield return ("sandbox actor identities cannot duplicate world identities", SpawnIds);
+        yield return ("character art path must be safe, normalized and source-owned", CharacterPath);
         yield return ("jump without ground or request cannot occur", NoFreeJump);
         yield return ("coyote jump expires and never permits double jumps", Coyote);
         yield return ("buffered jump fires once on landing within its window", BufferedJump);
@@ -63,6 +64,22 @@ public static class GameplayTests
         a.assets = new[] { new AssetSpec { id = "wall" } }; w.objects = new[] { new ObjectSpec { id = "Wall", asset = "wall", x = -30, z = -30 } }; Bad(s, w, a);
     }
     private static void SpawnIds() { var (s, w, a) = Fixture(); s.targets = new[] { new SpawnSpec { id = s.player.id } }; Bad(s, w, a); }
+    private static void CharacterPath()
+    {
+        var (s, w, a) = Fixture();
+        Assert(SandboxValidator.SafeCharacterPrefabPath(""), "Legacy blank art must remain valid.");
+        s.characterPrefabPath = "Assets/Art/Characters/Scout.prefab";
+        Assert(SandboxValidator.Validate(s, w, a).Count == 0, "Valid art path rejected.");
+        foreach (string path in new string[] {
+            null, "../Scout.prefab", "/Assets/Scout.prefab", "Assets/../Scout.prefab",
+            "Assets/Generated/Scout.prefab", "Assets//Scout.prefab",
+            "Assets/./Scout.prefab", "Assets/Art/Scout.fbx", "Assets/Art/Scout.prefab" + (char)10,
+            "Assets/Art" + (char)92 + "Scout.prefab" })
+        {
+            s.characterPrefabPath = path;
+            Bad(s, w, a);
+        }
+    }
     private static void NoFreeJump()
     { var j = new JumpGate(0.1, 0.12); Assert(!j.Tick(0, true)); j.Reset(); j.Request(0); Assert(!j.Tick(0, false)); }
     private static void Coyote()
