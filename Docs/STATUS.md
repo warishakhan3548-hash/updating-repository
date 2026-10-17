@@ -1,16 +1,20 @@
-# World r3 / local physics sandbox r2 status
+# World r4 / local physics sandbox r2 status
 
 Implemented: six-district layout; bounded settlement/vegetation density; hill/lake/biome authoring; reserved walking corridors; redundant district connections; sampled cover proximity and slope checks; original procedural architecture/trees/rocks/props; shared templates; three LODs; albedo/normal material generation; URP scene authoring; exact-source offline geometry export; bounded terrain-weighted route proposals with exact endpoints and safe shortcut checks.
 
-Current world: 1024 × 1024 m, 64 cells, 381 placements: **55 buildings, 4 towers, 210 trees, 88 boulders and 24 props**. All 72 original placement IDs remain present. Source schema is v2; v1 remains readable.
+Current world: 1024 × 1024 m, 64 cells, 381 placements (unchanged from world r3): **55 buildings, 4 towers, 210 trees, 88 boulders and 24 props**. All 72 original placement IDs remain present. Source schema is v2; v1 remains readable.
 
 The latest audit also adds six measured cover placements, closed roof collision panels, a BVH visibility review, input expiration/pruning, camera overlap/backward-ray guards and bounded prop recovery. The r2 local sandbox adds a deterministic moving battle-zone practice loop, a ground-following boundary, bounded health damage and five pure policy regression tests. See `AUDIT.md`. All 375 pre-audit object transforms/IDs are preserved.
 
+## World r4 foliage / frame-pacing upgrade (pending engine acceptance)
+
+The source visuals now configure an opt-in canopy breeze with a bounded 2-axis deterministic wave, per-tree world-position phase, and near-camera update limit. Tree trunks and their colliders are unmodified, and three existing LODs share corresponding canopy-only pivots. Trees still reuse the original meshes/materials, avoiding per-leaf rendering/physics/network updates. The existing static Blender reviews remain unchanged; these are **not** proof of visible wind in Unity. `PlayerSettings.Android.optimizedFramePacing` is set by the review-scene compiler (not an APK build). Four additional .NET wind invariants are authored but **not executed here**.
+
 ## Checks performed
 
-- **107 C# regression/invariant tests passed** using the actual .NET 8 SDK compiler/runtime: v1 behaviour plus density, connectivity, water restrictions, mesh bounds/indices/degeneracy, LOD counts, doorways, trunk-only tree collision, materials, non-overlapping road junctions and terrain-aware routing (obstacle/water detours, budgets, invalid requests, stable results), plus sandbox placement/budgets, jump timing, ammunition/cadence/reload and independent touch ownership.
+- **107 C# regression/invariant tests passed in the previous r3 milestone** using the actual .NET 8 SDK compiler/runtime: v1 behaviour plus density, connectivity, water restrictions, mesh bounds/indices/degeneracy, LOD counts, doorways, trunk-only tree collision, materials, non-overlapping road junctions and terrain-aware routing (obstacle/water detours, budgets, invalid requests, stable results), plus sandbox placement/budgets, jump timing, ammunition/cadence/reload and independent touch ownership.
 - Core sources also compile against .NET Standard 2.1 with C# 9, the intended Unity-compatible API/language boundary.
-- The r3 source validates and the marker move dry run passes. Art catalog triangle counts match generated geometry; cell budgets derive procedural geometry costs directly and account for the configured texture resolution.
+- The r3 source validated and the marker move dry run passed; r4 still requires its own CI results. Art catalog triangle counts match generated geometry; cell budgets derive procedural geometry costs directly and account for the configured texture resolution.
 - Blender 4.2 CPU Cycles rendered exact C# geometry into overview, Courts and Ridge views. Visual QA found stacked road-strip artifacts; mitered ribbons and polygon subtraction fixed them before the final images were produced.
 - The schematic, data fingerprint and metrics come from checked-in JSON. Offline review images and provenance are saved under `Docs/Review/`; large geometry exports remain disposable.
 

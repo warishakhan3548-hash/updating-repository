@@ -43,7 +43,7 @@ namespace Aaris.World.Editor
             Directory.CreateDirectory(Generated + "/Materials");
             AssetDatabase.Refresh();
             ConfigureProject(world);
-            ProceduralArtBuilder.Prepare(registry, world.visuals.textureResolution);
+            ProceduralArtBuilder.Prepare(registry, world.visuals.textureResolution, world.visuals);
             var assets = registry.assets.ToDictionary(a => a.id, StringComparer.Ordinal);
             var materials = new Dictionary<string, Material>(StringComparer.Ordinal);
             var cells = new Dictionary<CellKey, Transform>();
@@ -124,6 +124,8 @@ namespace Aaris.World.Editor
         {
             EditorSettings.serializationMode = SerializationMode.ForceText;
             PlayerSettings.colorSpace = ColorSpace.Linear;
+            // Android/Unity frame pacing reduces presentation jitter without changing physics time.
+            PlayerSettings.Android.optimizedFramePacing = true;
             var renderer = ScriptableObject.CreateInstance<UniversalRendererData>();
             AssetDatabase.CreateAsset(renderer, Generated + "/Renderer.asset");
             var pipeline = UniversalRenderPipelineAsset.Create(renderer);

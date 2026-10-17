@@ -14,11 +14,14 @@ Six natural cover rocks reduce the longest flagged standing-visibility run from 
 
 Native Unity C# now includes a Rigidbody capsule motor, gravity/collision settings, jump/sprint, stable multitouch joystick/swipe controls, camera obstruction, a local hitscan rifle, reload/damage targets and six physical box props. `PhysicsSandboxCompiler` assembles a separate sandbox from the existing map.
 
-**Engine/device acceptance is pending.** The 107 .NET tests validate policies/source, not native physics. Twenty-one Unity integration tests are authored but have not run here. Current character/gun/HUD are development harnesses. Sandbox revision 2 adds a moving/shrinking battle-zone practice loop, outside damage, a boundary and HUD timing; it is not multiplayer. [Gameplay details and remaining gaps](Docs/GAMEPLAY.md).
+**Engine/device acceptance is pending.** The previous 107 .NET tests validated policies/source, not native physics; four additional wind tests have been authored but not run in this environment. Twenty-one Unity integration tests are authored but have not run here. Current character/gun/HUD are development harnesses. Sandbox revision 2 adds a moving/shrinking battle-zone practice loop, outside damage, a boundary and HUD timing; it is not multiplayer. [Gameplay details and remaining gaps](Docs/GAMEPLAY.md).
 
 ## Current world
 
-| Feature | Revision 3 |
+**Revision 4 visual authoring:** optional canopy-only breeze on original oak/pine prefabs. Each tree has three LOD canopy pivots with distinct position-seeded motion; trunks and static collision never move. Wind is render-only, local to each device, and needs no network packet stream. The review screenshots below were generated before this change and do **not** show animated leaves. Android optimized frame pacing is enabled when authoring the Unity project; sustained phone FPS is not yet measured.
+
+
+| Feature | Revision 4 |
 | --- | --- |
 | Terrain | 1024 × 1024 m, 64 cells, 4 m mesh spacing, hills and lake |
 | Settlements | 6 districts, 55 buildings and 4 lookout towers |
