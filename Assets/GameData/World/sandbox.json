@@ -142,5 +142,15 @@
     "waitSeconds": 45,
     "shrinkSeconds": 220,
     "damagePerSecond": 4
+  },
+  "bots": {
+    "enabled": true,
+    "count": 50,
+    "maxCloseSimulated": 12,
+    "nearRange": 85,
+    "moveSpeed": 3.5,
+    "sightRange": 75,
+    "shotInterval": 1.75,
+    "shotDamage": 7
   }
 }

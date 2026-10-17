@@ -17,6 +17,7 @@ namespace Aaris.World
         public WeaponSpec weapon = new WeaponSpec();
         public BattleZoneSpec zone = new BattleZoneSpec();
         public LootSpec loot = new LootSpec();
+        public BotSpec bots = new BotSpec();
         public SpawnSpec player = new SpawnSpec { id = "PLAYER_LOCAL", x = -100, z = -190, yaw = 180 };
         public PropSpec[] props = Array.Empty<PropSpec>();
         public SpawnSpec[] targets = Array.Empty<SpawnSpec>();
@@ -90,6 +91,16 @@ namespace Aaris.World
             if (gun.magazine < 1 || gun.magazine > 100 || gun.reserve < 0 || gun.reserve > 1000 || !Range(gun.roundsPerSecond, 1, Math.Min(20, s.fixedHz)) ||
                 !Range(gun.reloadSeconds, 0.3, 10) || !Range(gun.damage, 1, 100) || !Range(gun.headMultiplier, 1, 4) || !Range(gun.range, 5, 500) ||
                 !Range(gun.impactImpulse, 0, 50)) errors.Add("Invalid ammunition, cadence, damage or impulse limits.");
+            if (s.bots == null) errors.Add("Bot section cannot be null.");
+            else if (s.bots.enabled && (s.bots.count < 1 || s.bots.count > 100 ||
+                s.bots.maxCloseSimulated < 1 || s.bots.maxCloseSimulated > 24 ||
+                s.bots.maxCloseSimulated > s.bots.count ||
+                !Range(s.bots.nearRange, 25, 150) ||
+                !Range(s.bots.moveSpeed, 1, 6) ||
+                !Range(s.bots.sightRange, 15, s.bots.nearRange) ||
+                !Range(s.bots.shotInterval, 0.6, 5) ||
+                !Range(s.bots.shotDamage, 1, 30)))
+                errors.Add("Offline bot count, active-thinking, sight, speed and damage budgets must be bounded.");
             if (s.loot == null) errors.Add("Loot section cannot be null.");
             else if (s.loot.enabled && (s.loot.perDistrict < 1 || s.loot.perDistrict > 8 ||
                 s.loot.maxPickups < 1 || s.loot.maxPickups > 48 ||

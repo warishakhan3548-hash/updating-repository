@@ -20,6 +20,11 @@ namespace Aaris.World.Tests
             Assert.That(session.pawn.Body.mass, Is.EqualTo(spec.movement.mass).Within(0.001));
             Assert.That(session.pawn.Body.collisionDetectionMode, Is.EqualTo(CollisionDetectionMode.ContinuousDynamic));
             Assert.That(session.props.Length, Is.EqualTo(spec.props.Length)); Assert.That(session.targets.Length, Is.EqualTo(spec.targets.Length));
+            Assert.That(session.botDirector, Is.Not.Null);
+            Assert.That(session.botDirector.session, Is.SameAs(session));
+            Assert.That(session.botDirector.units.Length, Is.EqualTo(spec.bots.count));
+            Assert.That(session.botDirector.units.All(b => b.actor != null && b.health != null &&
+                b.actor.GetComponent<Rigidbody>() == null), Is.True);
             Assert.That(Object.FindObjectsByType<Rigidbody>(FindObjectsSortMode.None).Length, Is.EqualTo(1 + spec.props.Length));
             Assert.That(session.props.All(p => p.GetComponent<BoxCollider>() != null && p.GetComponent<MeshCollider>() == null), Is.True);
             Assert.That(Object.FindObjectsByType<WorldObjectIdentity>(FindObjectsSortMode.None).All(o => o.GetComponent<Rigidbody>() == null), Is.True);

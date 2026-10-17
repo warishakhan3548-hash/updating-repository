@@ -35,8 +35,10 @@ namespace Aaris.World
             var state = session.weapon.State;
             int active = 0;
             foreach (var target in session.targets) if (target != null && !target.Dead) active++;
-            ammunition = (state.Reloading ? "RELOADING" : state.Ammo + " / " + state.Reserve) +
-                "   TARGETS " + active + "/" + session.targets.Length;
+            string opponents = session.botDirector != null
+                ? "BOTS " + session.BotsAlive + "/" + session.botDirector.units.Length
+                : "TARGETS " + active + "/" + session.targets.Length;
+            ammunition = (state.Reloading ? "RELOADING" : state.Ammo + " / " + state.Reserve) + "   " + opponents;
             int supplies = 0;
             if (session.loot != null)
                 foreach (var item in session.loot)
@@ -133,7 +135,10 @@ namespace Aaris.World
                 float row = Mathf.Max(1, (area.height - margin * 2 - 5 * scale) / 4f);
                 float width = Mathf.Max(1, area.width - margin * 2);
                 float resetWidth = Mathf.Min(66 * scale, width * 0.3f);
-                GUI.Label(new Rect(margin, margin, width - resetWidth - 4, row), "AARIS / PRACTICE", title);
+                string matchTitle = session.MatchEnded
+                    ? (session.PlayerWon ? "AARIS / WINNER" : "AARIS / ELIMINATED")
+                    : (session.botDirector != null ? "AARIS / SOLO ROYALE" : "AARIS / PRACTICE");
+                GUI.Label(new Rect(margin, margin, width - resetWidth - 4, row), matchTitle, title);
                 if (GUI.Button(new Rect(area.width - margin - resetWidth, margin, resetWidth, row), "RESET", reset))
                 { session.ResetSandbox(); nextTextUpdate = 0; }
                 GUI.Label(new Rect(margin, margin + row, width, row), ammunition, text);

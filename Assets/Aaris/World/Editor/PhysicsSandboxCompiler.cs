@@ -84,6 +84,34 @@ namespace Aaris.World.Editor
                 var headRegion = head.AddComponent<HitRegion>(); headRegion.receiver = receiver; headRegion.head = true;
                 receiver.ResetHealth(); SandboxLayers.SetRecursively(go, SandboxLayers.Target); targets.Add(receiver);
             }
+            // Local-only battle royale actors. The editor authors their static hit regions;
+            // one runtime director updates them with an explicit near/far AI budget.
+            if (spec.bots != null && spec.bots.enabled)
+            {
+                var botGroup = new GameObject("Solo Royale - offline AI actors");
+                botGroup.transform.SetParent(rootObject.transform, false);
+                var units = new List<LocalBotUnit>();
+                foreach (var spawn in BotSpawnPlanner.Generate(world, registry, spec))
+                {
+                    var bot = new GameObject(spawn.id);
+                    bot.transform.SetParent(botGroup.transform, false);
+                    bot.transform.SetPositionAndRotation(Feet(spawn), Quaternion.Euler(0, (float)spawn.yaw, 0));
+                    var receiver = bot.AddComponent<Damageable>();
+                    var torso = Part(bot.transform, PrimitiveType.Capsule, new Vector3(0, 0.85f, 0),
+                        new Vector3(0.75f, 0.86f, 0.75f), targetArt, true);
+                    var head = Part(bot.transform, PrimitiveType.Sphere, new Vector3(0, 1.68f, 0),
+                        Vector3.one * 0.44f, targetArt, true);
+                    torso.AddComponent<HitRegion>().receiver = receiver;
+                    var region = head.AddComponent<HitRegion>(); region.receiver = receiver; region.head = true;
+                    receiver.ResetHealth();
+                    SandboxLayers.SetRecursively(bot, SandboxLayers.Target);
+                    units.Add(new LocalBotUnit { actor = bot.transform, health = receiver });
+                }
+                var director = rootObject.AddComponent<LocalBotDirector>();
+                director.session = session;
+                director.units = units.ToArray();
+                session.botDirector = director;
+            }
             var pickups = new List<LocalLootPickup>();
             if (spec.loot != null && spec.loot.enabled)
             {
