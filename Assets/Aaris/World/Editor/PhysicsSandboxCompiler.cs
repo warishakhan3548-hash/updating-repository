@@ -24,6 +24,23 @@ namespace Aaris.World.Editor
             var errors = SandboxValidator.Validate(spec, world, registry);
             if (errors.Count != 0) throw new InvalidDataException(string.Join("\n", errors));
             ConfigureLayers();
+            // Resolve custom art before the world compiler clears disposable Assets/Generated.
+            GameObject characterPrefab = null;
+            if (!string.IsNullOrEmpty(spec.characterPrefabPath))
+            {
+                characterPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(spec.characterPrefabPath);
+                if (characterPrefab == null) throw new InvalidDataException("Character prefab not found: " + spec.characterPrefabPath);
+                var sourceAnimator = characterPrefab.GetComponentInChildren<Animator>(true);
+                if (sourceAnimator == null || sourceAnimator.avatar == null || !sourceAnimator.avatar.isValid ||
+                    !sourceAnimator.avatar.isHuman || sourceAnimator.runtimeAnimatorController == null)
+                    throw new InvalidDataException("Character needs a valid Humanoid Avatar, Animator and controller: " + spec.characterPrefabPath);
+                if (characterPrefab.GetComponentsInChildren<Rigidbody>(true).Length != 0 ||
+                    characterPrefab.GetComponentsInChildren<Collider>(true).Length != 0 ||
+                    characterPrefab.GetComponentsInChildren<Camera>(true).Length != 0)
+                    throw new InvalidDataException("Character art cannot own colliders, physics bodies or cameras.");
+                if (characterPrefab.GetComponentsInChildren<Renderer>(true).Length == 0)
+                    throw new InvalidDataException("Character prefab has no visible renderers: " + spec.characterPrefabPath);
+            }
             UnityWorldCompiler.Compile();
             var scene = SceneManager.GetActiveScene();
             foreach (var root in scene.GetRootGameObjects()) SandboxLayers.SetRecursively(root, SandboxLayers.World);
@@ -47,7 +64,48 @@ namespace Aaris.World.Editor
             player.GetComponent<CapsuleCollider>().sharedMaterial = playerSurface;
             var visual = new GameObject("Development character").transform; visual.SetParent(player.transform, false); pawn.visual = visual;
             visual.localRotation = Quaternion.Euler(0, (float)spec.player.yaw, 0);
-            Part(visual, PrimitiveType.Capsule, Vector3.up * (height * 0.5f), new Vector3(radius * 1.7f, height * 0.5f, radius * 1.7f), playerArt, false);
+            if (characterPrefab != null)
+            {
+                var model = (GameObject)PrefabUtility.InstantiatePrefab(characterPrefab);
+                model.transform.SetParent(visual, false);
+                model.transform.localPosition = Vector3.zero;
+                model.transform.localRotation = Quaternion.identity;
+                visual.gameObject.AddComponent<CharacterVisualDriver>().Bind(pawn, model.GetComponentInChildren<Animator>(true));
+            }
+            else
+            {
+                // Development silhouette only. Replace with licensed humanoid artwork for final visuals.
+                var skin = Material("PrototypeSkin", new Color(0.63f, 0.45f, 0.32f));
+                var pants = Material("PrototypePants", new Color(0.16f, 0.19f, 0.22f));
+                var boots = Material("PrototypeBoots", new Color(0.08f, 0.09f, 0.10f));
+                Part(visual, PrimitiveType.Capsule, Vector3.up * (height * 0.61f),
+                    new Vector3(radius * 1.1f, height * 0.23f, radius * 0.8f), playerArt, false).name = "Torso";
+                Part(visual, PrimitiveType.Sphere, Vector3.up * (height * 0.90f),
+                    Vector3.one * (height * 0.20f), skin, false).name = "Head";
+                Part(visual, PrimitiveType.Sphere, Vector3.up * (height * 0.99f),
+                    new Vector3(height * 0.22f, height * 0.075f, height * 0.22f), pants, false).name = "Hair";
+                var hips = new Transform[2];
+                var shoulders = new Transform[2];
+                for (int i = 0; i < 2; i++)
+                {
+                    float side = i == 0 ? -1f : 1f;
+                    hips[i] = new GameObject(i == 0 ? "Left Hip" : "Right Hip").transform;
+                    hips[i].SetParent(visual, false);
+                    hips[i].localPosition = new Vector3(side * radius * 0.36f, height * 0.44f, 0);
+                    Part(hips[i], PrimitiveType.Capsule, Vector3.down * (height * 0.19f),
+                        new Vector3(radius * 0.40f, height * 0.20f, radius * 0.42f), pants, false);
+                    Part(hips[i], PrimitiveType.Cube, Vector3.down * (height * 0.38f) + Vector3.forward * 0.045f,
+                        new Vector3(radius * 0.45f, height * 0.065f, radius * 0.72f), boots, false);
+                    shoulders[i] = new GameObject(i == 0 ? "Left Shoulder" : "Right Shoulder").transform;
+                    shoulders[i].SetParent(visual, false);
+                    shoulders[i].localPosition = new Vector3(side * radius * 0.86f, height * 0.75f, 0);
+                    Part(shoulders[i], PrimitiveType.Capsule, Vector3.down * (height * 0.15f),
+                        new Vector3(radius * 0.34f, height * 0.17f, radius * 0.34f), playerArt, false);
+                    Part(shoulders[i], PrimitiveType.Sphere, Vector3.down * (height * 0.31f),
+                        Vector3.one * (radius * 0.33f), skin, false);
+                }
+                visual.gameObject.AddComponent<PrototypeGait>().Bind(pawn, hips[0], hips[1], shoulders[0], shoulders[1]);
+            }
             var gun = Part(visual, PrimitiveType.Cube, new Vector3(radius * 0.57f, barrelHeight - 0.05f, 0.32f), new Vector3(0.12f, 0.14f, 0.65f), neutral, false);
             gun.name = "Development rifle";
             var muzzle = new GameObject("Muzzle").transform; muzzle.SetParent(visual, false); muzzle.localPosition = new Vector3(radius * 0.57f, barrelHeight, 0.66f);
@@ -91,7 +149,7 @@ namespace Aaris.World.Editor
             rootObject.AddComponent<SandboxHud>().session = session;
             AssetDatabase.SaveAssets();
             if (!EditorSceneManager.SaveScene(scene, ScenePath)) throw new IOException("Unable to save physics sandbox scene.");
-            Debug.Log("Physics sandbox authored: native Rigidbody capsule, bounded props, touch controls and local target shooting. No APK compiled; run Unity physics tests and Play Mode before acceptance.");
+            Debug.Log("Physics sandbox authored: visual-only humanoid presentation and unchanged native capsule physics. No APK compiled; run Unity physics tests and Play Mode before acceptance.");
         }
 
         private static GameObject Part(Transform parent, PrimitiveType primitive, Vector3 position, Vector3 scale, Material material, bool collision)
