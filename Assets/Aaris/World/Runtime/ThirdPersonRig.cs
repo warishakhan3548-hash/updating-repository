@@ -29,16 +29,20 @@ namespace Aaris.World
         private void LateUpdate()
         {
             if (target == null || input == null) return;
+            // Generated scenes assign target after AddComponent/Awake; resolve on first use.
+            if (pawn == null && target.TryGetComponent(out pawn) && pawn.visual != null)
+                playerRenderers = pawn.visual.GetComponentsInChildren<Renderer>();
             yaw = Mathf.Repeat(yaw + input.Look.x * 165, 360); pitch = Mathf.Clamp(pitch - input.Look.y * 165, -35, 65);
             recoil = Mathf.MoveTowards(recoil, 0, Time.deltaTime * 7);
             Quaternion rotation = Quaternion.Euler(pitch - recoil, yaw, 0);
-            Vector3 pivot = target.position + Vector3.up * pivotHeight;
+            float activePivot = pawn != null && pawn.Crouched ? (float)pawn.settings.crouchHeight * 0.82f : pivotHeight;
+            Vector3 pivot = target.position + Vector3.up * activePivot;
             Vector3 offset = rotation * new Vector3(0.6f, 0, -3.7f);
             var scene = gameObject.scene.GetPhysicsScene();
             ClearView = CameraCollision.TryLimit(scene, pivot, offset, overlap, out float desired);
             if (!ClearView && pawn != null && pawn.Body != null)
             {
-                pivot = pawn.Body.position + Vector3.up * pivotHeight;
+                pivot = pawn.Body.position + Vector3.up * activePivot;
                 ClearView = CameraCollision.TryLimit(scene, pivot, offset, overlap, out desired);
                 if (!ClearView)
                 {
