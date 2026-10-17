@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": 2,
+  "revision": 3,
   "fixedHz": 50,
   "maxCatchUpSteps": 4,
   "gravity": 9.81,
@@ -122,6 +122,15 @@
       "yaw": 0
     }
   ],
+  "loot": {
+    "enabled": true,
+    "perDistrict": 3,
+    "maxPickups": 24,
+    "ammunition": 30,
+    "healing": 30,
+    "minSpacing": 18,
+    "pickupRadius": 1.4
+  },
   "zone": {
     "enabled": true,
     "startX": 0,
