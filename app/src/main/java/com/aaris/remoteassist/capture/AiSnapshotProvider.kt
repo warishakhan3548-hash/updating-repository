@@ -25,6 +25,8 @@ class AiSnapshotProvider(private val track: ScreenCaptureTrack) : AutoCloseable 
     private val pending = AtomicReference<Pending?>(null)
     private val closed = AtomicBoolean(false)
     private val conversionInFlight = AtomicBoolean(false)
+    private val sinkLock = Any()
+    private var sinkAttached = false
     private val converter = Executors.newSingleThreadExecutor { task ->
         Thread(task, "AarisAiSnapshotConversion").apply {
             priority = Thread.NORM_PRIORITY - 1
@@ -82,7 +84,31 @@ class AiSnapshotProvider(private val track: ScreenCaptureTrack) : AutoCloseable 
         }
     }
 
-    init { track.addSnapshotSink(sink) }
+    /*
+     * Keep AI completely off the steady-state 30/45/60 fps capture fan-out.
+     * The sink is needed only while one explicit screenshot request is waiting.
+     * CopyOnWriteArraySet mutation happens at request boundaries, never per frame.
+     */
+    private fun attachSinkIfNeeded(): Boolean =
+        synchronized(sinkLock) {
+            if (closed.get()) {
+                false
+            } else {
+                if (!sinkAttached) {
+                    track.addSnapshotSink(sink)
+                    sinkAttached = true
+                }
+                true
+            }
+        }
+
+    private fun detachSinkIfNeeded() {
+        synchronized(sinkLock) {
+            if (!sinkAttached) return
+            track.removeSnapshotSink(sink)
+            sinkAttached = false
+        }
+    }
 
     suspend fun fresh(): AiRawFrame {
         check(!closed.get()) { "CAPTURE_STOPPED" }
@@ -91,16 +117,18 @@ class AiSnapshotProvider(private val track: ScreenCaptureTrack) : AutoCloseable 
         val request = Pending(waiter)
         check(pending.compareAndSet(null, request)) { "CAPTURE_BUSY" }
         return try {
+            check(attachSinkIfNeeded()) { "CAPTURE_STOPPED" }
             track.requestSnapshot()
             withTimeout(2500) { waiter.await() }
         } finally {
             pending.compareAndSet(request, null)
+            detachSinkIfNeeded()
         }
     }
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
-        track.removeSnapshotSink(sink)
+        detachSinkIfNeeded()
         pending.getAndSet(null)?.result?.cancel()
         // Do not use shutdownNow(): a queued task owns a CPU I420 buffer and
         // its finally block must release it, even after the provider closes.
