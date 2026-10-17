@@ -13,6 +13,12 @@ The map is world revision 3; `Assets/GameData/World/sandbox.json` is a separate 
 - Local hitscan rifle, limited cadence, 30-round magazine, finite reserve, timed reload, head/body target regions, damage/death/reset and one reusable tracer. Missed shots never accumulate into a burst after a hitch.
 - Camera aim chooses a point, then a chest-to-muzzle and muzzle-to-point query respects nearby cover. An overlap at the chest blocks the shot instead of firing a ray from inside solid geometry. Queries use the owning PhysicsScene. Shooting originates at the authoritative Rigidbody position rather than an interpolated render transform.
 
+## Combat input and mobile fidelity upgrade (source implementation)
+
+- A touch FIRE down-event and desktop mouse-down now latch a single bounded 160 ms pulse. The physics weapon consumes it in `FixedUpdate` even if the finger is released between simulation steps. Held automatic fire still uses the existing cadence; consumed pulses cannot trigger delayed "ghost shots". Touch pruning inspects up to 32 active finger IDs, while the ownership policy continues to cap simultaneous control owners at 10.
+- The sandbox camera now contains `MobileQualityGovernor`. On a real mobile player with an active URP asset, it samples rendered-frame intervals, smooths and caps isolated stalls, reduces URP render scale/LOD bias/shadow distance in bounded tiers only after sustained overload, and restores quality gradually after sustained healthy intervals. All modified global quality values are restored on component disable. The scale policy never intentionally renders below a 540-pixel short edge on screens that can support it. The existing authored URP render scale remains the upper bound.
+- This is a frame-time heuristic, **not GPU-time telemetry, dynamic world streaming, verified 60 FPS, or a final art upgrade**. In particular CPU-bound stalls may not improve with a lower render scale. Test target devices, inspect URP asset sharing, frame pacing, thermal throttling and visual readability before production acceptance. No APK pipeline was added.
+
 ## Native scene generation
 
 ```bash
