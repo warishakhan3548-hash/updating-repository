@@ -100,7 +100,12 @@ namespace Aaris.World
                 }
             }
             Living = alive;
-            if (Living == 0) { session.EndMatch(true); return; }
+            var result = LocalMatchRules.Outcome(Living, session.PlayerHealth);
+            if (result != LocalMatchOutcome.Running)
+            {
+                session.EndMatch(result == LocalMatchOutcome.Won);
+                return;
+            }
             // Round-robin, strict CPU budget. Near and far agents are treated fairly;
             // no per-actor Update or 100 independent timers/raycast loops.
             int decisions = Mathf.Min(settings.decisionsPerStep, agents.Length);
