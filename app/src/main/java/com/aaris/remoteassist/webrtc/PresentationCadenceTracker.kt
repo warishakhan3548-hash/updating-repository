@@ -1,5 +1,6 @@
 package com.aaris.remoteassist.webrtc
 
+import java.util.concurrent.locks.ReentrantLock
 import kotlin.math.roundToInt
 
 /** Actual controller-side EGL presentation cadence, not decoder/RTP cadence. */
@@ -41,6 +42,14 @@ class PresentationCadenceTracker(
         require(maxGapMs in minWindowMs..6_000L)
     }
 
+    /*
+     * onPresented() runs on EglRenderer's latency-critical presentation lane,
+     * while reset() is lifecycle/recovery work. Presentation telemetry may skip
+     * one sample during an exact reset collision; the EGL thread must never wait
+     * behind lifecycle bookkeeping.
+     */
+    private val stateLock = ReentrantLock()
+
     private var windowStartMs = -1L
     private var lastFrameMs = -1L
     private var frames = 0
@@ -56,13 +65,13 @@ class PresentationCadenceTracker(
     // appeared only at the end of an otherwise quiet >750 ms glass interval.
     private val STALLED_SINGLE_FRAME_MS = 200L
 
-    @Synchronized
     fun onPresented(
         nowMs: Long,
         decodedSequence: Long? = null,
         lastDecodedAtMs: Long? = null
     ): PresentationCadenceWindow? {
-        if (nowMs < 0L) return null
+        if (nowMs < 0L || !stateLock.tryLock()) return null
+        try {
 
         // Decoder callbacks and real EGL swaps are independent clocks.
         // Use the number of decoder callbacks since the previous swap to
@@ -128,20 +137,27 @@ class PresentationCadenceTracker(
             maxGapMs = largestGapMs.coerceIn(0L, 6_000L).toInt()
         )
 
-        // The current frame closes the old window. The next frame starts the
-        // new count, preventing one EGL swap from being counted twice.
-        windowStartMs = nowMs
-        frames = 0
-        largestGapMs = 0L
-        return sample
+            // The current frame closes the old window. The next frame starts the
+            // new count, preventing one EGL swap from being counted twice.
+            windowStartMs = nowMs
+            frames = 0
+            largestGapMs = 0L
+            return sample
+        } finally {
+            stateLock.unlock()
+        }
     }
 
-    @Synchronized
     fun reset() {
-        windowStartMs = -1L
-        lastFrameMs = -1L
-        frames = 0
-        largestGapMs = 0L
-        lastDecodedSequence = null
+        stateLock.lock()
+        try {
+            windowStartMs = -1L
+            lastFrameMs = -1L
+            frames = 0
+            largestGapMs = 0L
+            lastDecodedSequence = null
+        } finally {
+            stateLock.unlock()
+        }
     }
 }
