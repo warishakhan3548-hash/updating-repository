@@ -2992,7 +2992,13 @@ class InlineRemoteControllerView(
                     atMs = atMs
                 )
         } else {
-            gesturePoints[gesturePoints.lastIndex] =
+            // Keep the original DOWN anchor and the latest 191 samples.
+            // Replacing only the final slot made long gaming drags retain
+            // obsolete intermediate points after the history limit.
+            // This is bounded to 192 elements; no unbounded input backlog
+            // or secondary gesture queue is introduced.
+            gesturePoints.removeAt(1)
+            gesturePoints +=
                 LocalTouchPoint(
                     x = x,
                     y = y,
