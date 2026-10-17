@@ -15,4 +15,6 @@ Before importing real art:
 
 Large final assets may use Git LFS once hosting/build support and storage limits are chosen. This initial text-first project does not enable LFS or create a paid storage dependency.
 
+The generated oak and pine canopy materials now use `Aaris/Wind Foliage`. Shader animation affects rendered leaves only; collision and trunks stay static. The world visual profile controls `windStrength` (0–0.75 metres) and `windSpeed` (0–4). Strength zero gives a still canopy. Its forward, depth and shadow passes share the same deformation, but real Unity/mobile validation is outstanding. Imported prefabs retain their own materials and are not automatically animated.
+
 Procedural development art uses empty `prefabPath` plus an explicit `archetype`. Its material data is original, generated from math patterns, with no external texture downloads. The production-art gate continues to reject development assets until final art and engine/device validation are complete. Offline Blender rendering is available only while every asset uses its procedural source; prefab overrides must be reviewed in Unity.
