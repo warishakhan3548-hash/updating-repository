@@ -32,6 +32,7 @@ public static class UpgradeTests
         yield return ("road junctions have a single surface without holes", RoadUnionCoverage);
         yield return ("unsafe procedural architecture dimensions are rejected", ArtDimensions);
         yield return ("texture budgets follow the configured render resolution", TextureBudget);
+        yield return ("wind inputs are finite and bounded before shader generation", WindProfile);
     }
 
     private static void Assert(bool condition, string message) { if (!condition) throw new Exception(message); }
@@ -45,6 +46,18 @@ public static class UpgradeTests
     { var errors = WorldValidator.Validate(w, a); Assert(errors.Any(e => e.code == code), "Missing " + code + ": " + string.Join("\n", errors)); }
     private static RouteSpec Link(string id, LandmarkSpec a, LandmarkSpec b)
         => new() { id = id, from = a.id, to = b.id, points = new[] { new Point2(a.x, a.z), new Point2(b.x, b.z) }, maxCoverGap = 250 };
+    private static void WindProfile()
+    {
+        var (w, a) = Fixture();
+        w.visuals.windStrength = -0.01; Has(w, a, "DESIGN_SPEC");
+        w.visuals.windStrength = 0.76; Has(w, a, "DESIGN_SPEC");
+        w.visuals.windStrength = double.NaN; Has(w, a, "DESIGN_SPEC");
+        w.visuals.windStrength = 0.24;
+        w.visuals.windSpeed = -0.01; Has(w, a, "DESIGN_SPEC");
+        w.visuals.windSpeed = 4.01; Has(w, a, "DESIGN_SPEC");
+        w.visuals.windSpeed = double.PositiveInfinity; Has(w, a, "DESIGN_SPEC");
+    }
+
     private static void NullFeatures()
     { var (w, a) = Fixture(); w.terrain.hills = null; Has(w, a, "DESIGN_SPEC"); }
     private static void VersionGuard()
