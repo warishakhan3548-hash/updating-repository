@@ -31,6 +31,10 @@ public static class GameplayTests
         yield return ("battle zone respects capsule margin and outside distance", ZoneDistance);
         yield return ("battle zone rejects unsafe movement and impossible footprints", ZoneBadSettings);
         yield return ("battle zone timeline refuses nonfinite and backward clocks", ZoneBadClock);
+        yield return ("wind motion is deterministic without changing source transforms", WindDeterminism);
+        yield return ("wind angles remain bounded on both axes", WindBounds);
+        yield return ("wind refuses nonfinite or unsafe settings", WindInvalid);
+        yield return ("wind visual settings validate on the real world", WindWorldSettings);
     }
     private static void Assert(bool ok, string message = "Gameplay invariant failed.") { if (!ok) throw new Exception(message); }
     private static void Throws(Action action)
@@ -159,6 +163,44 @@ public static class GameplayTests
         var z = Zone(); Throws(() => BattleZoneTimeline.At(z, -0.1));
         Throws(() => BattleZoneTimeline.At(z, double.NaN));
         Throws(() => BattleZoneTimeline.At(z, double.PositiveInfinity));
+    }
+    private static void WindDeterminism()
+    {
+        var a = FoliageWindMath.Sample(17.3, 45, -71, 0.18, 2.4);
+        var b = FoliageWindMath.Sample(17.3, 45, -71, 0.18, 2.4);
+        var other = FoliageWindMath.Sample(17.3, 65, -12, 0.18, 2.4);
+        Assert(a.pitchDegrees == b.pitchDegrees && a.rollDegrees == b.rollDegrees);
+        Assert(Math.Abs(a.pitchDegrees - other.pitchDegrees) > 0.01 ||
+               Math.Abs(a.rollDegrees - other.rollDegrees) > 0.01, "All trees are synchronized.");
+        var zero = FoliageWindMath.Sample(17.3, 45, -71, 0.18, 0);
+        Assert(zero.pitchDegrees == 0 && zero.rollDegrees == 0);
+    }
+    private static void WindBounds()
+    {
+        for (int i = 0; i < 1600; i++)
+        {
+            var sample = FoliageWindMath.Sample(i * 0.031, -512 + i * 0.61, 200 - i * 0.34, 0.18, 2.4);
+            Assert(Math.Abs(sample.pitchDegrees) <= 2.4 + 1e-10);
+            Assert(Math.Abs(sample.rollDegrees) <= 2.4 + 1e-10);
+        }
+    }
+    private static void WindInvalid()
+    {
+        Throws(() => FoliageWindMath.Sample(-1, 0, 0, 0.18, 2.4));
+        Throws(() => FoliageWindMath.Sample(1, double.NaN, 0, 0.18, 2.4));
+        Throws(() => FoliageWindMath.Sample(1, 0, 0, 0, 2.4));
+        Throws(() => FoliageWindMath.Sample(1, 0, 0, 0.18, -1));
+        Throws(() => FoliageWindMath.Sample(1, 0, 0, 0.18, 9));
+    }
+    private static void WindWorldSettings()
+    {
+        var world = WorldFiles.Read<WorldSpec>(WorldFiles.WorldPath);
+        var assets = WorldFiles.Read<AssetRegistry>(WorldFiles.RegistryPath);
+        Assert(WorldValidator.Validate(world, assets).Count == 0, "Current world must remain valid.");
+        world.visuals.windAngleDegrees = double.NaN;
+        Assert(WorldValidator.Validate(world, assets).Count > 0, "Nonfinite wind must fail.");
+        world.visuals.windAngleDegrees = 9;
+        Assert(WorldValidator.Validate(world, assets).Count > 0, "Unbounded wind must fail.");
     }
     private static void StrictSandbox()
     {
