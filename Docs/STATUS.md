@@ -11,7 +11,7 @@ Initial world: `Aaris_Highlands`, revision 1, 1024 × 1024 m, 128 m cells, 4 dis
 - Checked-in sample passed world validation, repeated canonical compilation and the example marker move dry run.
 - The schematic preview and metrics were generated directly from the checked-in source. The PNG in `Docs/Review/` is a rasterized schematic, not a Unity screenshot.
 
-The local execution environment's process metadata prevented the SDK's normal `dotnet build/run` frontend from starting. Verification used the SDK's actual C# compiler and .NET runtime directly, rather than claiming the normal frontend had passed. The GitHub workflow uses normal `dotnet build/run`; its run status is recorded on GitHub.
+The local execution environment's process metadata prevented the SDK's normal `dotnet build/run` frontend from starting. Local verification used the SDK's actual C# compiler and .NET runtime directly. Normal `dotnet build/run`, all 38 tests, source validation and review generation subsequently **passed on the GitHub runner**: [verified source run](https://github.com/warishakhan3548-hash/updating-repository/actions/runs/39022488744).
 
 ## Still requires a Unity runner
 

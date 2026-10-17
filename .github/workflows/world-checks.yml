@@ -4,17 +4,21 @@ on:
   push:
     branches: [main]
     paths:
-      - 'Assets/Aaris/World/Core/**'
+      - 'Assets/Aaris/World/**'
       - 'Assets/GameData/World/**'
       - 'Tools/**'
       - 'global.json'
+      - 'Packages/**'
+      - 'ProjectSettings/**'
       - '.github/workflows/world-checks.yml'
   pull_request:
     paths:
-      - 'Assets/Aaris/World/Core/**'
+      - 'Assets/Aaris/World/**'
       - 'Assets/GameData/World/**'
       - 'Tools/**'
       - 'global.json'
+      - 'Packages/**'
+      - 'ProjectSettings/**'
       - '.github/workflows/world-checks.yml'
   workflow_dispatch:
 
