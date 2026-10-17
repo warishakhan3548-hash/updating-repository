@@ -22,6 +22,12 @@ namespace Aaris.World.Tests
             Assert.That(Object.FindObjectsByType<WorldObjectIdentity>(FindObjectsSortMode.None).All(o => o.GetComponent<Rigidbody>() == null), Is.True);
             Assert.That(session.weapon.cameraRig, Is.SameAs(session.cameraRig)); Assert.That(session.propStarts.Length, Is.EqualTo(session.props.Length));
             Assert.That(session.cameraRig.GetComponent<MobileQualityGovernor>(), Is.Not.Null, "Sandbox camera must own the mobile graphics governor.");
+            Assert.That(session.pawn.visual, Is.Not.Null);
+            Assert.That(session.pawn.visual.GetComponentsInChildren<Renderer>(true).Length, Is.GreaterThan(8),
+                "Blockout should have a human silhouette with articulated pieces.");
+            Assert.That(session.pawn.visual.GetComponent<PrototypeGait>(), Is.Not.Null);
+            Assert.That(session.pawn.visual.GetComponentsInChildren<Collider>(true).Length, Is.Zero,
+                "Visual art must not introduce hidden extra gameplay colliders.");
         }
     }
 }
