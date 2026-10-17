@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "id": "Aaris_Highlands",
-  "revision": 2,
+  "revision": 3,
   "seed": 1701,
   "grid": {
     "originX": -512,
@@ -5178,6 +5178,66 @@
       "z": 46.286,
       "yaw": 185,
       "scale": 1,
+      "groundOffset": 0
+    },
+    {
+      "id": "ROCK_TACTICAL_001",
+      "asset": "ridge_boulder",
+      "landmark": "",
+      "x": 4.026,
+      "z": 343.736,
+      "yaw": 261,
+      "scale": 1.4,
+      "groundOffset": 0
+    },
+    {
+      "id": "ROCK_TACTICAL_002",
+      "asset": "ridge_boulder",
+      "landmark": "",
+      "x": -1.428,
+      "z": 318.002,
+      "yaw": 320,
+      "scale": 1.4,
+      "groundOffset": 0
+    },
+    {
+      "id": "ROCK_TACTICAL_003",
+      "asset": "ridge_boulder",
+      "landmark": "",
+      "x": 88.438,
+      "z": -314.13,
+      "yaw": 38,
+      "scale": 1.4,
+      "groundOffset": 0
+    },
+    {
+      "id": "ROCK_TACTICAL_004",
+      "asset": "ridge_boulder",
+      "landmark": "",
+      "x": 91.457,
+      "z": -287.998,
+      "yaw": 97,
+      "scale": 1.4,
+      "groundOffset": 0
+    },
+    {
+      "id": "ROCK_TACTICAL_005",
+      "asset": "ridge_boulder",
+      "landmark": "",
+      "x": 105.048,
+      "z": -182.69,
+      "yaw": 175,
+      "scale": 1.4,
+      "groundOffset": 0
+    },
+    {
+      "id": "ROCK_TACTICAL_006",
+      "asset": "ridge_boulder",
+      "landmark": "",
+      "x": 112.547,
+      "z": -157.476,
+      "yaw": 234,
+      "scale": 1.4,
       "groundOffset": 0
     }
   ],

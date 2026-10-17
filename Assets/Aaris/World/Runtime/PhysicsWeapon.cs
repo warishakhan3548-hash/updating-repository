@@ -35,7 +35,7 @@ namespace Aaris.World
             if (input == null || cameraRig == null || muzzle == null) return;
             if (state == null) ResetWeapon();
             double now = Time.fixedTimeAsDouble;
-            if (!state.Tick(now, input.Fire, input.ConsumeReload())) return;
+            if (!state.Tick(now, input.Fire && cameraRig.ClearView, input.ConsumeReload())) return;
             Vector3 feet = ownerBody != null ? ownerBody.position : transform.position;
             // Physics uses the current body pose, not the renderer's interpolated position.
             Vector3 barrelPoint = feet + (muzzle.position - transform.position);
@@ -71,11 +71,14 @@ namespace Aaris.World
 
         public static ShotTrace Trace(PhysicsScene scene, Vector3 eye, Vector3 aim, Vector3 chest, Vector3 muzzle, float range, Collider[] scratch)
         {
+            if (scratch == null || scratch.Length == 0 || !WorldValidator.Finite(range) || range <= 0 || aim.sqrMagnitude < 1e-8f)
+                throw new System.ArgumentException("A nonzero aim, finite range and overlap buffer are required.");
             // A chest inside solid geometry is a blocked shot, never a ray starting inside a wall.
             if (scene.OverlapSphere(chest, 0.04f, scratch, SandboxLayers.SolidMask, QueryTriggerInteraction.Ignore) > 0)
                 return new ShotTrace { blockedAtOrigin = true, end = chest };
             Vector3 aimPoint = eye + aim.normalized * range;
             if (scene.Raycast(eye, aim.normalized, out var cameraHit, range, SandboxLayers.SolidMask, QueryTriggerInteraction.Ignore)) aimPoint = cameraHit.point;
+            if (Vector3.Dot(aim.normalized, aimPoint - muzzle) <= 0.01f) return new ShotTrace { blockedAtOrigin = true, end = muzzle };
             Vector3 barrel = muzzle - chest;
             if (barrel.sqrMagnitude > 0.0001f && scene.Raycast(chest, barrel.normalized, out var obstruction, barrel.magnitude, SandboxLayers.SolidMask, QueryTriggerInteraction.Ignore))
                 return new ShotTrace { hit = true, contact = obstruction, end = obstruction.point };

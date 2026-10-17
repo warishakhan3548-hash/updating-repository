@@ -1,0 +1,121 @@
+{
+  "sourceSha256": "382a9e022a78582b5482893a9e07cf7ffb95c67f3ba7809399fa7bbad53279e8",
+  "request": {
+    "expectedRevision": 2,
+    "maxPairs": 6,
+    "targetLongestRun": 80
+  },
+  "sourceRevision": 2,
+  "proposedRevision": 3,
+  "addedObjects": 6,
+  "before": [
+    {
+      "id": "PATH_CF",
+      "samples": 95,
+      "meanOpenFraction": 0.6789473684210527,
+      "longestExposedRun": 170.55292061944937
+    },
+    {
+      "id": "PATH_CR",
+      "samples": 96,
+      "meanOpenFraction": 0.5247395833333334,
+      "longestExposedRun": 9.708882304901287
+    },
+    {
+      "id": "PATH_DR",
+      "samples": 97,
+      "meanOpenFraction": 0.6301546391752579,
+      "longestExposedRun": 214.9552039928451
+    },
+    {
+      "id": "PATH_FQ",
+      "samples": 47,
+      "meanOpenFraction": 0.5567375886524824,
+      "longestExposedRun": 6.829753733150991
+    },
+    {
+      "id": "PATH_QD",
+      "samples": 43,
+      "meanOpenFraction": 0.4777131782945736,
+      "longestExposedRun": 10.894807171106041
+    },
+    {
+      "id": "PATH_RW",
+      "samples": 49,
+      "meanOpenFraction": 0.4829931972789116,
+      "longestExposedRun": 4.144172059685295
+    },
+    {
+      "id": "PATH_WC",
+      "samples": 49,
+      "meanOpenFraction": 0.5476190476190478,
+      "longestExposedRun": 0
+    },
+    {
+      "id": "PATH_WF",
+      "samples": 116,
+      "meanOpenFraction": 0.6939655172413794,
+      "longestExposedRun": 140.08996751119744
+    }
+  ],
+  "after": [
+    {
+      "id": "PATH_CF",
+      "samples": 95,
+      "meanOpenFraction": 0.660964912280702,
+      "longestExposedRun": 77.98215299438829
+    },
+    {
+      "id": "PATH_CR",
+      "samples": 96,
+      "meanOpenFraction": 0.5247395833333334,
+      "longestExposedRun": 9.708882304901287
+    },
+    {
+      "id": "PATH_DR",
+      "samples": 97,
+      "meanOpenFraction": 0.6069587628865981,
+      "longestExposedRun": 71.68227575041621
+    },
+    {
+      "id": "PATH_FQ",
+      "samples": 47,
+      "meanOpenFraction": 0.5567375886524824,
+      "longestExposedRun": 6.829753733150991
+    },
+    {
+      "id": "PATH_QD",
+      "samples": 43,
+      "meanOpenFraction": 0.4777131782945736,
+      "longestExposedRun": 10.894807171106041
+    },
+    {
+      "id": "PATH_RW",
+      "samples": 49,
+      "meanOpenFraction": 0.4829931972789116,
+      "longestExposedRun": 4.144172059685295
+    },
+    {
+      "id": "PATH_WC",
+      "samples": 49,
+      "meanOpenFraction": 0.5476190476190478,
+      "longestExposedRun": 0
+    },
+    {
+      "id": "PATH_WF",
+      "samples": 116,
+      "meanOpenFraction": 0.6731321839080461,
+      "longestExposedRun": 75.61341282726556
+    }
+  ],
+  "note": "Proposal accepted after source/sandbox validation and geometry review. Every pre-existing object/transform preserved. These are sampled static visibility metrics, not proven combat safety.",
+  "acceptedRevision": 3,
+  "acceptedWorldSourceSha256": "bf09cec324532cee760648a0c472887676dad871104c5fe09ba4cb37a292abe7",
+  "analysisSourcesSha256": {
+    "Assets/Aaris/World/Core/CollisionBvh.cs": "f6ff78a4278ab6145999aa7a7b8ec35c3f3b4249419188d3595e9420e356c2df",
+    "Assets/Aaris/World/Core/ProceduralArt.cs": "5b6841e985fe915649ec752606d6297bb706623e60c6d64ef5cba180bd367c2b",
+    "Assets/Aaris/World/Core/TerrainSampler.cs": "eb206d5e97cd38c1b808bd4355de9e512772191edf5bcf974df2bdcc0ff2e9df",
+    "Assets/Aaris/World/Core/WorldGeometry.cs": "601073f4943d85be62f852557c3653fa5d7cc422354299e9a7cb364316e3c9cb",
+    "Tools/WorldTool/VisibilityReview.cs": "1e80bd030b2cf0dafb4dca92b2e2bfa2cbabfedae4a0971fbefa5093f3c71f6a"
+  }
+}

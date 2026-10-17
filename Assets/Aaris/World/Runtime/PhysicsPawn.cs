@@ -54,6 +54,11 @@ namespace Aaris.World
             float radius = (float)settings.radius;
             Vector3 origin = body.position + Vector3.up * (radius + 0.08f);
             bool support = scene.SphereCast(origin, radius * 0.9f, Vector3.down, out var hit, 0.08f + radius * 0.1f + 0.09f, SandboxLayers.SolidMask, QueryTriggerInteraction.Ignore);
+            // A sphere-sweep normal can describe a rounded edge rather than the face.
+            // Confirm the actual face before using its slope for grounded movement.
+            RaycastHit surface = default;
+            bool face = support && scene.Raycast(hit.point + Vector3.up * 0.08f, Vector3.down, out surface, 0.16f, SandboxLayers.SolidMask, QueryTriggerInteraction.Ignore) && surface.collider == hit.collider;
+            if (face) hit = surface; else support = false;
             GroundNormal = support ? hit.normal : Vector3.up;
             Vector3 supportVelocity = support && hit.rigidbody != null ? hit.rigidbody.GetPointVelocity(hit.point) : Vector3.zero;
             Grounded = support && now >= ignoreGroundUntil && hit.normal.y >= Mathf.Cos((float)settings.maxSlope * Mathf.Deg2Rad) && Vector3.Dot(body.linearVelocity - supportVelocity, hit.normal) < 2;

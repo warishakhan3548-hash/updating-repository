@@ -85,3 +85,7 @@ Requests carry the current world revision; results carry a source fingerprint. M
 ## Local physics milestone
 
 `Assets/GameData/World/sandbox.json` supplies separately revisioned simulation, movement, weapon and spawn settings. The existing world data/IDs are unchanged. `PhysicsSandboxCompiler` builds the world, keeps authored structures static and adds one native Rigidbody capsule plus a bounded prop set. Player input/timers are independent of Unity geometry; forces and scene-scoped collision queries run in the native runtime. The Unity tests distinguish solver behaviour from the .NET policy tests. See `GAMEPLAY.md` for lifecycle, layers, controls and acceptance limits.
+
+## Revision 3 collision/visibility audit
+
+Six natural cover placements were accepted using sampled static collision visibility, with all pre-existing object transforms preserved. A bounded median BVH is shared C# authoring code, not a runtime PhysX substitute. Closed roof collision panels preserve the visible geometry. Timestamped input pulses, touch-owner pruning, camera overlap/backward-shot guards and bounded prop recovery address failure paths in the local sandbox. See `AUDIT.md` for measured review values and the engine acceptance boundary.

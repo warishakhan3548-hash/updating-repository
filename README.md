@@ -4,19 +4,25 @@ Original Unity **6000.3.26f1** / C# / URP **17.3.0** mobile-world authoring. Map
 
 **हर map edit पर APK नहीं बनेगा।** Source data और C# बदलते हैं; checks और previews अलग चलते हैं। Automatic Android player build इस repository में नहीं है।
 
+## Collision and map audit
+
+Six natural cover rocks reduce the longest flagged standing-visibility run from 215 m to 78 m in our static sampling review. The BVH uses actual source collision triangles; this is a diagnostic, not proven combat balance. Roof underside collision, stale/lost input, backward shooting and camera overlap handling are improved. [Audit and evidence](Docs/AUDIT.md).
+
+![Static collision visibility review](Docs/Review/visibility-review.png)
+
 ## Local gameplay / physics milestone
 
 Native Unity C# now includes a Rigidbody capsule motor, gravity/collision settings, jump/sprint, stable multitouch joystick/swipe controls, camera obstruction, a local hitscan rifle, reload/damage targets and six physical box props. `PhysicsSandboxCompiler` assembles a separate sandbox from the existing map.
 
-**Engine/device acceptance is pending.** The 92 .NET tests validate policies/source, not native physics. Fifteen Unity integration tests are authored but have not run here. Current character/gun/HUD are development harnesses. [Gameplay details and remaining gaps](Docs/GAMEPLAY.md).
+**Engine/device acceptance is pending.** The 102 .NET tests validate policies/source, not native physics. Twenty-one Unity integration tests are authored but have not run here. Current character/gun/HUD are development harnesses. [Gameplay details and remaining gaps](Docs/GAMEPLAY.md).
 
 ## Current world
 
-| Feature | Revision 2 |
+| Feature | Revision 3 |
 | --- | --- |
 | Terrain | 1024 × 1024 m, 64 cells, 4 m mesh spacing, hills and lake |
 | Settlements | 6 districts, 55 buildings and 4 lookout towers |
-| Environment | 210 trees, 82 boulders and 24 cover props; 375 placements total |
+| Environment | 210 trees, 88 boulders and 24 cover props; 381 placements total |
 | Traversal | 8 reserved routes, 2–3 distinct neighbours per district, redundant route graph |
 | Density | At most 9 building anchors in a cell; building footprints occupy 1.23% of the world |
 | Art | 13 original procedural development asset types, shared meshes/materials, 3 LODs |
@@ -46,6 +52,7 @@ With .NET 8, from the repository root:
 dotnet run --project Tools/WorldTool -- self-test
 dotnet run --project Tools/WorldTool -- validate
 dotnet run --project Tools/WorldTool -- validate-sandbox
+dotnet run --project Tools/WorldTool -- review-visibility
 dotnet run --project Tools/WorldTool -- review
 dotnet run --project Tools/WorldTool -- move Tools/Commands/move-example.json
 dotnet run --project Tools/WorldTool -- plan-route Tools/Commands/route-example.json

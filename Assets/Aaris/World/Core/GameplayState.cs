@@ -2,6 +2,19 @@ using System;
 
 namespace Aaris.World
 {
+    public sealed class InputPulse
+    {
+        private bool pending;
+        private double timestamp;
+        public void Request(double now)
+        { if (!WorldValidator.Finite(now)) throw new ArgumentException("Finite input timestamp required."); timestamp = now; pending = true; }
+        public bool Consume(double now, double lifetime)
+        {
+            bool available = pending; pending = false;
+            return available && WorldValidator.Finite(now) && now >= timestamp && now - timestamp <= lifetime;
+        }
+        public void Clear() { pending = false; }
+    }
     // Shared timing/state policies; these do not replace the native physics solver.
     public sealed class JumpGate
     {
@@ -95,6 +108,14 @@ namespace Aaris.World
         }
         public bool Held(TouchRole role) { for (int i = 0; i < count; i++) if (fingers[i].role == role) return true; return false; }
         public void End(int id) { int i = Find(id); if (i >= 0) fingers[i] = fingers[--count]; }
+        public void Prune(ReadOnlySpan<int> active)
+        {
+            for (int i = 0; i < count;)
+            {
+                bool present = false; for (int j = 0; j < active.Length; j++) present |= active[j] == fingers[i].id;
+                if (present) i++; else fingers[i] = fingers[--count];
+            }
+        }
         public void Clear() { count = 0; }
         private int Find(int id) { for (int i = 0; i < count; i++) if (fingers[i].id == id) return i; return -1; }
     }

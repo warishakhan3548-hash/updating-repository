@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using NUnit.Framework;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -88,6 +89,18 @@ namespace Aaris.World.Tests
             Simulate(150, pawn, Vector2.up, true); Assert.That(pawn.Body.position.z, Is.LessThan(2.7f)); Assert.That(pawn.Body.position.y, Is.GreaterThan(-0.1));
         }
         [Test]
+        public void SteepRampFaceCannotBeReclassifiedAsWalkableByASphereSweep()
+        {
+            var ramp = Box(Vector3.zero, new Vector3(10, 0.3f, 10)); ramp.transform.rotation = Quaternion.Euler(60, 0, 0);
+            var pawn = Pawn(); pawn.Teleport(Vector3.up * 2); Physics.SyncTransforms(); bool sawSteepFace = false;
+            for (int i = 0; i < 30; i++)
+            {
+                pawn.Step(Vector2.zero, 0, false, false, 0.02f, i * 0.02); physics.Simulate(0.02f);
+                if (pawn.GroundNormal.y > 0.1f && pawn.GroundNormal.y < 0.6f) { sawSteepFace = true; Assert.That(pawn.Grounded, Is.False); }
+            }
+            Assert.That(sawSteepFace, Is.True);
+        }
+        [Test]
         public void JumpUsesNativeGravityAndCannotBeRepeatedInMidair()
         {
             Floor(); var pawn = Pawn(); Physics.SyncTransforms(); float apex = 0;
@@ -119,6 +132,50 @@ namespace Aaris.World.Tests
             Box(new Vector3(0, 1.35f, 0), Vector3.one); Physics.SyncTransforms();
             var shot = PhysicsWeapon.Trace(physics, Vector3.up * 2, Vector3.forward, Vector3.up * 1.35f, new Vector3(0, 1.35f, 1), 100, new Collider[1]);
             Assert.That(shot.blockedAtOrigin, Is.True); Assert.That(shot.hit, Is.False);
+        }
+        [Test]
+        public void CameraInitialOverlapIsRejectedBeforeSweeping()
+        {
+            Box(Vector3.zero, Vector3.one); Physics.SyncTransforms();
+            Assert.That(CameraCollision.TryLimit(physics, Vector3.zero, Vector3.back * 4, new Collider[8], out _), Is.False);
+        }
+        [Test]
+        public void CameraVolumeStopsBeforeTheWallAndStaysOutsideIt()
+        {
+            Box(new Vector3(0, 1, -3), new Vector3(10, 6, 0.2f)); Physics.SyncTransforms();
+            Vector3 pivot = Vector3.up, offset = Vector3.back * 4; var buffer = new Collider[8];
+            Assert.That(CameraCollision.TryLimit(physics, pivot, offset, buffer, out float distance), Is.True);
+            Assert.That(distance, Is.InRange(2.5f, 2.72f));
+            Assert.That(physics.OverlapSphere(pivot + offset.normalized * distance, CameraCollision.Radius, buffer, SandboxLayers.SolidMask, QueryTriggerInteraction.Ignore), Is.EqualTo(0));
+        }
+        [Test]
+        public void ClearCameraVolumeKeepsItsRequestedDistance()
+        {
+            Assert.That(CameraCollision.TryLimit(physics, Vector3.up * 3, new Vector3(0.6f, 0, -3.7f), new Collider[8], out float distance), Is.True);
+            Assert.That(distance, Is.EqualTo(new Vector3(0.6f, 0, -3.7f).magnitude).Within(0.0001));
+        }
+        [Test]
+        public void CameraAimPointBehindTheMuzzleCannotProduceABackwardShot()
+        {
+            Box(new Vector3(1.5f, 1.5f, 0.3f), new Vector3(0.4f, 2, 0.1f)); Physics.SyncTransforms();
+            var shot = PhysicsWeapon.Trace(physics, new Vector3(1.5f, 1.5f, 0), Vector3.forward, new Vector3(0, 1.35f, 0), new Vector3(0, 1.35f, 0.66f), 100, new Collider[1]);
+            Assert.That(shot.blockedAtOrigin, Is.True); Assert.That(shot.hit, Is.False);
+        }
+        [Test]
+        public void NativeRoofQueryHitsTheSolidUnderside()
+        {
+            var asset = Aaris.World.Editor.UnityWorldCompiler.ReadRegistry().assets.First(a => a.archetype == "house");
+            var model = ProceduralArt.Create(asset, 0).collision;
+            var mesh = new Mesh { vertices = model.vertices.Select(v => new Vector3(v.x, v.y, v.z)).ToArray(), triangles = model.triangles };
+            var go = new GameObject("Roof collider"); SceneManager.MoveGameObjectToScene(go, scene); go.layer = SandboxLayers.World;
+            try
+            {
+                go.AddComponent<MeshCollider>().sharedMesh = mesh; Physics.SyncTransforms();
+                float bodyHeight = (float)(asset.height - Math.Min(asset.height * 0.25, 2.4));
+                Assert.That(physics.Raycast(new Vector3((float)asset.width * 0.2f, bodyHeight + 0.02f, 0), Vector3.up, out var hit, 4, SandboxLayers.SolidMask, QueryTriggerInteraction.Ignore), Is.True);
+                Assert.That(hit.normal.y, Is.LessThan(-0.1f));
+            }
+            finally { Object.DestroyImmediate(go); Object.DestroyImmediate(mesh); }
         }
         [Test]
         public void TargetDeathDisablesCollisionAndResetRestoresHealth()

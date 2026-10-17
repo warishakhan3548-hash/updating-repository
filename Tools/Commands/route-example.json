@@ -1,7 +1,13 @@
 {
-  "expectedRevision": 2,
-  "start": { "x": -140, "z": 30 },
-  "end": { "x": 160, "z": 30 },
+  "expectedRevision": 3,
+  "start": {
+    "x": -140,
+    "z": 30
+  },
+  "end": {
+    "x": 160,
+    "z": 30
+  },
   "options": {
     "spacing": 8,
     "clearanceRadius": 2.5,

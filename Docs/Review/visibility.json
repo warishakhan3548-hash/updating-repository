@@ -1,0 +1,5399 @@
+{
+  "world": "Aaris_Highlands",
+  "revision": 3,
+  "worldSourceSha256": "bf09cec324532cee760648a0c472887676dad871104c5fe09ba4cb37a292abe7",
+  "analysisInputsSha256": "0644f17110eee0310b8745ba10642b650939b690d127e0fc729c90184feedf60",
+  "options": {
+    "spacing": 8,
+    "range": 120,
+    "eyeHeight": 1.6,
+    "directions": 24,
+    "maxSamples": 2048
+  },
+  "report": {
+    "triangles": 197810,
+    "rayCount": 14208,
+    "routes": [
+      {
+        "id": "PATH_CF",
+        "samples": 95,
+        "meanOpenFraction": 0.660964912280702,
+        "longestExposedRun": 77.98215299438829
+      },
+      {
+        "id": "PATH_CR",
+        "samples": 96,
+        "meanOpenFraction": 0.5247395833333334,
+        "longestExposedRun": 9.708882304901287
+      },
+      {
+        "id": "PATH_DR",
+        "samples": 97,
+        "meanOpenFraction": 0.6069587628865981,
+        "longestExposedRun": 71.68227575041621
+      },
+      {
+        "id": "PATH_FQ",
+        "samples": 47,
+        "meanOpenFraction": 0.5567375886524824,
+        "longestExposedRun": 6.829753733150991
+      },
+      {
+        "id": "PATH_QD",
+        "samples": 43,
+        "meanOpenFraction": 0.4777131782945736,
+        "longestExposedRun": 10.894807171106041
+      },
+      {
+        "id": "PATH_RW",
+        "samples": 49,
+        "meanOpenFraction": 0.4829931972789116,
+        "longestExposedRun": 4.144172059685295
+      },
+      {
+        "id": "PATH_WC",
+        "samples": 49,
+        "meanOpenFraction": 0.5476190476190478,
+        "longestExposedRun": 0
+      },
+      {
+        "id": "PATH_WF",
+        "samples": 116,
+        "meanOpenFraction": 0.6731321839080461,
+        "longestExposedRun": 75.61341282726556
+      }
+    ],
+    "samples": [
+      {
+        "route": "PATH_CF",
+        "x": -275,
+        "z": -250,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 92.76394918388819,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -268.88444444444445,
+        "z": -251.3585185185185,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 86.53136463233477,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -261.6088888888889,
+        "z": -253.06814814814817,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 92.25549164211172,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -257.44444444444446,
+        "z": -254.07407407407408,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 94.2033753280672,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -253.28,
+        "z": -255.08,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 88.43567664787729,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -248.64222222222224,
+        "z": -256.2125925925926,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 88.28920754383644,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -244.00444444444446,
+        "z": -257.3451851851852,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 84.06529042162322,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -238.94666666666666,
+        "z": -258.58000000000004,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 87.53860324264484,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -233.88888888888889,
+        "z": -259.81481481481484,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 87.07487178119175,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -228.46444444444444,
+        "z": -261.1274074074074,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 89.65880558737905,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -223.04,
+        "z": -262.44,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 88.7051733024346,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -217.3022222222222,
+        "z": -263.805925925926,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 90.67312884765899,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -211.56444444444443,
+        "z": -265.1718518518519,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 91.23747278339778,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -205.56666666666666,
+        "z": -266.5666666666667,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 89.58336786668617,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -199.5688888888889,
+        "z": -267.9614814814815,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 105.16792885040486,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -193.36444444444444,
+        "z": -269.36074074074077,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 93.17721037908434,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -187.16,
+        "z": -270.76,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 102.60750644896574,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -180.8022222222222,
+        "z": -272.13925925925923,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 101.88580628981983,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -174.44444444444446,
+        "z": -273.51851851851853,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 87.63131708936099,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -167.98666666666668,
+        "z": -274.85333333333335,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 80.93238725572965,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -161.5288888888889,
+        "z": -276.1881481481481,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 84.05700532120541,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -155.02444444444444,
+        "z": -277.4540740740741,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 85.57909415883789,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -148.52,
+        "z": -278.72,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 77.5377476979268,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -142.02222222222224,
+        "z": -279.8925925925926,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.2916666666666667,
+        "meanFirstHit": 69.38319168846945,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -135.52444444444444,
+        "z": -281.0651851851852,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.25,
+        "meanFirstHit": 77.4453648825564,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -129.08666666666664,
+        "z": -282.12,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 85.84928678143622,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -122.64888888888888,
+        "z": -283.1748148148148,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 99.51991236717565,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -116.32444444444444,
+        "z": -284.0874074074074,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 102.79409496932959,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -110,
+        "z": -285,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 106.86234746152896,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": -104.69864540466392,
+        "z": -285.7154492455419,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 106.68558170591241,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": -99.39729080932784,
+        "z": -286.4308984910837,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 100.69855846067374,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": -93.92361111111111,
+        "z": -287.1797839506173,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 101.5285678415072,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": -88.44993141289437,
+        "z": -287.92866941015086,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 101.05913716366597,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": -82.82450274348423,
+        "z": -288.69813100137173,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 97.36287499499572,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -77.19907407407408,
+        "z": -289.4675925925926,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 86.59737927027128,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -71.44247256515776,
+        "z": -290.24477023319616,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 90.4921997673183,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -65.68587105624144,
+        "z": -291.0219478737997,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 86.51914340683652,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -59.81867283950618,
+        "z": -291.79398148148147,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 85.59711689876583,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -53.95147462277092,
+        "z": -292.5660150891632,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 87.03768415576667,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -47.99425582990398,
+        "z": -293.3200445816186,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 83.8388197712782,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -42.03703703703704,
+        "z": -294.0740740740741,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 84.8742394930135,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -36.01037379972565,
+        "z": -294.79723936899865,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 90.78756986649682,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -29.98371056241426,
+        "z": -295.5204046639232,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 88.32014906598089,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -23.908179012345677,
+        "z": -296.19984567901236,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 96.80485984590952,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -17.832647462277098,
+        "z": -296.8792866941015,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 90.90780499400738,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -11.728823731138549,
+        "z": -297.5021433470507,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 98.44280288881868,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": -5.625,
+        "z": -298.125,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 102.96082445331841,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 0.4865397805212641,
+        "z": -298.6784122085048,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 108.62495823168602,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 6.598079561042528,
+        "z": -299.2318244170096,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 109.54052038896361,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 12.696759259259268,
+        "z": -299.7029320987654,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 106.5860963193263,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 18.79543895747601,
+        "z": -300.17403978052124,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 107.47375635253235,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 24.860682441700966,
+        "z": -300.5499828532236,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 108.5491188161662,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 30.925925925925924,
+        "z": -300.925925925926,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 109.23620482870085,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 36.937157064471876,
+        "z": -301.1938443072703,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 104.62485879920553,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 42.94838820301782,
+        "z": -301.46176268861456,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 100.66428860415472,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 48.88503086419753,
+        "z": -301.6087962962963,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 103.11508209831838,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 54.82167352537724,
+        "z": -301.75582990397805,
+        "openFraction": 0.875,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 113.49624834337097,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 60.66315157750343,
+        "z": -301.76911865569275,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 108.13770198596636,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 66.50462962962962,
+        "z": -301.7824074074074,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 103.15016347553365,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 72.23036694101508,
+        "z": -301.64909122085044,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 102.9076247493977,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 77.95610425240054,
+        "z": -301.51577503429354,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 94.91357740050877,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 83.54552469135803,
+        "z": -301.2229938271605,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 95.72639858576223,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 89.13494513031551,
+        "z": -300.9302126200274,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 95.19753678357579,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 94.56747256515776,
+        "z": -300.4651063100137,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 101.83598962066083,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 100,
+        "z": -300,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 97.36540423613057,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 106.109619140625,
+        "z": -299.19219970703125,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 102.61748277015721,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 112.21923828125,
+        "z": -298.3843994140625,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 100.23038489014668,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 118.482666015625,
+        "z": -297.24151611328125,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 103.49468799427108,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 124.74609375,
+        "z": -296.0986328125,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 107.6761187882961,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 131.112060546875,
+        "z": -294.66644287109375,
+        "openFraction": 0.9166666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 114.05477468232338,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 137.47802734375,
+        "z": -293.2342529296875,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 112.87792545924903,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 143.895263671875,
+        "z": -291.55853271484375,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 110.47925568181988,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 150.3125,
+        "z": -289.8828125,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 104.93071177412385,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 156.729736328125,
+        "z": -288.00933837890625,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 106.7221668162348,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 163.14697265625,
+        "z": -286.1358642578125,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 106.53535918027029,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 169.512939453125,
+        "z": -284.11041259765625,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 105.16269490046362,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 175.87890625,
+        "z": -282.0849609375,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 104.98085240432322,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 182.142333984375,
+        "z": -279.95330810546875,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 98.28338402244691,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 188.40576171875,
+        "z": -277.8216552734375,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 97.72625672509979,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 194.515380859375,
+        "z": -275.62957763671875,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 98.90202575299605,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CF",
+        "x": 200.625,
+        "z": -273.4375,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 87.63683166665616,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 206.529541015625,
+        "z": -271.23077392578125,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 85.0762844587709,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 212.43408203125,
+        "z": -269.0240478515625,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.25,
+        "meanFirstHit": 84.14765216925286,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 218.082275390625,
+        "z": -266.84844970703125,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 84.75855673682909,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 223.73046875,
+        "z": -264.6728515625,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 84.4448766337923,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 229.071044921875,
+        "z": -262.57415771484375,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 76.1137458989988,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 234.41162109375,
+        "z": -260.4754638671875,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 87.24836038834037,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 239.393310546875,
+        "z": -258.49945068359375,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 88.20058925107493,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 244.375,
+        "z": -256.5234375,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 80.45294523197886,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 248.946533203125,
+        "z": -254.71588134765625,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 82.92617151649621,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 253.51806640625,
+        "z": -252.9083251953125,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 82.10791281419368,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 257.628173828125,
+        "z": -251.31500244140625,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 82.43137994106466,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 261.73828125,
+        "z": -249.7216796875,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 93.47634838359404,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 268.93310546875,
+        "z": -247.0550537109375,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 79.87593864289221,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CF",
+        "x": 275,
+        "z": -245,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 101.9897848958218,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CR",
+        "x": -275,
+        "z": -250,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 92.76394918388819,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -272.07270408163265,
+        "z": -244.39413265306123,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 90.31404755259742,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -268.36734693877554,
+        "z": -237.6530612244898,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 95.30255980401785,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -266.1830357142857,
+        "z": -233.77232142857144,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 95.69739182163863,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -263.9987244897959,
+        "z": -229.89158163265307,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 90.43420646567182,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -261.54017857142856,
+        "z": -225.55803571428572,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 98.9473417891205,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -259.0816326530612,
+        "z": -221.22448979591837,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 97.12347180507038,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -256.40625,
+        "z": -216.49553571428572,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 84.35455736493162,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -253.7308673469388,
+        "z": -211.76658163265307,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 88.50252758569428,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -250.89604591836735,
+        "z": -206.6996173469388,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 90.8398872194371,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -248.06122448979593,
+        "z": -201.6326530612245,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 93.47008203499452,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -245.12436224489795,
+        "z": -196.28507653061223,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 90.5839129311538,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -242.1875,
+        "z": -190.9375,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 94.87005221470872,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -239.2059948979592,
+        "z": -185.36670918367346,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 93.5211808885785,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -236.22448979591837,
+        "z": -179.79591836734693,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 100.69519918623708,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -233.25573979591837,
+        "z": -174.0593112244898,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 106.39566229757786,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CR",
+        "x": -230.28698979591837,
+        "z": -168.32270408163265,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 110.96005361862922,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CR",
+        "x": -227.38839285714286,
+        "z": -162.47767857142856,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 101.30968093434508,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -224.48979591836735,
+        "z": -156.6326530612245,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 103.23298504647454,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -221.71875,
+        "z": -150.73660714285714,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 99.84034101070034,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -218.94770408163265,
+        "z": -144.8405612244898,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 98.69533032171846,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -216.36160714285714,
+        "z": -138.95089285714283,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 103.1990092138865,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -213.77551020408163,
+        "z": -133.0612244897959,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 107.5460948069191,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CR",
+        "x": -211.43176020408163,
+        "z": -127.23533163265306,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 92.57231293550848,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -209.08801020408166,
+        "z": -121.40943877551021,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 96.7161727477665,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -207.04400510204084,
+        "z": -115.7047193877551,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 101.94216856109392,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CR",
+        "x": -205,
+        "z": -110,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 95.28253637367628,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -203.23703703703706,
+        "z": -104.60222222222222,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 83.99645415030515,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -201.47407407407408,
+        "z": -99.20444444444443,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 86.3271867978945,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -199.7,
+        "z": -93.54222222222222,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 83.10404584164515,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -197.92592592592592,
+        "z": -87.88000000000001,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 75.95845062524238,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -196.16296296296295,
+        "z": -82,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 68.77242689529649,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -194.39999999999998,
+        "z": -76.12,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 71.30237405616833,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -192.67037037037036,
+        "z": -70.06888888888889,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 74.83541258987448,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -190.94074074074075,
+        "z": -64.01777777777778,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.25,
+        "meanFirstHit": 71.16756075844053,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -189.26666666666665,
+        "z": -57.84222222222222,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 73.74387780540796,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -187.59259259259258,
+        "z": -51.666666666666664,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 71.13945842831528,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -185.9962962962963,
+        "z": -45.41333333333333,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 74.88372651425003,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -184.4,
+        "z": -39.16,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 75.02637601039909,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -182.9037037037037,
+        "z": -32.87555555555555,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 73.36870972309384,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -181.40740740740742,
+        "z": -26.59111111111111,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 73.69305643759667,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -180.03333333333336,
+        "z": -20.322222222222223,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 69.81144068734773,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -178.65925925925927,
+        "z": -14.053333333333333,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 70.61141054072836,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -177.42962962962963,
+        "z": -7.846666666666666,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 75.98060585031048,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -176.20000000000002,
+        "z": -1.6399999999999988,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 69.13812663050244,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -175.13703703703703,
+        "z": 4.457777777777777,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 75.9995317027866,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -174.07407407407408,
+        "z": 10.555555555555554,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 73.27535937112891,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -173.2,
+        "z": 16.49777777777777,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 74.24797036025119,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -172.32592592592593,
+        "z": 22.439999999999984,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 81.30200789998432,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -171.66296296296298,
+        "z": 28.179999999999993,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 82.11410699184835,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -171,
+        "z": 33.92,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 82.20505647330451,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -170.57037037037037,
+        "z": 39.41111111111111,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 87.31337927533399,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -170.14074074074074,
+        "z": 44.90222222222222,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 84.81517123541428,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -169.96666666666667,
+        "z": 50.09777777777778,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 86.35318981347608,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -169.7925925925926,
+        "z": 55.29333333333333,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 103.60058155117646,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CR",
+        "x": -169.8962962962963,
+        "z": 60.14666666666666,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 102.02487365844014,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CR",
+        "x": -170,
+        "z": 65,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 102.39780024358562,
+        "exposed": true
+      },
+      {
+        "route": "PATH_CR",
+        "x": -170.745,
+        "z": 71.69,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 98.20862215615644,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -171.49,
+        "z": 78.38,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 92.94654827238922,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -172.905,
+        "z": 84.50999999999999,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 97.37839850832381,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -174.32,
+        "z": 90.64,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 98.18874125775777,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -176.3,
+        "z": 96.30000000000001,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 91.4144326853982,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -178.28,
+        "z": 101.96000000000001,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 84.78125267055465,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -180.72,
+        "z": 107.24000000000001,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 79.20315093264448,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -183.16,
+        "z": 112.52,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 70.65675218302142,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -185.95499999999998,
+        "z": 117.50999999999999,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 69.15993721796478,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -188.75,
+        "z": 122.5,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.25,
+        "meanFirstHit": 67.89595776295981,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -191.79500000000002,
+        "z": 127.28999999999999,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.2916666666666667,
+        "meanFirstHit": 66.48558515499484,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -194.84,
+        "z": 132.07999999999998,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.4166666666666667,
+        "meanFirstHit": 67.1393647009672,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -198.03,
+        "z": 136.76,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.4166666666666667,
+        "meanFirstHit": 68.94906503858925,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -201.22,
+        "z": 141.44,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.4583333333333333,
+        "meanFirstHit": 65.07286206261531,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -204.45,
+        "z": 146.10000000000002,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.4583333333333333,
+        "meanFirstHit": 62.38282749509681,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -207.68,
+        "z": 150.76000000000002,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.4166666666666667,
+        "meanFirstHit": 67.78755104195345,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -210.845,
+        "z": 155.49,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 77.79920320997427,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -214.01,
+        "z": 160.22,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 83.12855047119038,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -217.005,
+        "z": 165.11,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 84.87553352716303,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -220,
+        "z": 170,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 74.98694515379849,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -223.0925,
+        "z": 175.16625,
+        "openFraction": 0.25,
+        "nearbyBlockFraction": 0.375,
+        "meanFirstHit": 50.91025742314235,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -226.185,
+        "z": 180.3325,
+        "openFraction": 0.16666666666666666,
+        "nearbyBlockFraction": 0.5,
+        "meanFirstHit": 41.025472596898894,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -229.6325,
+        "z": 185.74625,
+        "openFraction": 0.125,
+        "nearbyBlockFraction": 0.6666666666666666,
+        "meanFirstHit": 35.30995502568937,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -233.08,
+        "z": 191.16,
+        "openFraction": 0.25,
+        "nearbyBlockFraction": 0.5416666666666666,
+        "meanFirstHit": 46.205959237646574,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -236.7625,
+        "z": 196.69375,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0.625,
+        "meanFirstHit": 50.145386659702694,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -240.445,
+        "z": 202.2275,
+        "openFraction": 0.25,
+        "nearbyBlockFraction": 0.5416666666666666,
+        "meanFirstHit": 48.46015826207451,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -244.2425,
+        "z": 207.75375,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.4583333333333333,
+        "meanFirstHit": 56.37747569276711,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -248.04,
+        "z": 213.28,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.3333333333333333,
+        "meanFirstHit": 58.39421021838121,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -251.83249999999998,
+        "z": 218.67125,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0.3333333333333333,
+        "meanFirstHit": 60.49923796845147,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -255.625,
+        "z": 224.0625,
+        "openFraction": 0.25,
+        "nearbyBlockFraction": 0.2916666666666667,
+        "meanFirstHit": 54.78790512088221,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -259.2925,
+        "z": 229.19125,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.25,
+        "meanFirstHit": 62.903982203100846,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -262.96000000000004,
+        "z": 234.32,
+        "openFraction": 0.20833333333333334,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 57.07184933877024,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -266.38250000000005,
+        "z": 239.05875,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0.25,
+        "meanFirstHit": 67.41216206073364,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -269.805,
+        "z": 243.7975,
+        "openFraction": 0.25,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 70.18198507255815,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -272.86249999999995,
+        "z": 248.01875,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 78.66121436864142,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -275.91999999999996,
+        "z": 252.24,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 87.55220262096397,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -278.49249999999995,
+        "z": 255.81625,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 90.44429451867029,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -281.065,
+        "z": 259.3925,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 95.07534948833207,
+        "exposed": false
+      },
+      {
+        "route": "PATH_CR",
+        "x": -285,
+        "z": 265,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 90.87669773022618,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 270,
+        "z": 245,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 90.53476812182124,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 264.1176470588235,
+        "z": 247.57174842255245,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 91.04008567048892,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 257.1280276816609,
+        "z": 250.81620191329125,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 98.0405755580316,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 253.1314878892734,
+        "z": 252.73051088947688,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 98.12185248077968,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 249.13494809688584,
+        "z": 254.64481986566253,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 80.90652378175747,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 244.6885813148789,
+        "z": 256.8069407693873,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 78.877875721041,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 240.24221453287197,
+        "z": 258.96906167311215,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 75.87219895536249,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 235.39792387543253,
+        "z": 261.3347242010991,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 73.8251267237458,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 230.55363321799308,
+        "z": 263.70038672908606,
+        "openFraction": 0.25,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 71.83266787657293,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 225.36332179930798,
+        "z": 266.22532057805824,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 75.67642781314719,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 220.17301038062286,
+        "z": 268.75025442703037,
+        "openFraction": 0.25,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 70.44169083471076,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 214.6885813148789,
+        "z": 271.3901892937106,
+        "openFraction": 0.16666666666666666,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 63.97672090494739,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 209.20415224913495,
+        "z": 274.0301241603908,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 72.85958805515423,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 203.47750865051904,
+        "z": 276.7407897415021,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 75.31649588312324,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 197.7508650519031,
+        "z": 279.45145532261347,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 84.84693088873367,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 191.83391003460207,
+        "z": 282.1885813148789,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 92.85887469556506,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 185.91695501730104,
+        "z": 284.9257073071443,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 96.66598764264644,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 179.86159169550172,
+        "z": 287.64502340728677,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 93.29412370619285,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 173.80622837370242,
+        "z": 290.3643395074293,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 98.85834956270526,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 167.6643598615917,
+        "z": 293.0215754121718,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 106.04025043432792,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": 161.52249134948096,
+        "z": 295.6788113169143,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 106.40522667188282,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": 155.34602076124565,
+        "z": 298.22969672297984,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 108.20169063049168,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": 149.16955017301038,
+        "z": 300.78058212904546,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 107.25408835725464,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": 143.01038062283737,
+        "z": 303.18084673315695,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 100.5463916063833,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": 136.85121107266437,
+        "z": 305.58111133726845,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 92.88563984230528,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 130.76124567474048,
+        "z": 307.786484836149,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 94.33565519629411,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 124.67128027681659,
+        "z": 309.9918583350295,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 95.4824911012144,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 118.70242214532871,
+        "z": 311.95807042540196,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 98.51274032995245,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 112.73356401384083,
+        "z": 313.92428251577445,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 101.73259174226166,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": 106.93771626297578,
+        "z": 315.6070628943619,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 102.21413268663093,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 101.14186851211073,
+        "z": 317.2898432729493,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 99.89157678054733,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 95.57093425605537,
+        "z": 318.6449216364747,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 101.00519198969174,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 90,
+        "z": 320,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 110.47326141890194,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": 84.19525146484375,
+        "z": 321.17706298828125,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 101.84372550516373,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": 78.3905029296875,
+        "z": 322.3541259765625,
+        "openFraction": 0.875,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 111.59134803551778,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": 72.54241943359375,
+        "z": 323.38653564453125,
+        "openFraction": 0.9166666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 113.4510399491853,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": 66.6943359375,
+        "z": 324.4189453125,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 101.2626400830481,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": 60.80841064453125,
+        "z": 325.30853271484375,
+        "openFraction": 0.875,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 109.32946954744712,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": 54.9224853515625,
+        "z": 326.1981201171875,
+        "openFraction": 0.9166666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 112.28445225511778,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": 49.00421142578125,
+        "z": 326.94671630859375,
+        "openFraction": 0.9166666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 114.97332996493036,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": 43.0859375,
+        "z": 327.6953125,
+        "openFraction": 0.9583333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 116.86406165391453,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": 37.14080810546875,
+        "z": 328.30474853515625,
+        "openFraction": 0.875,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 108.9343936402459,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": 31.1956787109375,
+        "z": 328.9141845703125,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 104.33570226315449,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": 25.22918701171875,
+        "z": 329.38629150390625,
+        "openFraction": 0.9166666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 111.54814479552324,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": 19.2626953125,
+        "z": 329.8583984375,
+        "openFraction": 0.875,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 107.14300599414561,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": 13.28033447265625,
+        "z": 330.19500732421875,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 94.78521927354905,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 7.2979736328125,
+        "z": 330.5316162109375,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 102.3055229154037,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": 1.30523681640625,
+        "z": 330.73455810546875,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 93.1001783220266,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -4.6875,
+        "z": 330.9375,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 87.63658506176098,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -10.68511962890625,
+        "z": 331.00860595703125,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 92.89275203309792,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -16.6827392578125,
+        "z": 331.0797119140625,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 94.98721726649285,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -22.67974853515625,
+        "z": 331.02081298828125,
+        "openFraction": 0.875,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 107.71892229028954,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": -28.6767578125,
+        "z": 330.9619140625,
+        "openFraction": 0.875,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 107.52722338736271,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": -34.66766357421875,
+        "z": 330.77484130859375,
+        "openFraction": 0.875,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 108.78392755412189,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": -40.6585693359375,
+        "z": 330.5877685546875,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 102.52256027903299,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": -46.63787841796875,
+        "z": 330.27435302734375,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 106.11398800345573,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": -52.6171875,
+        "z": 329.9609375,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 105.47687452978282,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": -58.57940673828125,
+        "z": 329.52301025390625,
+        "openFraction": 0.9166666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 113.48816601081244,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": -64.5416259765625,
+        "z": 329.0850830078125,
+        "openFraction": 0.9166666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 114.64982013320976,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": -70.48126220703125,
+        "z": 328.52447509765625,
+        "openFraction": 0.875,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 112.8756406463628,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": -76.4208984375,
+        "z": 327.9638671875,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 108.57875355863884,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": -82.33245849609375,
+        "z": 327.28240966796875,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 104.17063053714087,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": -88.2440185546875,
+        "z": 326.6009521484375,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 108.0889911913107,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": -94.12200927734375,
+        "z": 325.80047607421875,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 105.23647663296556,
+        "exposed": true
+      },
+      {
+        "route": "PATH_DR",
+        "x": -100,
+        "z": 325,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 92.84239306345971,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -105.65693059230613,
+        "z": 324.03317728475474,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 96.5720207217715,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -111.31386118461225,
+        "z": 323.0663545695095,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 87.27466683925871,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -117.21860370445756,
+        "z": 321.80897618562994,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 83.87332421171931,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -123.12334622430288,
+        "z": 320.5515978017504,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 78.97635282229305,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -129.2209444331366,
+        "z": 319.04182780378585,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.25,
+        "meanFirstHit": 70.60092708027153,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -135.3185426419703,
+        "z": 317.5320578058213,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.2916666666666667,
+        "meanFirstHit": 63.82219697677231,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -141.55404030124163,
+        "z": 315.80806024832077,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.375,
+        "meanFirstHit": 66.73727201919887,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -147.78953796051292,
+        "z": 314.08406269082025,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.25,
+        "meanFirstHit": 72.09369236089988,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -154.10797883167106,
+        "z": 312.184001628333,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.2916666666666667,
+        "meanFirstHit": 74.45758678388121,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -160.42641970282924,
+        "z": 310.28394056584574,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 99.15625853667306,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -166.77284754732344,
+        "z": 308.24598005292086,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 83.78980327072838,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -173.11927539181764,
+        "z": 306.208019539996,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 84.33271877231363,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -179.4387339710971,
+        "z": 304.0703236311826,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.25,
+        "meanFirstHit": 74.67028085897745,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -185.75819255037655,
+        "z": 301.9326277223692,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.4583333333333333,
+        "meanFirstHit": 53.73794220470038,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -191.9957256258905,
+        "z": 299.73336047221653,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0.4166666666666667,
+        "meanFirstHit": 54.19839695115252,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -198.23325870140445,
+        "z": 297.5340932220639,
+        "openFraction": 0.25,
+        "nearbyBlockFraction": 0.4583333333333333,
+        "meanFirstHit": 52.53803719599451,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -204.33391003460207,
+        "z": 295.3114186851211,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0.4166666666666667,
+        "meanFirstHit": 56.848863535405485,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -210.4345613677997,
+        "z": 293.08874414817825,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.4166666666666667,
+        "meanFirstHit": 57.755433179290435,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -216.34337472013027,
+        "z": 290.88082637899447,
+        "openFraction": 0.25,
+        "nearbyBlockFraction": 0.3333333333333333,
+        "meanFirstHit": 55.18169488250472,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -222.25218807246083,
+        "z": 288.6729086098107,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.2916666666666667,
+        "meanFirstHit": 61.64684770071407,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -227.9142072053735,
+        "z": 286.51791166293503,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.25,
+        "meanFirstHit": 66.97931511268119,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -233.57622633828615,
+        "z": 284.36291471605944,
+        "openFraction": 0.20833333333333334,
+        "nearbyBlockFraction": 0.3333333333333333,
+        "meanFirstHit": 58.816805653695404,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -238.93649501323017,
+        "z": 282.2990026460411,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 62.35439206022601,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -244.29676368817422,
+        "z": 280.23509057602274,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 62.4633974276234,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -249.3003256665988,
+        "z": 278.3004274374109,
+        "openFraction": 0.20833333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 61.18342567367447,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -254.3038876450234,
+        "z": 276.36576429879915,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 70.92506738054742,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -258.89578668837777,
+        "z": 274.5985141461429,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 82.52128457705156,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -263.48768573173214,
+        "z": 272.8312639934867,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 84.73219335661435,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -267.6129656014655,
+        "z": 271.26959088133526,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 87.13766782674082,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -271.73824547119887,
+        "z": 269.70791776918384,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 102.51740915941258,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -278.9456543863221,
+        "z": 267.0720537349888,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 93.88285062703363,
+        "exposed": false
+      },
+      {
+        "route": "PATH_DR",
+        "x": -285,
+        "z": 265,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 90.87669773022618,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 275,
+        "z": -245,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 101.9897848958218,
+        "exposed": true
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 279.28249436513903,
+        "z": -239.56799398948158,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 89.14913420297314,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 282.18444778362135,
+        "z": -236.23779113448535,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 99.30742235185244,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 285.0864012021037,
+        "z": -232.90758827948912,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 90.78840480123533,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 288.580015026296,
+        "z": -229.03080390683698,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 98.39502831285098,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 292.0736288504884,
+        "z": -225.15401953418484,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 98.3375169619183,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 295.9898572501878,
+        "z": -220.79827197595793,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 105.17586759452284,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 299.9060856498873,
+        "z": -216.44252441773102,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 99.79385002582625,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 304.0758827948911,
+        "z": -211.6754320060105,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 107.34528709933268,
+        "exposed": true
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 308.24567993989484,
+        "z": -206.90833959429,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 108.17996034012015,
+        "exposed": true
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 312.5,
+        "z": -201.79752066115702,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 101.4561184907992,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 316.7543200601052,
+        "z": -196.68670172802408,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 105.18306021737226,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 320.924117205109,
+        "z": -191.29977460555975,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 108.06803556340905,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 325.09391435011275,
+        "z": -185.91284748309542,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 105.89104426064364,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 329.0101427498122,
+        "z": -180.31743050338093,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 110.12245512477563,
+        "exposed": true
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 332.9263711495116,
+        "z": -174.72201352366642,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 104.95587860358198,
+        "exposed": true
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 336.419984973704,
+        "z": -168.9857250187829,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 100.05181643256851,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 339.9135987978963,
+        "z": -163.24943651389933,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 95.51777162095141,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 342.81555221637865,
+        "z": -157.4398948159279,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 85.75546095334853,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 345.71750563486097,
+        "z": -151.63035311795645,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 77.53054091571404,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 347.8587528174305,
+        "z": -145.81517655897824,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.25,
+        "meanFirstHit": 75.47581065246267,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 350,
+        "z": -140,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.375,
+        "meanFirstHit": 69.45297640913604,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 351.2289485662267,
+        "z": -134.76331360946745,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.375,
+        "meanFirstHit": 70.75902600164757,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 352.4578971324533,
+        "z": -129.5266272189349,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.5,
+        "meanFirstHit": 62.30736281764018,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 353.2942649066909,
+        "z": -123.71301775147927,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.3333333333333333,
+        "meanFirstHit": 71.79616159676651,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 354.1306326809285,
+        "z": -117.89940828402366,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 78.4145965382999,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 354.6256258534365,
+        "z": -111.64201183431953,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 92.39818837809617,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 355.12061902594445,
+        "z": -105.38461538461539,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 90.43892191111581,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 355.3254437869822,
+        "z": -98.81656804733728,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 85.54209786905375,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 355.53026854802,
+        "z": -92.24852071005918,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 84.29480412886417,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 355.49613108784706,
+        "z": -85.50295857988166,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 71.46115738127348,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 355.4619936276741,
+        "z": -78.75739644970413,
+        "openFraction": 0.25,
+        "nearbyBlockFraction": 0.4166666666666667,
+        "meanFirstHit": 50.67230211886427,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 355.2401001365498,
+        "z": -71.96745562130178,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.375,
+        "meanFirstHit": 58.71053920045816,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 355.0182066454256,
+        "z": -65.17751479289942,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.375,
+        "meanFirstHit": 58.69132346138846,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 354.65976331360946,
+        "z": -58.47633136094675,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.3333333333333333,
+        "meanFirstHit": 60.523068383069436,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 354.3013199817933,
+        "z": -51.77514792899409,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0.2916666666666667,
+        "meanFirstHit": 60.27828853875143,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 353.8575329995448,
+        "z": -45.29585798816568,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.2916666666666667,
+        "meanFirstHit": 61.56561014089465,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 353.4137460172963,
+        "z": -38.81656804733727,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 65.07120051860778,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 352.9358215748748,
+        "z": -32.69230769230768,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 60.20220223778497,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 352.45789713245335,
+        "z": -26.568047337278095,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 69.92778918979748,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 351.99704142011836,
+        "z": -20.931952662721887,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 71.65095473909878,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 351.5361857077834,
+        "z": -15.295857988165679,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 75.43068799925705,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 351.1436049157943,
+        "z": -10.281065088757394,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 75.31268760977738,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 350.75102412380517,
+        "z": -5.26627218934911,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 89.56963355122913,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 350.47792444242145,
+        "z": -1.0059171597633068,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 87.95805248998697,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 350.2048247610378,
+        "z": 3.254437869822496,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 97.08790988712201,
+        "exposed": false
+      },
+      {
+        "route": "PATH_FQ",
+        "x": 350,
+        "z": 10,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 106.07814831465068,
+        "exposed": true
+      },
+      {
+        "route": "PATH_QD",
+        "x": 350,
+        "z": 10,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 106.07814831465068,
+        "exposed": true
+      },
+      {
+        "route": "PATH_QD",
+        "x": 349.4343171296296,
+        "z": 16.634837962962965,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 102.93125328024655,
+        "exposed": true
+      },
+      {
+        "route": "PATH_QD",
+        "x": 349.19053819444446,
+        "z": 20.86371527777778,
+        "openFraction": 0.875,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 111.57778209266759,
+        "exposed": true
+      },
+      {
+        "route": "PATH_QD",
+        "x": 348.94675925925924,
+        "z": 25.09259259259259,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 101.92293660802272,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 348.7116608796296,
+        "z": 30.085358796296298,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 88.60208396103421,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 348.4765625,
+        "z": 35.078125,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 78.39973446261621,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 348.21976273148147,
+        "z": 40.68721064814815,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 78.36630206581235,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 347.96296296296293,
+        "z": 46.2962962962963,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 68.03005448515142,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 347.6540798611111,
+        "z": 52.37413194444444,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 72.64456931465641,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 347.34519675925924,
+        "z": 58.45196759259259,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 74.42462231081062,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 346.9538483796296,
+        "z": 64.85098379629629,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 72.99300916411211,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 346.5625,
+        "z": 71.25,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 65.73911124490361,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 346.05830439814815,
+        "z": 77.82262731481481,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 62.67312893270491,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 345.5541087962963,
+        "z": 84.39525462962963,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 77.37577213877832,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 344.9066840277778,
+        "z": 90.99392361111111,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 80.54201705665211,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 344.2592592592593,
+        "z": 97.5925925925926,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 83.44164286879145,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 343.4382233796297,
+        "z": 104.0697337962963,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 84.95057277207066,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 342.6171875,
+        "z": 110.546875,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 86.46340068336758,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 341.5921585648148,
+        "z": 116.75491898148147,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 87.78411608474198,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 340.5671296296296,
+        "z": 122.96296296296295,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 96.60406965706402,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 339.30772569444446,
+        "z": 128.75434027777777,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 98.49490193297108,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 338.04832175925924,
+        "z": 134.54571759259258,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 93.96045531545587,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 336.5241608796296,
+        "z": 139.7728587962963,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 93.60977209622303,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 335,
+        "z": 145,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 83.76412290139601,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 332.61625000000004,
+        "z": 150.93375,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 74.19979077384784,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 330.2325,
+        "z": 156.8675,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.25,
+        "meanFirstHit": 63.69962636292879,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 327.19624999999996,
+        "z": 162.85375,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 59.84521382452917,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 324.15999999999997,
+        "z": 168.84,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 66.84013877547072,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 320.64374999999995,
+        "z": 174.78125,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 62.4329579578389,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 317.1275,
+        "z": 180.7225,
+        "openFraction": 0.16666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 58.021343299934266,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 313.30375000000004,
+        "z": 186.52125,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 67.72760758455634,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 309.48,
+        "z": 192.32,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 65.68387254171073,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 305.52125,
+        "z": 197.87875,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 77.02995282885227,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 301.5625,
+        "z": 203.4375,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 78.73501167897008,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 297.64125,
+        "z": 208.65875,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 81.38572797649476,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 293.72,
+        "z": 213.88,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 81.18333859770823,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 290.00875,
+        "z": 218.66625,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 82.34182688121602,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 286.2975,
+        "z": 223.4525,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 78.38550944846811,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 282.96875,
+        "z": 227.70624999999998,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 86.68590781700736,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 279.64,
+        "z": 231.95999999999998,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 95.68547913522407,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 276.86625000000004,
+        "z": 235.58374999999998,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 90.44752551906883,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 274.09250000000003,
+        "z": 239.20749999999998,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 86.49378159926759,
+        "exposed": false
+      },
+      {
+        "route": "PATH_QD",
+        "x": 270,
+        "z": 245,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 90.53476812182124,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -285,
+        "z": 265,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 90.87669773022618,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -288.66898148148147,
+        "z": 259.28096064814815,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 91.72797850098414,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -291.16319444444446,
+        "z": 255.75737847222223,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 82.72813070481371,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -293.6574074074074,
+        "z": 252.2337962962963,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 80.12344510101374,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -296.6724537037037,
+        "z": 248.12861689814815,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 68.44580402572643,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -299.6875,
+        "z": 244.0234375,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 63.48358101745839,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -303.08449074074076,
+        "z": 239.4191261574074,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 63.35517863305608,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -306.48148148148147,
+        "z": 234.8148148148148,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.2916666666666667,
+        "meanFirstHit": 63.930931304411395,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -310.1215277777777,
+        "z": 229.79383680555554,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.2916666666666667,
+        "meanFirstHit": 59.693510318231574,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -313.761574074074,
+        "z": 224.77285879629628,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.375,
+        "meanFirstHit": 61.41415802493978,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -317.505787037037,
+        "z": 219.41767939814815,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0.375,
+        "meanFirstHit": 52.65571799240512,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -321.25,
+        "z": 214.0625,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.5,
+        "meanFirstHit": 56.90194079752825,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -324.95949074074076,
+        "z": 208.45558449074073,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0.5,
+        "meanFirstHit": 52.64915973407623,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -328.6689814814815,
+        "z": 202.84866898148147,
+        "openFraction": 0.20833333333333334,
+        "nearbyBlockFraction": 0.5,
+        "meanFirstHit": 47.945751707401904,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -332.2048611111111,
+        "z": 197.07248263888889,
+        "openFraction": 0.25,
+        "nearbyBlockFraction": 0.5,
+        "meanFirstHit": 51.653973248938165,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -335.7407407407407,
+        "z": 191.2962962962963,
+        "openFraction": 0.20833333333333334,
+        "nearbyBlockFraction": 0.5416666666666666,
+        "meanFirstHit": 46.859293798035225,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -338.9641203703703,
+        "z": 185.43330439814815,
+        "openFraction": 0.20833333333333334,
+        "nearbyBlockFraction": 0.5833333333333334,
+        "meanFirstHit": 45.87893801077451,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -342.1875,
+        "z": 179.5703125,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.5,
+        "meanFirstHit": 55.062810786222514,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -344.95949074074076,
+        "z": 173.70298032407408,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0.2916666666666667,
+        "meanFirstHit": 71.92490819618145,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -347.7314814814815,
+        "z": 167.83564814814815,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 96.44284871257632,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -349.91319444444446,
+        "z": 162.04644097222223,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 96.72333042747698,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -352.09490740740733,
+        "z": 156.2572337962963,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.4583333333333333,
+        "meanFirstHit": 69.25396171803514,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -353.5474537037037,
+        "z": 150.62861689814815,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.4583333333333333,
+        "meanFirstHit": 65.79683051724886,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -355,
+        "z": 145,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0.5,
+        "meanFirstHit": 61.14624676772428,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -355.67819754210285,
+        "z": 139.6347291761493,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0.5,
+        "meanFirstHit": 63.381117796635145,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -356.3563950842057,
+        "z": 134.2694583522986,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.375,
+        "meanFirstHit": 68.16465997936187,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -356.51797906235777,
+        "z": 128.4433318161129,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.375,
+        "meanFirstHit": 71.06633261805052,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -356.67956304050983,
+        "z": 122.61720527992718,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0.2916666666666667,
+        "meanFirstHit": 64.38889263520839,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -356.39963586709155,
+        "z": 116.44629039599454,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 66.46217658132008,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -356.1197086936732,
+        "z": 110.2753755120619,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 70.90337272917043,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -355.4733727810651,
+        "z": 103.87573964497042,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 77.0278985096633,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -354.82703686845696,
+        "z": 97.47610377787893,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 88.16397970789346,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -353.8893946290396,
+        "z": 90.96381429221665,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 93.2422394611939,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -352.95175238962224,
+        "z": 84.45152480655439,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 98.30322056547949,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -351.79790623577605,
+        "z": 77.94264906690941,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 93.85619573075105,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -350.6440600819299,
+        "z": 71.43377332726445,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 96.02367298211313,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -349.3491124260355,
+        "z": 65.04437869822485,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 101.45546239447292,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -348.0541647701411,
+        "z": 58.65498406918526,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 94.31015940589772,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -346.6932180245789,
+        "z": 52.5011379153391,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 93.96605325389203,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -345.33227127901677,
+        "z": 46.34729176149294,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 102.04726665207016,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -343.98042785616747,
+        "z": 40.54506144742831,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 99.34088119031294,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -342.62858443331817,
+        "z": 34.74283113336368,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 96.31620922066416,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -341.36094674556216,
+        "z": 29.40828402366864,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 100.41372569546536,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -340.0933090578061,
+        "z": 24.073736913973597,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 98.95968529071514,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -338.9849795175239,
+        "z": 19.32294037323623,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 102.064335814208,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -337.8766499772417,
+        "z": 14.57214383249886,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 103.2232716687111,
+        "exposed": true
+      },
+      {
+        "route": "PATH_RW",
+        "x": -337.00273099681385,
+        "z": 10.521165225307232,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 105.56819276771296,
+        "exposed": true
+      },
+      {
+        "route": "PATH_RW",
+        "x": -336.128812016386,
+        "z": 6.470186618115605,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 89.70083935412943,
+        "exposed": false
+      },
+      {
+        "route": "PATH_RW",
+        "x": -335,
+        "z": 0,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 96.1794635038895,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -335,
+        "z": 0,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 96.1794635038895,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -336.83159722222223,
+        "z": -6.587094907407407,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 99.23080632671899,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -338.2421875,
+        "z": -10.753038194444443,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 99.29046208061582,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -339.65277777777777,
+        "z": -14.918981481481481,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 89.56529968706224,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -341.4279513888889,
+        "z": -19.82277199074074,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 87.87276525388857,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -343.203125,
+        "z": -24.7265625,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 79.14823383859458,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -345.2126736111111,
+        "z": -30.233651620370367,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 76.39777980374039,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -347.22222222222223,
+        "z": -35.74074074074073,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 70.47964409359538,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -349.3359375,
+        "z": -41.71657986111111,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 66.82846335097862,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -351.44965277777777,
+        "z": -47.69241898148148,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 64.93467684194468,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -353.5373263888889,
+        "z": -54.00245949074074,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 61.28228135213644,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -355.625,
+        "z": -60.3125,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 60.62562973432602,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -357.5564236111111,
+        "z": -66.82219328703704,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 60.62706424020144,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -359.48784722222223,
+        "z": -73.33188657407408,
+        "openFraction": 0.25,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 51.587435331748,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -361.1328125,
+        "z": -79.90668402777777,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 62.13618374186865,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -362.77777777777777,
+        "z": -86.48148148148147,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 77.78075411731618,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -364.0060763888889,
+        "z": -92.98683449074073,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 82.27712493724133,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -365.234375,
+        "z": -99.4921875,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 84.70835943877809,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -365.9157986111111,
+        "z": -105.7935474537037,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 89.63030358031018,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -366.59722222222223,
+        "z": -112.0949074074074,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 93.9590083408508,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -366.6015625,
+        "z": -118.05772569444444,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 100.27538034651582,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WC",
+        "x": -366.60590277777777,
+        "z": -124.02054398148148,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 101.04088542693485,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -365.8029513888889,
+        "z": -129.51027199074073,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 75.09499167469902,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -365,
+        "z": -135,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 70.95791225286713,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -363.3818843878015,
+        "z": -139.907828857533,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.25,
+        "meanFirstHit": 70.11248619845394,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -361.76376877560307,
+        "z": -144.815657715066,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.25,
+        "meanFirstHit": 73.94897207948144,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -359.3126991351843,
+        "z": -149.88051888939464,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 76.30830331235568,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -356.86162949476557,
+        "z": -154.94538006372326,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 84.89325963530202,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -353.72098315885296,
+        "z": -160.1024123805189,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 93.23524542269489,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -350.5803368229404,
+        "z": -165.2594446973145,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 92.80054673374697,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -346.8934911242604,
+        "z": -170.44378698224853,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 99.81444132444517,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -343.20664542558035,
+        "z": -175.62812926718252,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 104.65637903866399,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -339.11697769685935,
+        "z": -180.77492034592626,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 103.59989666147082,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -335.02730996813835,
+        "z": -185.92171142467004,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 100.7970373652708,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -330.67819754210285,
+        "z": -190.96609012289485,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 99.719880179769,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -326.32908511606735,
+        "z": -196.0104688211197,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 101.86497085307535,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -321.8639053254438,
+        "z": -200.88757396449705,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 98.52541298608729,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -317.39872553482024,
+        "z": -205.7646791078744,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 91.27394188543705,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -312.96085571233505,
+        "z": -210.4096495220756,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 102.23275055927394,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -308.5229858898498,
+        "z": -215.05461993627677,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 102.6957205669741,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -304.2558033682294,
+        "z": -219.40259444697315,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 92.97923130896078,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -299.988620846609,
+        "z": -223.75056895766954,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 99.10134067109855,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -296.03550295857985,
+        "z": -227.73668639053255,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 88.02340097860089,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -292.08238507055074,
+        "z": -231.72280382339554,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 97.36097416239416,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -288.5867091488393,
+        "z": -235.28220300409652,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 91.79668495054665,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -285.0910332271279,
+        "z": -238.84160218479747,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 92.59686200445748,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -282.1961766044607,
+        "z": -241.90942193900776,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 92.27234073490875,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -279.30131998179337,
+        "z": -244.97724169321805,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 92.26457746043367,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WC",
+        "x": -275,
+        "z": -250,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 92.76394918388819,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -335,
+        "z": 0,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 96.1794635038895,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -329.8089599609375,
+        "z": -3.5858154296875,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 100.81221726059368,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -323.6669921875,
+        "z": -8.0224609375,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 85.43470396081898,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -320.16265869140625,
+        "z": -10.61309814453125,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 82.38009512837671,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -316.6583251953125,
+        "z": -13.2037353515625,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 80.06688693356197,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -312.76275634765625,
+        "z": -16.11358642578125,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 73.28045764495249,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -308.8671875,
+        "z": -19.0234375,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 76.36371876596564,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -304.62249755859375,
+        "z": -22.19940185546875,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 71.85619021686075,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -300.3778076171875,
+        "z": -25.3753662109375,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 70.92258882021974,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -295.82611083984375,
+        "z": -28.76434326171875,
+        "openFraction": 0.375,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 70.36317258478708,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -291.2744140625,
+        "z": -32.1533203125,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 64.38283021275078,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -286.45782470703125,
+        "z": -35.70220947265625,
+        "openFraction": 0.25,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 57.695534130468666,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -281.6412353515625,
+        "z": -39.2510986328125,
+        "openFraction": 0.3333333333333333,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 64.401218879835,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -276.60186767578125,
+        "z": -42.90679931640625,
+        "openFraction": 0.20833333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 62.2020933050137,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -271.5625,
+        "z": -46.5625,
+        "openFraction": 0.2916666666666667,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 63.864507176157815,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -266.34246826171875,
+        "z": -50.27191162109375,
+        "openFraction": 0.4583333333333333,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 77.02877771415912,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -261.1224365234375,
+        "z": -53.9813232421875,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 92.05896756356206,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -255.76385498046875,
+        "z": -57.69134521484375,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 98.77742241716282,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -250.4052734375,
+        "z": -61.4013671875,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 100.51417945713776,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -244.95025634765625,
+        "z": -65.05889892578125,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 109.9017687879353,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -239.4952392578125,
+        "z": -68.7164306640625,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 103.16005577484869,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -233.98590087890625,
+        "z": -72.26837158203125,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 110.96007627376281,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -228.4765625,
+        "z": -75.8203125,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.25,
+        "meanFirstHit": 81.84611168838505,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -222.95501708984375,
+        "z": -79.21356201171875,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.2916666666666667,
+        "meanFirstHit": 75.63710618777941,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -217.4334716796875,
+        "z": -82.6068115234375,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.2916666666666667,
+        "meanFirstHit": 73.35082321544154,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -211.94183349609375,
+        "z": -85.78826904296875,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.3333333333333333,
+        "meanFirstHit": 71.69424519450051,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -206.4501953125,
+        "z": -88.9697265625,
+        "openFraction": 0.4166666666666667,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 74.37248469094122,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -201.03057861328125,
+        "z": -91.88629150390625,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 81.81819893987824,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -195.6109619140625,
+        "z": -94.8028564453125,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 84.26577045961825,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -190.30548095703125,
+        "z": -97.40142822265625,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 94.52622454258027,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -185,
+        "z": -100,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 94.03242376932486,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -179.99033177284755,
+        "z": -102.22827193161001,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 93.9830483593545,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -174.9806635456951,
+        "z": -104.45654386322003,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 100.41556384814201,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -169.81783024628538,
+        "z": -106.58558925300224,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 102.97660447933309,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -164.65499694687563,
+        "z": -108.71463464278446,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 112.24048701627892,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -159.3588438835742,
+        "z": -110.74903317728476,
+        "openFraction": 0.875,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 110.91856063174022,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -154.06269082027276,
+        "z": -112.78343171178506,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 109.49678634074535,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -148.65306330144517,
+        "z": -114.72776307754935,
+        "openFraction": 0.875,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 110.02208193587647,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -143.24343578261755,
+        "z": -116.67209444331365,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 108.93134319356012,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -137.74017911662935,
+        "z": -118.53093832688785,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 106.1768460472997,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -132.23692245064117,
+        "z": -120.38978221046204,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 103.97807099182688,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -126.65988194585793,
+        "z": -122.16771829839203,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 107.06863884228277,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -121.08284144107469,
+        "z": -123.94565438632202,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 106.99496005648643,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -115.45186240586199,
+        "z": -125.64726236515368,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 106.6892641202531,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -109.8208833706493,
+        "z": -127.34887034398534,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 103.61002719890149,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -104.15581111337269,
+        "z": -128.97872990026463,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 102.55531334853619,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -98.49073885609607,
+        "z": -130.60858945654388,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 103.87236607887155,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -92.81141868512111,
+        "z": -132.17128027681662,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 105.25957787581142,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -87.13209851414615,
+        "z": -133.73397109708935,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 95.08676748277071,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -81.4583757378384,
+        "z": -135.2340728679015,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 95.08293141761455,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -75.78465296153063,
+        "z": -136.7341746387136,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 95.05864840584047,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -70.13637288825564,
+        "z": -138.17626704661103,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 95.01559052761657,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -64.48809281498066,
+        "z": -139.61835945450844,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 94.9405860059809,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -58.885100753104,
+        "z": -141.00702218603703,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 102.3241556568339,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -53.282108691227336,
+        "z": -142.39568491756563,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 103.35327095430387,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -47.74424994911458,
+        "z": -143.7354976592713,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 98.56236046321148,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -42.20639120700183,
+        "z": -145.07531040097697,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 97.19623713860459,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -36.753511093018524,
+        "z": -146.37085283940564,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 97.38253523540719,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -31.300630979035223,
+        "z": -147.6663952778343,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 96.11766167499466,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -25.952574801546927,
+        "z": -148.92224709953186,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 100.00251925587077,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -20.60451862405863,
+        "z": -150.1780989212294,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 99.69150236699399,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -15.3811316914309,
+        "z": -151.3988398127417,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 99.20992636244233,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": -10.157744758803169,
+        "z": -152.61958070425402,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 101.3324007401797,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": -5.078872379401584,
+        "z": -153.809790352127,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 102.45958444070544,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 0,
+        "z": -155,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 101.89799161482972,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 6.0390852769679295,
+        "z": -156.30739795918367,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 101.20455534921075,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 12.078170553935859,
+        "z": -157.61479591836735,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 104.90520877783085,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": 18.050747084548107,
+        "z": -158.70535714285717,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 103.08414061036594,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 24.02332361516035,
+        "z": -159.79591836734696,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 102.5851037823622,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 29.926658163265305,
+        "z": -160.70790816326533,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 98.68188532506868,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 35.82999271137026,
+        "z": -161.6198979591837,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 99.32197998099063,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 41.661352040816325,
+        "z": -162.39158163265307,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 106.27501656789353,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": 47.492711370262384,
+        "z": -163.16326530612244,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 109.74229609991954,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": 53.24936224489795,
+        "z": -163.8329081632653,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 106.31356864320992,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": 59.00601311953353,
+        "z": -164.50255102040816,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 104.82663827457793,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": 64.68522230320698,
+        "z": -165.10841836734693,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 110.55707134624055,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": 70.36443148688045,
+        "z": -165.71428571428572,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 98.98318379515892,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 75.96346574344022,
+        "z": -166.29464285714286,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 99.25744065204749,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 81.5625,
+        "z": -166.875,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 103.22519132454418,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": 87.07862609329446,
+        "z": -167.46811224489795,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 105.16056000028777,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": 92.59475218658892,
+        "z": -168.0612244897959,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 96.38397605032976,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 98.02523688046648,
+        "z": -168.70535714285714,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 93.60465636291394,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 103.45572157434403,
+        "z": -169.34948979591837,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 91.00022595237418,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 108.79783163265307,
+        "z": -170.0829081632653,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 91.42086428917906,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 114.1399416909621,
+        "z": -170.81632653061226,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 90.50906658156372,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 119.39094387755102,
+        "z": -171.67729591836735,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.20833333333333334,
+        "meanFirstHit": 91.14646665971281,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 124.64194606413993,
+        "z": -172.53826530612244,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.16666666666666666,
+        "meanFirstHit": 93.51571983314813,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 129.79910714285714,
+        "z": -173.56505102040813,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 98.49470921377109,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 134.95626822157433,
+        "z": -174.59183673469386,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 105.29234451740557,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": 140.01685495626822,
+        "z": -175.82270408163265,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 107.41408461377033,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": 145.0774416909621,
+        "z": -177.05357142857142,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 107.09787352458976,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": 150.03872084548107,
+        "z": -178.52678571428572,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 108.03805606690095,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": 155,
+        "z": -180,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 105.50996301763975,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": 160.80367476851853,
+        "z": -182.11154513888889,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 108.44440672983745,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": 166.60734953703704,
+        "z": -184.22309027777777,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 106.8252466804842,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": 172.51085069444446,
+        "z": -186.74696180555554,
+        "openFraction": 0.8333333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 110.90877846049979,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": 178.41435185185185,
+        "z": -189.27083333333334,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 108.41475109737412,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": 184.34389467592592,
+        "z": -192.11588541666669,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 106.50357770191276,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 190.2734375,
+        "z": -194.9609375,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 107.30193986944994,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": 196.1552372685185,
+        "z": -198.03602430555554,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 100.1858813756296,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 202.037037037037,
+        "z": -201.1111111111111,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 104.15425274760189,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 207.79730902777777,
+        "z": -204.32508680555554,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 105.70742381704201,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 213.55758101851853,
+        "z": -207.5390625,
+        "openFraction": 0.75,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 103.80945620839924,
+        "exposed": true
+      },
+      {
+        "route": "PATH_WF",
+        "x": 219.12254050925927,
+        "z": -210.80078125,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 97.58130750397261,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 224.6875,
+        "z": -214.0625,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 101.43190433903145,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 229.98336226851853,
+        "z": -217.28081597222223,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 96.78029844820179,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 235.27922453703707,
+        "z": -220.49913194444443,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 101.35288918769889,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 240.23220486111114,
+        "z": -223.58289930555554,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.125,
+        "meanFirstHit": 90.78504996819073,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 245.1851851851852,
+        "z": -226.66666666666669,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 94.42972679347923,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 249.7214988425926,
+        "z": -229.52473958333334,
+        "openFraction": 0.5416666666666666,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 84.25419943859892,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 254.2578125,
+        "z": -232.3828125,
+        "openFraction": 0.5,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 84.42442659066882,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 258.30367476851853,
+        "z": -234.92404513888889,
+        "openFraction": 0.5833333333333334,
+        "nearbyBlockFraction": 0.08333333333333333,
+        "meanFirstHit": 90.02263911405866,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 262.34953703703707,
+        "z": -237.46527777777777,
+        "openFraction": 0.7083333333333334,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 98.50064325090057,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 265.83116319444446,
+        "z": -239.59852430555554,
+        "openFraction": 0.6666666666666666,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 95.76755203769146,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 269.31278935185185,
+        "z": -241.73177083333331,
+        "openFraction": 0.625,
+        "nearbyBlockFraction": 0.041666666666666664,
+        "meanFirstHit": 96.07182815453893,
+        "exposed": false
+      },
+      {
+        "route": "PATH_WF",
+        "x": 275,
+        "z": -245,
+        "openFraction": 0.7916666666666666,
+        "nearbyBlockFraction": 0,
+        "meanFirstHit": 101.9897848958218,
+        "exposed": true
+      }
+    ]
+  },
+  "scope": "Static source collision triangles; front-face rays, terrain-relative standing eyes, fixed directions. Not renderer occlusion culling, measured combat balance, a complete visibility field, runtime PhysX or a multiplayer server. Water, foliage canopy, dynamic actors and external prefabs do not provide modeled cover.",
+  "warningRule": "Review flag only: \u003E=75% directions unblocked, \u003C=12.5% blocked within 20m. Project heuristic, not a proprietary game\u0027s constants or an automatic placement approval."
+}

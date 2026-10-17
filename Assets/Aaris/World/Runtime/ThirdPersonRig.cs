@@ -13,16 +13,19 @@ namespace Aaris.World
         private float yaw, pitch = 12, recoil, distance = 3.7f;
         private Camera view;
         private Renderer[] playerRenderers;
+        private PhysicsPawn pawn;
+        private readonly Collider[] overlap = new Collider[8];
+        public bool ClearView { get; private set; }
         public float Yaw => yaw;
         public Camera View => view != null ? view : GetComponent<Camera>();
         public void Recoil(float degrees) { recoil = Mathf.Min(8, recoil + degrees); }
-        public void ResetView() { yaw = initialYaw; pitch = 12; recoil = 0; distance = 3.7f; }
+        public void ResetView() { yaw = initialYaw; pitch = 12; recoil = 0; distance = 3.7f; ClearView = false; }
         private void Awake()
         {
             view = GetComponent<Camera>(); ResetView();
-            if (target != null && target.TryGetComponent<PhysicsPawn>(out var pawn) && pawn.visual != null) playerRenderers = pawn.visual.GetComponentsInChildren<Renderer>();
+            if (target != null && target.TryGetComponent(out pawn) && pawn.visual != null) playerRenderers = pawn.visual.GetComponentsInChildren<Renderer>();
         }
-        private void OnDisable() { if (playerRenderers != null) foreach (var renderer in playerRenderers) renderer.forceRenderingOff = false; }
+        private void OnDisable() { if (playerRenderers != null) foreach (var renderer in playerRenderers) renderer.forceRenderingOff = false; if (view != null) view.enabled = true; }
         private void LateUpdate()
         {
             if (target == null || input == null) return;
@@ -31,9 +34,20 @@ namespace Aaris.World
             Quaternion rotation = Quaternion.Euler(pitch - recoil, yaw, 0);
             Vector3 pivot = target.position + Vector3.up * pivotHeight;
             Vector3 offset = rotation * new Vector3(0.6f, 0, -3.7f);
-            float desired = offset.magnitude;
             var scene = gameObject.scene.GetPhysicsScene();
-            if (scene.SphereCast(pivot, 0.18f, offset.normalized, out var hit, desired, SandboxLayers.SolidMask, QueryTriggerInteraction.Ignore)) desired = Mathf.Max(0.05f, hit.distance - 0.04f);
+            ClearView = CameraCollision.TryLimit(scene, pivot, offset, overlap, out float desired);
+            if (!ClearView && pawn != null && pawn.Body != null)
+            {
+                pivot = pawn.Body.position + Vector3.up * pivotHeight;
+                ClearView = CameraCollision.TryLimit(scene, pivot, offset, overlap, out desired);
+                if (!ClearView)
+                {
+                    pivot = pawn.Body.position + Vector3.up * (float)(pawn.settings.height * 0.5);
+                    ClearView = CameraCollision.TryLimit(scene, pivot, offset, overlap, out desired);
+                }
+            }
+            view.enabled = ClearView;
+            if (!ClearView) return; // Invalid embedded pawn state: no wall view or shooting from a stale camera pose.
             // Retract immediately at an obstruction; only the safe recovery is smoothed.
             distance = desired < distance ? desired : Mathf.MoveTowards(distance, desired, Time.deltaTime * 5);
             if (playerRenderers != null) foreach (var renderer in playerRenderers) renderer.forceRenderingOff = distance < 0.65f;

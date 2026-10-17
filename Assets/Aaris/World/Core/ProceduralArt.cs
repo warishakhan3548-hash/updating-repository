@@ -127,8 +127,8 @@ namespace Aaris.World
                     }
                 }
                 // Gable roof: closed top and triangular gables, no overhang outside source bounds.
-                b.Quad(roof, new ArtVertex(-w / 2, bodyH, -d / 2), new ArtVertex(-w / 2, bodyH, d / 2), new ArtVertex(0, h, d / 2), new ArtVertex(0, h, -d / 2), true);
-                b.Quad(roof, new ArtVertex(0, h, -d / 2), new ArtVertex(0, h, d / 2), new ArtVertex(w / 2, bodyH, d / 2), new ArtVertex(w / 2, bodyH, -d / 2), true);
+                b.RoofPanel(roof, new ArtVertex(-w / 2, bodyH, -d / 2), new ArtVertex(-w / 2, bodyH, d / 2), new ArtVertex(0, h, d / 2), new ArtVertex(0, h, -d / 2));
+                b.RoofPanel(roof, new ArtVertex(0, h, -d / 2), new ArtVertex(0, h, d / 2), new ArtVertex(w / 2, bodyH, d / 2), new ArtVertex(w / 2, bodyH, -d / 2));
                 b.Triangle(wall, new ArtVertex(-w / 2, bodyH, d / 2), new ArtVertex(w / 2, bodyH, d / 2), new ArtVertex(0, h, d / 2), true);
                 b.Triangle(wall, new ArtVertex(w / 2, bodyH, -d / 2), new ArtVertex(-w / 2, bodyH, -d / 2), new ArtVertex(0, h, -d / 2), true);
             }
@@ -244,6 +244,15 @@ namespace Aaris.World
                 Quad(material, new ArtVertex(l, low, back), new ArtVertex(l, low, front), new ArtVertex(l, high, front), new ArtVertex(l, high, back), collidable);
                 Quad(material, new ArtVertex(l, high, front), new ArtVertex(r, high, front), new ArtVertex(r, high, back), new ArtVertex(l, high, back), collidable);
                 Quad(material, new ArtVertex(l, low, back), new ArtVertex(r, low, back), new ArtVertex(r, low, front), new ArtVertex(l, low, front), collidable);
+            }
+            public void RoofPanel(string material, ArtVertex a, ArtVertex b, ArtVertex c, ArtVertex d)
+            {
+                Quad(material, a, b, c, d, false); // Preserve the reviewed visible geometry.
+                var top = new[] { a, b, c, d };
+                var bottom = top.Select(v => new ArtVertex(v.x, v.y - 0.14, v.z)).ToArray();
+                void Face(ArtVertex p, ArtVertex q, ArtVertex r, ArtVertex s) { collision.AddRange(new[] { p, q, r, p, r, s }); }
+                Face(a, b, c, d); Face(bottom[3], bottom[2], bottom[1], bottom[0]);
+                for (int i = 0; i < 4; i++) { int next = (i + 1) % 4; Face(top[i], bottom[i], bottom[next], top[next]); }
             }
             public void Cone(string material, double x, double y, double z, double lower, double upper, double h, int segments, bool collidable)
             {
