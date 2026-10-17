@@ -83,3 +83,7 @@ xvfb-run -a bash Tools/unity-review.sh render
 ```
 
 These authoring commands do not build an APK. See [architecture](Docs/ARCHITECTURE.md), [validation status](Docs/STATUS.md) and [asset contract](Docs/ASSETS.md).
+
+## Experimental offline Battle Royale (sandbox r3)
+
+A configurable 50-bot offline practice match is now authored in the separate Unity sandbox: precomputed safe spawns, distance-tiered AI, basic combat, zone attrition and winner/elimination HUD. Bot art remains primitive and pathing approximate. Android performance and Unity execution have not been validated; see [Gameplay notes](Docs/GAMEPLAY.md). World object IDs and map sources remain unchanged.
