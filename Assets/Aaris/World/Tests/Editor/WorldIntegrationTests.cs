@@ -71,6 +71,28 @@ namespace Aaris.World.Tests
         }
 
         [Test]
+        public void WindFoliageShaderImportsAndGeneratedMaterialUsesAuthoredProfile()
+        {
+            var shader = Shader.Find("Aaris/Wind Foliage");
+            Assert.That(shader, Is.Not.Null);
+            Assert.That(ShaderUtil.ShaderHasError(shader), Is.False);
+            WorldEditor.Compile();
+            var world = WorldEditor.ReadWorld();
+            var foliage = AssetDatabase.LoadAssetAtPath<Material>(
+                WorldEditor.Generated + "/Materials/canopy_tree_leaf.asset");
+            Assert.That(foliage, Is.Not.Null);
+            Assert.That(foliage.shader, Is.SameAs(shader));
+            Assert.That(foliage.GetFloat("_WindStrength"), Is.EqualTo((float)world.visuals.windStrength).Within(0.0001));
+            Assert.That(foliage.GetFloat("_WindSpeed"), Is.EqualTo((float)world.visuals.windSpeed).Within(0.0001));
+            var oak = WorldEditor.ReadRegistry().assets.Single(a => a.id == "canopy_tree");
+            Assert.That(foliage.GetFloat("_WindHeight"), Is.EqualTo((float)oak.height).Within(0.0001));
+            var tree = Object.FindObjectsByType<WorldObjectIdentity>(FindObjectsSortMode.None)
+                .First(o => o.assetId == "canopy_tree");
+            Assert.That(tree.GetComponent<MeshCollider>(), Is.Not.Null);
+            Assert.That(tree.GetComponent<LODGroup>().GetLODs().Length, Is.EqualTo(3));
+        }
+
+        [Test]
         public void BiomeShaderImportsWithoutCompilerErrors()
         {
             var shader = Shader.Find("Aaris/Biome Terrain");
