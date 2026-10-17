@@ -19,6 +19,10 @@ namespace Aaris.World
         public Quaternion[] propRotations;
         public Vector2 worldMin, worldMax;
         public LineRenderer zoneLine;
+        // Authored once by the editor from the validated world source; no dynamic collider bodies.
+        public LootSpawn[] lootSpawns = System.Array.Empty<LootSpawn>();
+        public Transform[] lootVisuals = System.Array.Empty<Transform>();
+        public int PickupsCollected { get; private set; }
         public double PlayerHealth { get; private set; } = 100;
         public BattleZoneSnapshot CurrentZone { get; private set; }
         private double zoneClock, nextZoneVisualUpdate;
@@ -35,7 +39,7 @@ namespace Aaris.World
         {
             if (owner != null && owner != this) { Debug.LogError("Only one sandbox session can own global physics settings."); enabled = false; return; }
             owner = this; ownsGlobals = true;
-            PlayerHealth = 100; zoneClock = 0; nextZoneVisualUpdate = 0;
+            PlayerHealth = 100; PickupsCollected = 0; zoneClock = 0; nextZoneVisualUpdate = 0;
             if (settings.zone != null && settings.zone.enabled) CurrentZone = BattleZoneTimeline.At(settings.zone, 0);
             oldGravity = Physics.gravity; oldStep = Time.fixedDeltaTime; oldMaxTime = Time.maximumDeltaTime;
             oldMode = Physics.simulationMode; oldSync = Physics.autoSyncTransforms; oldReuse = Physics.reuseCollisionCallbacks;
@@ -60,14 +64,42 @@ namespace Aaris.World
         }
         private void FixedUpdate()
         {
-            if (pawn == null || settings.zone == null || !settings.zone.enabled) return;
-            zoneClock += Time.fixedDeltaTime;
-            CurrentZone = BattleZoneTimeline.At(settings.zone, zoneClock);
+            if (pawn == null) return;
             Vector3 feet = pawn.Body.position;
-            if (CurrentZone.Outside(feet.x, feet.z, settings.movement.radius))
+            if (settings.zone != null && settings.zone.enabled)
             {
-                PlayerHealth = System.Math.Max(0, PlayerHealth - settings.zone.damagePerSecond * Time.fixedDeltaTime);
-                if (PlayerHealth <= 0) ResetSandbox(); // Local practice restart, not network elimination.
+                zoneClock += Time.fixedDeltaTime;
+                CurrentZone = BattleZoneTimeline.At(settings.zone, zoneClock);
+                if (CurrentZone.Outside(feet.x, feet.z, settings.movement.radius))
+                {
+                    PlayerHealth = System.Math.Max(0, PlayerHealth - settings.zone.damagePerSecond * Time.fixedDeltaTime);
+                    if (PlayerHealth <= 0) { ResetSandbox(); return; } // Local practice restart.
+                }
+            }
+            // Pure radius check followed by a physical world line of sight. No wall-through pickups.
+            if (weapon == null || lootSpawns == null || lootVisuals == null) return;
+            Vector3 chest = feet + Vector3.up * 1f;
+            var scene = gameObject.scene.GetPhysicsScene();
+            int count = System.Math.Min(lootSpawns.Length, lootVisuals.Length);
+            for (int i = 0; i < count; i++)
+            {
+                Transform visual = lootVisuals[i];
+                if (visual == null || !visual.gameObject.activeSelf) continue;
+                Vector3 ray = visual.position - chest;
+                float distance = ray.magnitude;
+                if (distance > 1.8f || distance <= 0.0001f) continue;
+                if (scene.Raycast(chest, ray / distance, out _, distance, 1 << SandboxLayers.World, QueryTriggerInteraction.Ignore))
+                    continue;
+                bool used;
+                if (lootSpawns[i].kind == LootKind.Medkit)
+                {
+                    used = PlayerHealth < 100;
+                    if (used) PlayerHealth = System.Math.Min(100, PlayerHealth + lootSpawns[i].amount);
+                }
+                else used = weapon.State != null && weapon.State.GrantReserve(lootSpawns[i].amount) > 0;
+                if (!used) continue;
+                visual.gameObject.SetActive(false);
+                PickupsCollected++;
             }
         }
         private void LateUpdate()
@@ -96,9 +128,10 @@ namespace Aaris.World
         {
             if (pawn == null) return;
             pawn.Teleport(playerStart); input.Clear(); weapon.ResetWeapon(); cameraRig.ResetView();
-            PlayerHealth = 100; zoneClock = 0; nextZoneVisualUpdate = 0;
+            PlayerHealth = 100; PickupsCollected = 0; zoneClock = 0; nextZoneVisualUpdate = 0;
             if (settings.zone != null && settings.zone.enabled) CurrentZone = BattleZoneTimeline.At(settings.zone, 0);
             foreach (var target in targets) target.ResetHealth();
+            foreach (var loot in lootVisuals) if (loot != null) loot.gameObject.SetActive(true);
             for (int i = 0; i < props.Length; i++) ResetProp(i);
             Physics.SyncTransforms(); // Explicit reset only; ordinary movement stays in the solver.
         }

@@ -42,6 +42,14 @@ namespace Aaris.World
         public bool Reloading { get; private set; }
         public WeaponState(WeaponSpec spec) { this.spec = spec; Reset(); }
         public void Reset() { Ammo = spec.magazine; Reserve = spec.reserve; nextShot = 0; Reloading = false; reloadEnd = double.PositiveInfinity; lastTime = double.NegativeInfinity; }
+        // Local supply pickup. Strictly bounded and never materializes ammunition during reload.
+        public int GrantReserve(int amount)
+        {
+            if (amount < 0 || amount > 1000) throw new ArgumentOutOfRangeException(nameof(amount));
+            int granted = Math.Min(amount, 1000 - Reserve);
+            Reserve += granted;
+            return granted;
+        }
         public bool Tick(double now, bool fire, bool reload)
         {
             if (!WorldValidator.Finite(now) || now < lastTime) throw new ArgumentException("Weapon clock must be finite and monotonic.");

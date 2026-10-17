@@ -23,6 +23,8 @@ namespace Aaris.World.Editor
             var spec = Read(); var world = UnityWorldCompiler.ReadWorld(); var registry = UnityWorldCompiler.ReadRegistry();
             var errors = SandboxValidator.Validate(spec, world, registry);
             if (errors.Count != 0) throw new InvalidDataException(string.Join("\n", errors));
+            // Preflight loot before touching generated assets/scenes, to preserve the prior scene on failure.
+            var lootPlan = LootPlanner.Build(world, registry, spec);
             ConfigureLayers();
             UnityWorldCompiler.Compile();
             var scene = SceneManager.GetActiveScene();
@@ -37,6 +39,8 @@ namespace Aaris.World.Editor
             var playerAccent = Material("RangerMarkings", new Color(0.72f, 0.54f, 0.20f));
             var targetArt = Material("SandboxTarget", new Color(0.85f, 0.35f, 0.18f));
             var propArt = Material("SandboxCrates", new Color(0.47f, 0.33f, 0.18f));
+            var lootAmmo = Material("SupplyAmmo", new Color(0.92f, 0.64f, 0.18f));
+            var lootHeal = Material("SupplyHealing", new Color(0.12f, 0.7f, 0.43f));
             var playerSurface = new PhysicsMaterial("Pawn friction") { dynamicFriction = 0, staticFriction = 0, bounciness = 0, frictionCombine = PhysicsMaterialCombine.Minimum, bounceCombine = PhysicsMaterialCombine.Minimum };
             var propSurface = new PhysicsMaterial("Prop friction") { dynamicFriction = 0.5f, staticFriction = 0.65f, bounciness = 0.05f, frictionCombine = PhysicsMaterialCombine.Average, bounceCombine = PhysicsMaterialCombine.Minimum };
             AssetDatabase.CreateAsset(playerSurface, UnityWorldCompiler.Generated + "/Materials/PawnPhysics.asset");
@@ -84,6 +88,19 @@ namespace Aaris.World.Editor
                 var headRegion = head.AddComponent<HitRegion>(); headRegion.receiver = receiver; headRegion.head = true;
                 receiver.ResetHealth(); SandboxLayers.SetRecursively(go, SandboxLayers.Target); targets.Add(receiver);
             }
+            // Visual-only local supplies; no replicated inventory or dynamic physics objects.
+            var lootVisuals = new List<Transform>();
+            foreach (var supply in lootPlan)
+            {
+                bool heal = supply.kind == LootKind.Medkit;
+                var go = Part(rootObject.transform, heal ? PrimitiveType.Sphere : PrimitiveType.Cube,
+                    new Vector3((float)supply.x, (float)supply.y, (float)supply.z),
+                    heal ? Vector3.one * 0.72f : new Vector3(0.72f, 0.42f, 0.55f),
+                    heal ? lootHeal : lootAmmo, false);
+                go.name = supply.id + (heal ? " - healing" : " - ammo");
+                lootVisuals.Add(go.transform);
+            }
+            session.lootSpawns = lootPlan; session.lootVisuals = lootVisuals.ToArray();
             session.pawn = pawn; session.weapon = weapon; session.cameraRig = rig; session.targets = targets.ToArray(); session.props = props.ToArray();
             session.playerStart = player.transform.position; session.propStarts = props.Select(p => p.position).ToArray(); session.propRotations = props.Select(p => p.rotation).ToArray();
             session.worldMin = new Vector2((float)world.grid.originX, (float)world.grid.originZ);
