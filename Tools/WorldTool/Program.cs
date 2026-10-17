@@ -4,7 +4,7 @@ using Aaris.World;
 try
 {
     if (args.Length == 0)
-        throw new ArgumentException("Commands: validate [--production], validate-sandbox, review [directory], review-visibility [directory], refine-cover request.json [directory], move request.json [--apply], plan-route request.json [directory], export-geometry [directory], prepare-highlands-v2, self-test. Run from repository root.");
+        throw new ArgumentException("Commands: validate [--production], validate-sandbox, review [directory], review-tactical [directory], review-visibility [directory], refine-cover request.json [directory], move request.json [--apply], plan-route request.json [directory], export-geometry [directory], prepare-highlands-v2, self-test. Run from repository root.");
     if (args[0] == "self-test")
     {
         if (args.Length != 1) throw new ArgumentException("self-test takes no arguments.");
@@ -18,6 +18,12 @@ try
         {
             if (args.Length < 2 || args.Length > 3) throw new ArgumentException("refine-cover request.json [directory]");
             CoverRefiner.Write(world, assets, WorldFiles.Read<CoverRefineRequest>(args[1]), args.Length == 3 ? args[2] : "Review/cover-proposal");
+            return 0;
+        }
+        case "review-tactical":
+        {
+            if (args.Length > 2) throw new ArgumentException("review-tactical [directory]");
+            TacticalExposureReview.Write(world, assets, args.Length == 2 ? args[1] : "Review/latest/tactical");
             return 0;
         }
         case "review-visibility":
