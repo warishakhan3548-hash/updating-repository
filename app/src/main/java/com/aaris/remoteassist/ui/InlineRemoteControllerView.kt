@@ -265,6 +265,11 @@ class InlineRemoteControllerView(
          * front of the newest frame. EglRenderer remains latest-frame-wins; no
          * extra queue, copy or presentation clock is introduced here.
          */
+        // Stamp decoder arrival on the same monotonic clock as EGL swap
+        // BEFORE publishing this callback's sequence and submitting its
+        // texture. Reuse the watchdog timestamp: no additional per-frame
+        // allocation, JNI call, or frame reservoir.
+        lastRawFrameAtMs = android.os.SystemClock.elapsedRealtime()
         eglRenderer?.let { renderer ->
             // Count before handing the frame to the EGL thread: a very fast
             // buffer swap must never observe an older decoder sequence.
@@ -272,7 +277,6 @@ class InlineRemoteControllerView(
             renderer.onFrame(frame)
         }
 
-        lastRawFrameAtMs = android.os.SystemClock.elapsedRealtime()
         val rotatedWidth = frame.rotatedWidth
         val rotatedHeight = frame.rotatedHeight
         latestObservedFrameWidth = rotatedWidth
@@ -1473,7 +1477,11 @@ class InlineRemoteControllerView(
             }
 
             presentationCadence
-                .onPresented(presentedAtMs, decodedFrameSequence.get())
+                .onPresented(
+                    nowMs = presentedAtMs,
+                    decodedSequence = decodedFrameSequence.get(),
+                    lastDecodedAtMs = lastRawFrameAtMs.takeIf { it > 0L }
+                )
                 ?.let { window ->
                     mainHandler.post {
                         if (

@@ -70,6 +70,44 @@ class DecoderAwarePresentationCadenceTest {
         assertEquals(500, resumed.maxGapMs)
     }
 
+    @Test fun oneFrameDecodedEarlyButRenderedLateIsNotMisclassifiedAsIdle() {
+        val tracker = PresentationCadenceTracker()
+        assertNull(tracker.onPresented(1_000L, decodedSequence = 1L, lastDecodedAtMs = 995L))
+
+        // The decoder delivered one frame at 1.1 s; EGL cannot silently
+        // treat its later 3.0 s swap as proof of a quiet producer.
+        val stalled = checkNotNull(
+            tracker.onPresented(3_000L, decodedSequence = 2L, lastDecodedAtMs = 1_100L)
+        )
+        assertEquals(2_000, stalled.intervalMs)
+        assertEquals(2_000, stalled.maxGapMs)
+        assertEquals(1, stalled.renderedFrames)
+    }
+
+    @Test fun genuinelyLateSingleDecoderFrameStillReanchorsIdleToMotion() {
+        val tracker = PresentationCadenceTracker()
+        assertNull(tracker.onPresented(1_000L, decodedSequence = 1L, lastDecodedAtMs = 995L))
+        assertNull(
+            tracker.onPresented(3_500L, decodedSequence = 2L, lastDecodedAtMs = 3_480L)
+        )
+        val resumed = checkNotNull(
+            tracker.onPresented(4_000L, decodedSequence = 3L, lastDecodedAtMs = 3_995L)
+        )
+        assertEquals(500, resumed.maxGapMs)
+    }
+
+    @Test fun missingOrInvalidArrivalTimeKeepsCompatibleCountOnlyBehavior() {
+        val tracker = PresentationCadenceTracker()
+        assertNull(tracker.onPresented(1_000L, decodedSequence = 1L))
+        assertNull(tracker.onPresented(3_000L, decodedSequence = 2L))
+        assertNull(
+            tracker.onPresented(5_000L, decodedSequence = 3L, lastDecodedAtMs = 5_001L)
+        )
+        assertNull(
+            tracker.onPresented(7_000L, decodedSequence = 3L, lastDecodedAtMs = 1_000L)
+        )
+    }
+
     @Test fun unspecifiedDecoderEvidenceKeepsExistingCadenceSemantics() {
         val tracker = PresentationCadenceTracker()
         assertNull(tracker.onPresented(1_000L))
