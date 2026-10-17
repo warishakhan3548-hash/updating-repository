@@ -16,6 +16,7 @@ namespace Aaris.World
         public MovementSpec movement = new MovementSpec();
         public WeaponSpec weapon = new WeaponSpec();
         public BattleZoneSpec zone = new BattleZoneSpec();
+        public BotSpec bots = new BotSpec();
         public SpawnSpec player = new SpawnSpec { id = "PLAYER_LOCAL", x = -100, z = -190, yaw = 180 };
         public PropSpec[] props = Array.Empty<PropSpec>();
         public SpawnSpec[] targets = Array.Empty<SpawnSpec>();
@@ -50,6 +51,16 @@ namespace Aaris.World
     }
 
     [Serializable]
+    public sealed class BotSpec
+    {
+        public bool enabled;
+        public int count;
+        public double moveSpeed = 4.3, detectionRange = 75, attackRange = 42;
+        public double attackInterval = 0.8, attackDamage = 5;
+        public double spawnSeparation = 7;
+    }
+
+    [Serializable]
     public class SpawnSpec
     {
         public string id = "";
@@ -67,7 +78,7 @@ namespace Aaris.World
         public static List<string> Validate(SandboxSpec s, WorldSpec w, AssetRegistry registry)
         {
             var errors = new List<string>();
-            if (s == null || s.schemaVersion != 1 || s.revision < 1 || s.movement == null || s.weapon == null || s.player == null || s.props == null || s.targets == null)
+            if (s == null || s.schemaVersion != 1 || s.revision < 1 || s.movement == null || s.weapon == null || s.player == null || s.props == null || s.targets == null || s.bots == null)
             { errors.Add("Sandbox schema, revision and every section are required."); return errors; }
             var m = s.movement; var gun = s.weapon;
             bool Range(double value, double min, double max) => WorldValidator.Finite(value) && value >= min && value <= max;
@@ -81,6 +92,12 @@ namespace Aaris.World
             if (gun.magazine < 1 || gun.magazine > 100 || gun.reserve < 0 || gun.reserve > 1000 || !Range(gun.roundsPerSecond, 1, Math.Min(20, s.fixedHz)) ||
                 !Range(gun.reloadSeconds, 0.3, 10) || !Range(gun.damage, 1, 100) || !Range(gun.headMultiplier, 1, 4) || !Range(gun.range, 5, 500) ||
                 !Range(gun.impactImpulse, 0, 50)) errors.Add("Invalid ammunition, cadence, damage or impulse limits.");
+            var bots = s.bots;
+            if (bots.count < 0 || bots.count > 100 || (bots.enabled && bots.count == 0) ||
+                !Range(bots.moveSpeed, 1, 7) || !Range(bots.detectionRange, 15, 130) ||
+                !Range(bots.attackRange, 5, bots.detectionRange) || !Range(bots.attackInterval, 0.2, 5) ||
+                !Range(bots.attackDamage, 0.1, 25) || !Range(bots.spawnSeparation, 3, 25))
+                errors.Add("Bot count, reaction, damage, range and separation budgets must be bounded.");
             if (errors.Count != 0) return errors;
             var sourceErrors = WorldValidator.Validate(w, registry);
             if (sourceErrors.Count != 0) { errors.Add("World must validate before checking sandbox spawns: " + sourceErrors[0]); return errors; }
