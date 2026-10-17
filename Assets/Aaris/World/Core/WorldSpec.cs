@@ -239,5 +239,9 @@ namespace Aaris.World
         public double fogDensity = 0.0007;
         public string fogColor = "#aabeca";
         public int textureResolution = 128;
+        public bool windEnabled = true;
+        public double windAngleDegrees = 2.4;
+        public double windFrequencyHz = 0.18;
+        public double windActiveDistance = 260;
     }
 }
