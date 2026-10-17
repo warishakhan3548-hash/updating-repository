@@ -12,6 +12,7 @@ namespace Aaris.World
         public Vector3 spawn;
         public Vector3 steering;
         public int index;
+        public LocalBotDirector director;
         public double nextShot, nextFarMove;
         public bool credited;
         public bool Alive => damageable != null && !damageable.Dead;
