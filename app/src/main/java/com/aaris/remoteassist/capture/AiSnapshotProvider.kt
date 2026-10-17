@@ -116,8 +116,8 @@ class AiSnapshotProvider(private val track: ScreenCaptureTrack) : AutoCloseable 
         val waiter = CompletableDeferred<AiRawFrame>()
         val request = Pending(waiter)
         check(pending.compareAndSet(null, request)) { "CAPTURE_BUSY" }
-        check(attachSinkIfNeeded()) { "CAPTURE_STOPPED" }
         return try {
+            check(attachSinkIfNeeded()) { "CAPTURE_STOPPED" }
             track.requestSnapshot()
             withTimeout(2500) { waiter.await() }
         } finally {
