@@ -175,6 +175,9 @@ public static class GameplayTests
             Assert(shortEdge * scale + 0.0001 >= Math.Min(shortEdge, 540),
                 "The adaptive governor dropped resolution below its short-edge readability floor.");
         }
+        Assert(governor.EffectiveRenderScale(720, 0.8) >= 0.75, "Authored 0.8 scale dropped 720p below the readability floor.");
+        Assert(governor.EffectiveRenderScale(720, 0.6) <= 0.6, "Adaptive settings raised the author's existing quality ceiling.");
+        Assert(governor.EffectiveRenderScale(1080, 0.65) >= 0.5, "Adaptive settings dropped 1080p below the floor.");
         Assert(governor.LodMultiplier > 0 && governor.ShadowDistanceMetres >= 0);
     }
     private static void StrictSandbox()
