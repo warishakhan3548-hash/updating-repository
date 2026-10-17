@@ -33,6 +33,7 @@ namespace Aaris.World.Editor
             var neutral = Material("SandboxNeutral", new Color(0.28f, 0.37f, 0.43f));
             var playerArt = Material("SandboxPlayer", new Color(0.2f, 0.65f, 0.8f));
             var targetArt = Material("SandboxTarget", new Color(0.85f, 0.35f, 0.18f));
+            var botArt = Material("SandboxBots", new Color(0.3f, 0.68f, 0.28f));
             var propArt = Material("SandboxCrates", new Color(0.47f, 0.33f, 0.18f));
             var playerSurface = new PhysicsMaterial("Pawn friction") { dynamicFriction = 0, staticFriction = 0, bounciness = 0, frictionCombine = PhysicsMaterialCombine.Minimum, bounceCombine = PhysicsMaterialCombine.Minimum };
             var propSurface = new PhysicsMaterial("Prop friction") { dynamicFriction = 0.5f, staticFriction = 0.65f, bounciness = 0.05f, frictionCombine = PhysicsMaterialCombine.Average, bounceCombine = PhysicsMaterialCombine.Minimum };
@@ -83,7 +84,35 @@ namespace Aaris.World.Editor
                 var headRegion = head.AddComponent<HitRegion>(); headRegion.receiver = receiver; headRegion.head = true;
                 receiver.ResetHealth(); SandboxLayers.SetRecursively(go, SandboxLayers.Target); targets.Add(receiver);
             }
-            session.pawn = pawn; session.weapon = weapon; session.cameraRig = rig; session.targets = targets.ToArray(); session.props = props.ToArray();
+            // Spawn placement is generated once during authoring, never searched on the phone.
+            var botSpawns = BotSpawnPlanner.Plan(spec, world, registry);
+            var bots = new List<SandboxBot>();
+            for (int i = 0; i < botSpawns.Length; i++)
+            {
+                var spawn = botSpawns[i];
+                var go = new GameObject(spawn.id);
+                go.transform.SetPositionAndRotation(Feet(spawn), Quaternion.Euler(0, (float)spawn.yaw, 0));
+                var receiver = go.AddComponent<Damageable>();
+                var torso = Part(go.transform, PrimitiveType.Capsule, new Vector3(0, 0.75f, 0),
+                    new Vector3(0.6f, 0.75f, 0.6f), botArt, true);
+                var head = Part(go.transform, PrimitiveType.Sphere, new Vector3(0, 1.68f, 0),
+                    Vector3.one * 0.44f, botArt, true);
+                torso.AddComponent<HitRegion>().receiver = receiver;
+                var headRegion = head.AddComponent<HitRegion>();
+                headRegion.receiver = receiver; headRegion.head = true;
+                var body = go.AddComponent<Rigidbody>();
+                body.isKinematic = true; body.useGravity = false;
+                body.interpolation = RigidbodyInterpolation.Interpolate;
+                body.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
+                var agent = go.AddComponent<SandboxBot>();
+                agent.session = session; agent.health = receiver;
+                agent.slot = i; agent.start = go.transform.position; agent.tuning = spec.bots;
+                SandboxLayers.SetRecursively(go, SandboxLayers.Target);
+                receiver.ResetHealth(); bots.Add(agent);
+            }
+            session.pawn = pawn; session.weapon = weapon; session.cameraRig = rig;
+            session.targets = targets.ToArray(); session.props = props.ToArray();
+            session.bots = bots.ToArray();
             session.playerStart = player.transform.position; session.propStarts = props.Select(p => p.position).ToArray(); session.propRotations = props.Select(p => p.rotation).ToArray();
             session.worldMin = new Vector2((float)world.grid.originX, (float)world.grid.originZ);
             session.worldMax = session.worldMin + new Vector2((float)world.grid.sizeX, (float)world.grid.sizeZ);
@@ -105,7 +134,7 @@ namespace Aaris.World.Editor
             rootObject.AddComponent<SandboxHud>().session = session;
             AssetDatabase.SaveAssets();
             if (!EditorSceneManager.SaveScene(scene, ScenePath)) throw new IOException("Unable to save physics sandbox scene.");
-            Debug.Log("Physics sandbox authored: native Rigidbody capsule, bounded props, touch controls and local target shooting. No APK compiled; run Unity physics tests and Play Mode before acceptance.");
+            Debug.Log("Physics sandbox authored with " + bots.Count + " experimental offline bots, native pawn and bounded props. No APK compiled; Unity physics, navigation and Android device acceptance remain pending.");
         }
 
         private static GameObject Part(Transform parent, PrimitiveType primitive, Vector3 position, Vector3 scale, Material material, bool collision)

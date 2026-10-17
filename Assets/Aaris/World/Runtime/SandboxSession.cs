@@ -12,6 +12,24 @@ namespace Aaris.World
         public ThirdPersonRig cameraRig;
         public Damageable[] targets = System.Array.Empty<Damageable>();
         public Rigidbody[] props = System.Array.Empty<Rigidbody>();
+        public SandboxBot[] bots = System.Array.Empty<SandboxBot>();
+        public bool MatchFinished { get; private set; }
+        public bool MatchWon { get; private set; }
+        public int AliveBots
+        {
+            get
+            {
+                int alive = 0;
+                foreach (var bot in bots) if (bot != null && bot.health != null && !bot.health.Dead) alive++;
+                return alive;
+            }
+        }
+        public void TakeBotDamage(double damage)
+        {
+            if (MatchFinished || !WorldValidator.Finite(damage) || damage <= 0) return;
+            PlayerHealth = System.Math.Max(0, PlayerHealth - damage);
+            if (PlayerHealth <= 0) { MatchFinished = true; MatchWon = false; }
+        }
         public Vector3 playerStart;
         public Vector3[] propStarts;
         public Quaternion[] propRotations;
@@ -33,7 +51,8 @@ namespace Aaris.World
         {
             if (owner != null && owner != this) { Debug.LogError("Only one sandbox session can own global physics settings."); enabled = false; return; }
             owner = this; ownsGlobals = true;
-            PlayerHealth = 100; zoneClock = 0; nextZoneVisualUpdate = 0;
+            PlayerHealth = 100; MatchFinished = false; MatchWon = false;
+            zoneClock = 0; nextZoneVisualUpdate = 0;
             if (settings.zone != null && settings.zone.enabled) CurrentZone = BattleZoneTimeline.At(settings.zone, 0);
             oldGravity = Physics.gravity; oldStep = Time.fixedDeltaTime; oldMaxTime = Time.maximumDeltaTime;
             oldMode = Physics.simulationMode; oldSync = Physics.autoSyncTransforms; oldReuse = Physics.reuseCollisionCallbacks;
@@ -55,17 +74,23 @@ namespace Aaris.World
             bool corrected = false;
             for (int i = 0; i < props.Length; i++) if (InvalidPosition(props[i].position)) { ResetProp(i); corrected = true; }
             if (corrected) Physics.SyncTransforms();
+            if (!MatchFinished && settings.bots != null && settings.bots.enabled &&
+                bots.Length > 0 && AliveBots == 0)
+            {
+                MatchFinished = true; MatchWon = true;
+            }
         }
         private void FixedUpdate()
         {
-            if (pawn == null || settings.zone == null || !settings.zone.enabled) return;
+            if (pawn == null || MatchFinished || settings.zone == null || !settings.zone.enabled) return;
             zoneClock += Time.fixedDeltaTime;
             CurrentZone = BattleZoneTimeline.At(settings.zone, zoneClock);
             Vector3 feet = pawn.Body.position;
             if (CurrentZone.Outside(feet.x, feet.z, settings.movement.radius))
             {
-                PlayerHealth = System.Math.Max(0, PlayerHealth - settings.zone.damagePerSecond * Time.fixedDeltaTime);
-                if (PlayerHealth <= 0) ResetSandbox(); // Local practice restart, not network elimination.
+                TakeBotDamage(settings.zone.damagePerSecond * Time.fixedDeltaTime);
+                if (PlayerHealth <= 0 && (settings.bots == null || !settings.bots.enabled))
+                    ResetSandbox(); // Preserve legacy target-practice auto restart.
             }
         }
         private void LateUpdate()
@@ -94,9 +119,11 @@ namespace Aaris.World
         {
             if (pawn == null) return;
             pawn.Teleport(playerStart); input.Clear(); weapon.ResetWeapon(); cameraRig.ResetView();
-            PlayerHealth = 100; zoneClock = 0; nextZoneVisualUpdate = 0;
+            PlayerHealth = 100; MatchFinished = false; MatchWon = false;
+            zoneClock = 0; nextZoneVisualUpdate = 0;
             if (settings.zone != null && settings.zone.enabled) CurrentZone = BattleZoneTimeline.At(settings.zone, 0);
             foreach (var target in targets) target.ResetHealth();
+            foreach (var bot in bots) if (bot != null) bot.ResetBot();
             for (int i = 0; i < props.Length; i++) ResetProp(i);
             Physics.SyncTransforms(); // Explicit reset only; ordinary movement stays in the solver.
         }

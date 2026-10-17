@@ -23,3 +23,7 @@ Actual Unity import, URP shader compilation, **21 EditMode integration tests**, 
 Native Rigidbody movement, touch controls, camera obstruction, local hitscan shooting/targets, friction materials and bounded physical props are now implemented as source in a separate sandbox scene compiler. See `GAMEPLAY.md` for the exact boundary and remaining work. These have not been executed in Unity here.
 
 No APK/AAB was compiled and no Unity Cloud service was provisioned. This is an authoring review scene. Runtime cell loading/cancellation, Addressables, HLOD, final prefab/texture compression, swimming, final road collision/cut-and-fill, native player/combat acceptance, animated characters, full weapon systems, bots and multiplayer remain later work. Development art does not establish commercial readiness or superiority to another game's final graphics.
+
+## Proposed offline bot gameplay (unverified)
+
+Sandbox r3 source adds a default 50-bot experimental scenario with deterministic author-time spawns, bounded tuning, distance-tiered AI, simplified attacks, zone attrition, alive count and winner/reset state. New .NET policy checks cover invalid tuning and spawn reproducibility. **These changes have not yet passed Unity import, EditMode or device profiling; no APK has been built.** A 100-bot count is a tuning ceiling, not a verified performance guarantee. Current bots use primitive blockout art.

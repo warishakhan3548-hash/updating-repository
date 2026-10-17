@@ -24,6 +24,10 @@ namespace Aaris.World
                 GUI.Box(GuiRect(ControlLayout.Rect(role)), text, button);
             }
             var state = session.weapon.State; int alive = 0; foreach (var target in session.targets) if (!target.Dead) alive++;
+            bool battle = session.settings.bots != null && session.settings.bots.enabled;
+            string population = battle ? "Bots: " + session.AliveBots + "/" + session.bots.Length :
+                "Targets: " + alive + "/" + session.targets.Length;
+            string outcome = session.MatchFinished ? (session.MatchWon ? "  BOOYAH / WINNER!" : "  ELIMINATED") : "";
             string zoneStatus = "";
             if (session.settings.zone != null && session.settings.zone.enabled)
             {
@@ -36,7 +40,7 @@ namespace Aaris.World
             }
             GUI.Box(new Rect(safe.x + 12, Screen.height - safe.yMax + 12, Mathf.Min(650, safe.width - 24), 104),
                 "AARIS / LOCAL PHYSICS SANDBOX\n" +
-                (state.Reloading ? "RELOADING" : state.Ammo + " / " + state.Reserve) + "   Targets: " + alive + "/" + session.targets.Length +
+                (state.Reloading ? "RELOADING" : state.Ammo + " / " + state.Reserve) + "   " + population + outcome +
                 "   " + (!session.cameraRig.ClearView ? "VIEW BLOCKED" : session.pawn.Grounded ? "GROUNDED" : "AIRBORNE") + zoneStatus, label);
             if (GUI.Button(new Rect(safe.xMax - 160, Screen.height - safe.yMax + 95, 145, 42), "RESET SANDBOX")) session.ResetSandbox();
             GUI.color = session.weapon.HitMarker ? Color.red : Color.white;
