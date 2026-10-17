@@ -87,7 +87,8 @@ class NativeMotionRecoveryTest {
         sourceFps: Double? = 30.0,
         interactionActive: Boolean = false,
         allowResolutionRecovery: Boolean = true,
-        windows: Int = 5
+        windows: Int = 5,
+        startMs: Long = 6000L
     ) {
         repeat(windows) { index ->
             budget.observe(
@@ -96,7 +97,7 @@ class NativeMotionRecoveryTest {
                 sourceFps = sourceFps,
                 motionActive = true,
                 targetFps = 30,
-                nowMs = 6000L + index * 1000L,
+                nowMs = startMs + index * 1000L,
                 interactionActive = interactionActive,
                 allowResolutionRecovery = allowResolutionRecovery,
                 profile = target
@@ -104,11 +105,14 @@ class NativeMotionRecoveryTest {
         }
     }
 
-    @Test fun continuousMotionRecoversNativeAfterFiveMeasuredHeadroomWindows() {
+    @Test fun continuousMotionRecoversOneRungPerFiveMeasuredHeadroomWindows() {
         val budget = downgradedBudget()
         recover(budget, windows = 4)
         assertEquals(720, budget.apply(profile, true).captureWidthPx)
         budget.observe(sender(), receiver(), 30.0, true, 30, 10000L, profile = profile)
+        assertEquals(900, budget.shortEdge)
+        val resized = sender().copy(frameWidth = 900, frameHeight = 2000)
+        recover(budget, outbound = resized, startMs = 11000L)
         assertEquals(1080, budget.shortEdge)
         assertEquals(profile, budget.apply(profile, true))
     }
@@ -125,7 +129,7 @@ class NativeMotionRecoveryTest {
         val budget = downgradedBudget()
         recover(budget)
         val stressed = sender().let {
-            it.copy(frameWidth = 1080, frameHeight = 2400,
+            it.copy(frameWidth = 900, frameHeight = 2000,
                 recent = it.recent!!.copy(frames = 20, processingMs = 35.0))
         }
         assertFalse(budget.observe(stressed, receiver(), 30.0, true, 30,
@@ -142,10 +146,10 @@ class NativeMotionRecoveryTest {
                 it.copy(recent = it.recent!!.copy(bitrateBps = 0))
             },
             "missing bandwidth estimate" to sender().copy(availableOutgoingBitrateBps = null),
-            // Current 720p demand fits, but 1080p + the existing reserve does not.
-            "projected bandwidth" to sender().copy(availableOutgoingBitrateBps = 6_000_000.0),
+            // Current 720p demand fits, but the 900p probe + reserve does not.
+            "projected bandwidth" to sender().copy(availableOutgoingBitrateBps = 5_000_000.0),
             "projected encoder work" to sender().let {
-                it.copy(recent = it.recent!!.copy(processingMs = 8.0))
+                it.copy(recent = it.recent!!.copy(processingMs = 11.0))
             },
             "missing implementation" to sender().copy(codecImplementation = null),
             "stale source geometry" to sender().copy(frameWidth = 540, frameHeight = 1200)
@@ -155,8 +159,8 @@ class NativeMotionRecoveryTest {
             recover(budget, outbound = outbound, windows = 20)
             assertEquals(reason, 720, budget.apply(profile, true).captureWidthPx)
         }
-        val smallCeiling = profile.copy(maxVideoBitrateBps = 4_000_000)
-        val budget = downgradedBudget(smallCeiling)
+        val smallCeiling = profile.copy(maxVideoBitrateBps = 3_000_000)
+        val budget = downgradedBudget()
         recover(budget, target = smallCeiling, windows = 20)
         assertEquals(720, budget.apply(smallCeiling, true).captureWidthPx)
     }
@@ -164,7 +168,7 @@ class NativeMotionRecoveryTest {
     @Test fun nativeRecoveryRequiresFreshPresentationAndProjectedDecoderHeadroom() {
         val cases = listOf(
             "missing receiver" to null,
-            "projected decoder work" to receiver().copy(processingMs = 8.0),
+            "projected decoder work" to receiver().copy(processingMs = 11.0),
             "held presentation" to receiver().copy(presentationSampleFresh = false),
             "missing presentation age" to receiver().copy(presentationSampleAgeMs = null),
             "stale presentation" to receiver().copy(presentationSampleAgeMs = 1001),
@@ -177,9 +181,12 @@ class NativeMotionRecoveryTest {
         }
     }
 
-    @Test fun nativeRecoveryCannotRunDuringTouchOrCadenceTrialOrWithoutSourceProof() {
+    @Test fun nativeRecoveryRequiresStricterTouchHeadroomAndPreservesCadenceVetoAndSourceProof() {
         val touch = downgradedBudget()
-        recover(touch, interactionActive = true, windows = 20)
+        // 8 ms projects to 12.5 ms at 900p: within the ordinary recovery
+        // budget (15 ms), outside the held-gesture budget (11.67 ms).
+        val modest = sender().let { it.copy(recent = it.recent!!.copy(processingMs = 8.0)) }
+        recover(touch, outbound = modest, interactionActive = true, windows = 20)
         assertEquals(720, touch.apply(profile, true).captureWidthPx)
         val trial = downgradedBudget()
         recover(trial, allowResolutionRecovery = false, windows = 20)
