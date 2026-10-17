@@ -1,10 +1,18 @@
 package com.aaris.remoteassist.capture
 
+import java.util.concurrent.locks.ReentrantLock
+
 /**
  * Counts fresh producer frames before RTP adaptation and emits a throttled
  * source-motion pulse. The pulse is deliberately timestamp-only: no pixel
  * readback, hashing, allocation, or CPU image conversion sits on the capture
  * thread.
+ *
+ * Producer motion state is owned exclusively by SurfaceTextureHelper's capture
+ * lane. Window telemetry is best-effort: the producer uses tryLock() and may
+ * skip one observation while the policy lane snapshots a window, but it never
+ * waits behind diagnostics. Live RTP has already been admitted before this
+ * tracker runs, so telemetry contention cannot become user-visible frame jitter.
  */
 internal data class CaptureCadenceWindow(
     val fps: Double,
@@ -13,10 +21,24 @@ internal data class CaptureCadenceWindow(
 )
 
 internal class CaptureActivityTracker {
+    /*
+     * Producer-owned state. onFrame() is called serially by the capturer lane;
+     * policy sampling never reads these fields directly.
+     */
     private var lastTimestampNs = Long.MIN_VALUE
+    private var motionStreak = 0
+    private var lastMotionPulseTimestampNs = Long.MIN_VALUE / 2
+
+    /*
+     * Cross-thread telemetry state. Policy sampling may briefly hold this lock.
+     * The capture lane only tryLocks it, making observability lossy under an
+     * exact collision rather than making media delivery blocking.
+     */
+    private val telemetryLock = ReentrantLock()
     private var sampledAtMs: Long? = null
     private var frames = 0
     private var maxInterFrameGapNs = 0L
+    private var windowEndsInMotion = false
 
     // Remember measured motion across a health-window boundary. Otherwise a
     // capture hitch that straddles sample() disappears from maxGapMs entirely.
@@ -25,14 +47,10 @@ internal class CaptureActivityTracker {
     private var previousWindowHadMotion = false
     private var pendingBoundaryGapNs = 0L
 
-    private var motionStreak = 0
-    private var lastMotionPulseTimestampNs = Long.MIN_VALUE / 2
-
     /**
      * @return true when several genuinely fresh frames prove that the source is
      * moving. forceFrame duplicates reuse the old timestamp and never qualify.
      */
-    @Synchronized
     fun onFrame(timestampNs: Long): Boolean {
         if (timestampNs <= 0 || timestampNs == lastTimestampNs) return false
 
@@ -45,49 +63,71 @@ internal class CaptureActivityTracker {
             }
 
         /*
-         * Across sample() boundaries we still have the previous natural
-         * timestamp, but not a same-window pair. A confirmed moving stream can
-         * hide a 140-350 ms capture stall exactly at this boundary. Carry its
-         * candidate into the new window, and promote it only if a second fresh
-         * frame follows promptly. Long static/idle intervals, nonmonotonic
-         * timestamps, lone resume frames, and synthetic duplicate timestamps
-         * must never masquerade as moving-producer jitter.
+         * Motion detection is producer-owned and therefore never waits for the
+         * policy thread. This is the freshness signal that keeps capture/render
+         * scheduling hot during scrolling, video and game animation.
          */
-        if (frames == 0) {
-            pendingBoundaryGapNs =
-                if (
-                    previousWindowHadMotion &&
-                    deltaNs in MIN_BOUNDARY_HITCH_NS..MAX_BOUNDARY_HITCH_NS
-                ) {
-                    deltaNs
-                } else {
-                    0L
-                }
-        } else {
-            if (deltaNs != Long.MAX_VALUE) {
-                maxInterFrameGapNs = maxOf(maxInterFrameGapNs, deltaNs)
-            }
-            if (
-                pendingBoundaryGapNs > 0L &&
-                deltaNs in 1L..MAX_MOTION_FRAME_INTERVAL_NS
-            ) {
-                maxInterFrameGapNs =
-                    maxOf(maxInterFrameGapNs, pendingBoundaryGapNs)
-            }
-            pendingBoundaryGapNs = 0L
-        }
-
         lastTimestampNs = timestampNs
-        frames = (frames + 1).coerceAtMost(2048)
-
         motionStreak =
             if (deltaNs in 1L..MAX_MOTION_FRAME_INTERVAL_NS) {
                 (motionStreak + 1).coerceAtMost(MOTION_STREAK_FRAMES)
             } else {
                 1
             }
+        val movingNow = motionStreak >= MOTION_STREAK_FRAMES
 
-        if (motionStreak < MOTION_STREAK_FRAMES) return false
+        /*
+         * Telemetry must never sit in front of the next capturer callback.
+         * Missing one accounting sample at the exact half-second snapshot
+         * boundary is preferable to delaying a live texture. The following
+         * natural frame still carries the real producer timestamp, so future
+         * motion/stall evidence remains conservative rather than fabricated.
+         */
+        if (telemetryLock.tryLock()) {
+            try {
+                /*
+                 * Across sample() boundaries we still have the previous natural
+                 * timestamp, but not a same-window pair. A confirmed moving
+                 * stream can hide a 140-350 ms capture stall exactly at this
+                 * boundary. Carry its candidate into the new window, and promote
+                 * it only if a second fresh frame follows promptly.
+                 */
+                if (frames == 0) {
+                    pendingBoundaryGapNs =
+                        if (
+                            previousWindowHadMotion &&
+                            deltaNs in MIN_BOUNDARY_HITCH_NS..MAX_BOUNDARY_HITCH_NS
+                        ) {
+                            deltaNs
+                        } else {
+                            0L
+                        }
+                } else {
+                    if (deltaNs != Long.MAX_VALUE) {
+                        maxInterFrameGapNs =
+                            maxOf(maxInterFrameGapNs, deltaNs)
+                    }
+                    if (
+                        pendingBoundaryGapNs > 0L &&
+                        deltaNs in 1L..MAX_MOTION_FRAME_INTERVAL_NS
+                    ) {
+                        maxInterFrameGapNs =
+                            maxOf(
+                                maxInterFrameGapNs,
+                                pendingBoundaryGapNs
+                            )
+                    }
+                    pendingBoundaryGapNs = 0L
+                }
+
+                frames = (frames + 1).coerceAtMost(2048)
+                windowEndsInMotion = movingNow
+            } finally {
+                telemetryLock.unlock()
+            }
+        }
+
+        if (!movingNow) return false
 
         if (
             lastMotionPulseTimestampNs > 0 &&
@@ -101,39 +141,43 @@ internal class CaptureActivityTracker {
         return true
     }
 
-    @Synchronized
     fun sample(nowMs: Long): CaptureCadenceWindow? {
-        val previous = sampledAtMs
-        val elapsed = previous?.let { nowMs - it }
-        if (elapsed != null && elapsed in 0L until 500L) return null
+        telemetryLock.lock()
+        try {
+            val previous = sampledAtMs
+            val elapsed = previous?.let { nowMs - it }
+            if (elapsed != null && elapsed in 0L until 500L) return null
 
-        val count = frames
-        val maxGapNs = maxInterFrameGapNs
-        previousWindowHadMotion =
-            elapsed != null &&
-                elapsed in 500L..6000L &&
-                count >= MOTION_STREAK_FRAMES &&
-                motionStreak >= MOTION_STREAK_FRAMES
-        frames = 0
-        maxInterFrameGapNs = 0L
-        pendingBoundaryGapNs = 0L
-        sampledAtMs = nowMs
+            val count = frames
+            val maxGapNs = maxInterFrameGapNs
+            previousWindowHadMotion =
+                elapsed != null &&
+                    elapsed in 500L..6000L &&
+                    count >= MOTION_STREAK_FRAMES &&
+                    windowEndsInMotion
+            frames = 0
+            maxInterFrameGapNs = 0L
+            pendingBoundaryGapNs = 0L
+            windowEndsInMotion = false
+            sampledAtMs = nowMs
 
-        return if (elapsed != null && elapsed in 500L..6000L) {
-            CaptureCadenceWindow(
-                fps = count * 1000.0 / elapsed,
-                maxGapMs =
-                    maxGapNs
-                        .takeIf { it > 0L }
-                        ?.div(1_000_000.0),
-                frames = count
-            )
-        } else {
-            null
+            return if (elapsed != null && elapsed in 500L..6000L) {
+                CaptureCadenceWindow(
+                    fps = count * 1000.0 / elapsed,
+                    maxGapMs =
+                        maxGapNs
+                            .takeIf { it > 0L }
+                            ?.div(1_000_000.0),
+                    frames = count
+                )
+            } else {
+                null
+            }
+        } finally {
+            telemetryLock.unlock()
         }
     }
 
-    @Synchronized
     fun sampleFps(nowMs: Long): Double? =
         sample(nowMs)?.fps
 
