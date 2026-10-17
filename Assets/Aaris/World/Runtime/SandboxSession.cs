@@ -142,12 +142,13 @@ namespace Aaris.World
         {
             if (MatchEnded) return;
             MatchEnded = true; PlayerWon = won;
-            if (input != null) input.Clear();
+            if (input != null) { input.Clear(); input.enabled = false; }
         }
         public void ResetSandbox()
         {
             if (pawn == null) return;
             MatchEnded = PlayerWon = false;
+            input.enabled = true;
             pawn.Teleport(playerStart); input.Clear(); weapon.ResetWeapon(); cameraRig.ResetView();
             PlayerHealth = 100; zoneClock = 0; nextZoneVisualUpdate = 0;
             if (settings.zone != null && settings.zone.enabled) CurrentZone = BattleZoneTimeline.At(settings.zone, 0);
