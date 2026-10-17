@@ -30,6 +30,10 @@ internal class MotionVideoBudget {
     private var pressureSamples = 0
     private var healthySamples = 0
     private var fastRecoverySamples = 0
+    private var recoveryInteractionActive = false
+    private var interactiveRecoveryTarget = 0
+    private var interactiveRecoveryAtMs = Long.MIN_VALUE / 2
+    private var interactiveRecoveryCeiling = Int.MAX_VALUE
     private var lastImplementation: String? = null
     private var lastBandwidthPressureAtMs = Long.MIN_VALUE / 2
 
@@ -103,6 +107,8 @@ internal class MotionVideoBudget {
             pressureSamples = 0
             healthySamples = 0
             fastRecoverySamples = 0
+            interactiveRecoveryTarget = 0
+            interactiveRecoveryCeiling = Int.MAX_VALUE
             resetResidenceGrowth()
             lastMeasuredSenderAtMs = Long.MIN_VALUE / 2
             lastImplementation = null
@@ -565,6 +571,15 @@ internal class MotionVideoBudget {
         minimumSpatialShortEdge: Int = CLARITY_FLOOR_SHORT_EDGE
     ): Boolean {
         onSenderEvidence(outbound)
+        // Ordinary clean votes must not become a touch-down resize, and held
+        // gesture proof must not carry into the ordinary conservative lane.
+        if (recoveryInteractionActive != interactionActive) {
+            healthySamples = 0
+            fastRecoverySamples = 0
+            recoveryInteractionActive = interactionActive
+            interactiveRecoveryTarget = 0
+            interactiveRecoveryCeiling = Int.MAX_VALUE
+        }
         val before = Triple(
             shortEdge,
             holdingResolution,
@@ -1197,6 +1212,7 @@ internal class MotionVideoBudget {
                 // armed so producer starvation and ordinary pressure share the
                 // same single-step readable spatial ladder.
                 val confirmed = nextPressureRung(severe)
+                onSpatialPressureCommit(confirmed, nowMs)
                 warmStartResizePending = false
                 if (confirmed != shortEdge) {
                     shortEdge = confirmed
@@ -1257,6 +1273,7 @@ internal class MotionVideoBudget {
                 val sourceCommitNeeded =
                     currentSourceShortEdge > next
                 if (next != shortEdge || sourceCommitNeeded) {
+                    onSpatialPressureCommit(next, nowMs)
                     shortEdge = next
                     committedSourceShortEdge = shortEdge
                     changedAtMs = nowMs
@@ -1290,6 +1307,7 @@ internal class MotionVideoBudget {
                     shortEdge < 540 -> 540
                     shortEdge < NATIVE_WARM_START_SHORT_EDGE ->
                         NATIVE_WARM_START_SHORT_EDGE
+                    shortEdge < HD_PLUS_SHORT_EDGE -> HD_PLUS_SHORT_EDGE
                     else -> profileRecoveryShortEdge
                 }.coerceAtMost(profileRecoveryShortEdge)
             val currentRecoveryShortEdge =
@@ -1303,9 +1321,9 @@ internal class MotionVideoBudget {
                     nextShortEdge = nextRecoveryRung,
                     targetFps = goal,
                     maxBitrateBps =
-                        if (recoveringNativeDetail) {
-                            // A capped prediction would hide native demand
-                            // that the profile's own bitrate ceiling cannot fit.
+                        if (recoveringNativeDetail || interactionActive) {
+                            // Native and interactive probes must not hide
+                            // demand above the profile's own bitrate ceiling.
                             Int.MAX_VALUE
                         } else {
                             profile?.maxVideoBitrateBps ?: Int.MAX_VALUE
@@ -1376,40 +1394,75 @@ internal class MotionVideoBudget {
             val recoveryPixelScale =
                 (nextRecoveryRung.toDouble() / currentRecoveryShortEdge)
                     .let { it * it }
+            val measuredRecoveryHeadroom =
+                profile != null &&
+                    !implementation.isNullOrBlank() &&
+                    !softwarePath &&
+                    projectedRecoveryDemandBps?.let {
+                        it <= profile.maxVideoBitrateBps
+                    } == true &&
+                    minOf(outbound.frameWidth, outbound.frameHeight) ==
+                        currentRecoveryShortEdge &&
+                    measuredSourceFps?.let {
+                        it >= goal * FAST_CLARITY_RECOVERY_DELIVERY_RATIO
+                    } == true &&
+                    encodeMs?.let {
+                        it * recoveryPixelScale < frameMs *
+                            FAST_CLARITY_RECOVERY_CODEC_BUDGET_RATIO
+                    } == true &&
+                    decodeMs?.let {
+                        it * recoveryPixelScale < frameMs *
+                            FAST_CLARITY_RECOVERY_CODEC_BUDGET_RATIO
+                    } == true &&
+                    received != null &&
+                    received.presentationSampleFresh &&
+                    received.presentationSampleAgeMs?.let {
+                        it in 0..received.intervalMs
+                    } == true &&
+                    received.presentationAgeMs?.let {
+                        it in 0..received.intervalMs
+                    } == true
             val nativeDetailHeadroom =
-                !recoveringNativeDetail ||
-                    (
-                        profile != null &&
-                            !implementation.isNullOrBlank() &&
-                            !softwarePath &&
-                            projectedRecoveryDemandBps?.let {
-                                it <= profile.maxVideoBitrateBps
-                            } == true &&
-                            minOf(outbound.frameWidth, outbound.frameHeight) ==
-                                currentRecoveryShortEdge &&
-                            measuredSourceFps?.let {
-                                it >= goal * FAST_CLARITY_RECOVERY_DELIVERY_RATIO
-                            } == true &&
-                            encodeMs?.let {
-                                it * recoveryPixelScale < frameMs *
-                                    FAST_CLARITY_RECOVERY_CODEC_BUDGET_RATIO
-                            } == true &&
-                            decodeMs?.let {
-                                it * recoveryPixelScale < frameMs *
-                                    FAST_CLARITY_RECOVERY_CODEC_BUDGET_RATIO
-                            } == true &&
-                            received != null &&
-                            received.presentationSampleFresh &&
-                            received.presentationSampleAgeMs?.let {
-                                it in 0..received.intervalMs
-                            } == true &&
-                            received.presentationAgeMs?.let {
-                                it in 0..received.intervalMs
-                            } == true
-                        )
+                !recoveringNativeDetail || measuredRecoveryHeadroom
+            /*
+             * A continuously held gesture must not permanently pin a recovered
+             * stream below native detail. Admit a one-rung capacity probe only
+             * with measured RTP demand, matching current source dimensions,
+             * hardware identity, fresh glass and projected codec cost. Apply
+             * the stricter codec margin to the NEXT geometry, not the current
+             * cheap frames. No zero-cost/missing telemetry exception exists.
+             *
+             * This predicts capacity, not a hitch-free MediaCodec resize. Keep
+             * the master/cadence veto, five-window proof, cooldown and pressure
+             * rollback; never authorize a touch-down speculative resize.
+             */
+            val interactiveRecoveryHeadroom =
+                measuredRecoveryHeadroom &&
+                    nextRecoveryRung <= interactiveRecoveryCeiling &&
+                    outbound.qualityLimitationReason.equals("none", ignoreCase = true) &&
+                    encodeMs?.let {
+                        it > 0.0 && it * recoveryPixelScale < frameMs *
+                            INTERACTIVE_RECOVERY_CODEC_BUDGET_RATIO
+                    } == true &&
+                    decodeMs?.let {
+                        it > 0.0 && it * recoveryPixelScale < frameMs *
+                            INTERACTIVE_RECOVERY_CODEC_BUDGET_RATIO
+                    } == true &&
+                    queueMs?.let { it < INTERACTIVE_RECOVERY_MAX_QUEUE_MS } == true &&
+                    jitterMs?.let { it < INTERACTIVE_RECOVERY_MAX_JITTER_MS } == true &&
+                    bandwidthEstimateBps?.let {
+                        it >= nextRecoveryBitrateBps *
+                            INTERACTIVE_RECOVERY_BWE_HEADROOM_RATIO
+                    } == true &&
+                    received?.presentationSampleAgeMs?.let {
+                        it in 0..INTERACTIVE_RECOVERY_MAX_GLASS_AGE_MS
+                    } == true &&
+                    received?.presentationAgeMs?.let {
+                        it in 0..INTERACTIVE_RECOVERY_MAX_GLASS_AGE_MS
+                    } == true
             val resolutionRecoveryAllowed =
                 allowResolutionRecovery &&
-                    !interactionActive &&
+                    (!interactionActive || interactiveRecoveryHeadroom) &&
                     !warmStartResizePending &&
                     nativeDetailHeadroom
             val fastRecoveryEvidence =
@@ -1449,7 +1502,7 @@ internal class MotionVideoBudget {
             // A cadence trial must measure one variable at a time. Pressure
             // relief stays enabled, but do not also enlarge trial frames.
             healthySamples =
-                if (healthy && resolutionRecoveryAllowed) {
+                if (healthy && resolutionRecoveryAllowed && !interactionActive) {
                     healthySamples + 1
                 } else {
                     0
@@ -1461,16 +1514,16 @@ internal class MotionVideoBudget {
                     0
                 }
 
-            val nativeRecovery =
-                nextRecoveryRung >= NATIVE_WARM_START_SHORT_EDGE
+            val sustainedRecoveryRequired =
+                nextRecoveryRung >= NATIVE_WARM_START_SHORT_EDGE || interactionActive
             val fastSamplesRequired =
-                if (nativeRecovery) {
+                if (sustainedRecoveryRequired) {
                     FAST_NATIVE_RECOVERY_SAMPLE_COUNT
                 } else {
                     FAST_CLARITY_RECOVERY_SAMPLE_COUNT
                 }
             val fastSettleMs =
-                if (nativeRecovery) {
+                if (sustainedRecoveryRequired) {
                     FAST_NATIVE_RECOVERY_SETTLE_MS
                 } else {
                     FAST_CLARITY_RECOVERY_SETTLE_MS
@@ -1488,6 +1541,8 @@ internal class MotionVideoBudget {
                     (!recoveringNativeDetail && conservativeRecoveryReady))
             ) {
                 shortEdge = nextRecoveryRung
+                interactiveRecoveryTarget = if (interactionActive) nextRecoveryRung else 0
+                interactiveRecoveryAtMs = nowMs
                 committedSourceShortEdge = shortEdge
                 changedAtMs = nowMs
                 healthySamples = 0
@@ -1520,6 +1575,20 @@ internal class MotionVideoBudget {
             captureWidthPx = even(profile.captureWidthPx),
             captureHeightPx = even(profile.captureHeightPx)
         )
+    }
+
+    private fun onSpatialPressureCommit(nextShortEdge: Int, nowMs: Long) {
+        if (interactiveRecoveryTarget > nextShortEdge) {
+            // A projected capacity model cannot predict every vendor resize
+            // cost. Pressure during the existing settle period marks a failed
+            // probe; do not repeat that target during the same interaction.
+            // A later independent network dip must still be able to recover.
+            if (nowMs - interactiveRecoveryAtMs in 0L..FAST_NATIVE_RECOVERY_SETTLE_MS) {
+                interactiveRecoveryCeiling =
+                    minOf(interactiveRecoveryCeiling, interactiveRecoveryTarget - 1)
+            }
+            interactiveRecoveryTarget = 0
+        }
     }
 
     fun cadenceFloor(
@@ -1911,6 +1980,12 @@ internal class MotionVideoBudget {
         const val MOTION_WARM_START_SHORT_EDGE = 360
         const val MID_WARM_START_SHORT_EDGE = 540
         const val NATIVE_WARM_START_SHORT_EDGE = 720
+        const val HD_PLUS_SHORT_EDGE = 900
+        const val INTERACTIVE_RECOVERY_CODEC_BUDGET_RATIO = 0.35
+        const val INTERACTIVE_RECOVERY_MAX_QUEUE_MS = 10.0
+        const val INTERACTIVE_RECOVERY_MAX_JITTER_MS = 18.0
+        const val INTERACTIVE_RECOVERY_BWE_HEADROOM_RATIO = 1.60
+        const val INTERACTIVE_RECOVERY_MAX_GLASS_AGE_MS = 1_000
         const val MAX_WARM_START_QUIET_FRAMES = 3
         const val WARM_START_MAX_ENCODE_MS = 8.0
         const val WARM_START_MAX_QUEUE_MS = 15.0

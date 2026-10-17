@@ -113,6 +113,43 @@ class PhotonFreshnessGovernorTest {
     }
 
     @Test
+    fun interactiveDetailNeedsFourCleanNewGlassWindowsAndKeepsOrdinaryLaneClosed() {
+        val g = PhotonFreshnessGovernor()
+        repeat(3) { index ->
+            val p = g.observe(outbound(), receiver(), 60, true, 1000L + index * 500L)
+            assertFalse(p.allowInteractiveResolutionRecovery)
+        }
+        val admitted = g.observe(outbound(), receiver(), 60, true, 2500L)
+        assertTrue(admitted.allowInteractiveResolutionRecovery)
+        assertFalse(admitted.allowResolutionRecovery)
+
+        val held = g.observe(outbound(), receiver(sampleFresh = false), 60, true, 3000L)
+        assertFalse(held.allowInteractiveResolutionRecovery)
+        assertEquals(4, held.cleanGlassWindows)
+
+        g.reset()
+        assertFalse(g.current().allowInteractiveResolutionRecovery)
+        val fresh = g.observe(outbound(), receiver(), 60, true, 3500L)
+        assertFalse(fresh.allowInteractiveResolutionRecovery)
+        assertEquals(1, fresh.cleanGlassWindows)
+    }
+
+    @Test
+    fun repairOrMediaPressureVetoesInteractiveDetailDespiteEarlierCleanProof() {
+        for (bad in listOf(outbound(nacks = 3), outbound(plis = 1), outbound(queueMs = 60.0))) {
+            val g = PhotonFreshnessGovernor()
+            repeat(4) { index ->
+                g.observe(outbound(), receiver(), 60, true, 1000L + index * 500L)
+            }
+            assertTrue(g.current().allowInteractiveResolutionRecovery)
+            val p = g.observe(bad, receiver(), 60, true, 3000L)
+            assertFalse(p.allowInteractiveResolutionRecovery)
+            assertFalse(p.allowResolutionRecovery)
+            assertEquals(0, p.cleanGlassWindows)
+        }
+    }
+
+    @Test
     fun slowCommandAckWithFastPostAckGlassDoesNotPunishVideo() {
         val g = PhotonFreshnessGovernor()
         val r = receiver(postAckMs = 20, ackMs = 320)

@@ -1408,13 +1408,14 @@ class HostWebRtcSession(
                         targetFps = motionTargetFps,
                         nowMs = now,
                         interactionActive = interactionActive,
-                        // Upscaling changes the encoder input dimensions. Do not pay
-                        // that MediaCodec reconfiguration in the middle of a controller
-                        // gesture; active control values fresh motion over extra detail.
+                        // The master freshness gate and cadence-trial veto remain
+                        // authoritative. During a held gesture the spatial owner
+                        // additionally requires measured projected headroom; a
+                        // clean link alone cannot authorize a codec size change.
                         allowResolutionRecovery =
                             !cadenceGovernor.probingHighCadence &&
-                            !interactionActive &&
-                            photonPolicy.allowResolutionRecovery,
+                                (photonPolicy.allowResolutionRecovery ||
+                                    photonPolicy.allowInteractiveResolutionRecovery),
                         sourceMaxGapMs = sourceMaxGapMs,
                         sourceMotionActive = sourceMotionActive,
                         interactionCaptureStarved =

@@ -603,7 +603,10 @@ class GamingSmoothnessLabTest {
                         targetFps = target,
                         nowMs = nowMs,
                         interactionActive = true,
-                        allowResolutionRecovery = false,
+                        allowResolutionRecovery =
+                            !cadence.probingHighCadence &&
+                                (photonPolicy.allowResolutionRecovery ||
+                                    photonPolicy.allowInteractiveResolutionRecovery),
                         profile = profile,
                         allowSpatialRelief =
                             preferSpatialReliefBeforeCadence ||

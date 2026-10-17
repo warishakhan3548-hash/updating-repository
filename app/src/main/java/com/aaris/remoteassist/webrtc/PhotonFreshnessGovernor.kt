@@ -18,7 +18,10 @@ internal data class PhotonPolicy(
     val inputToGlassUpperBoundMs: Int?,
     val commandAckMs: Int?,
     val postAckPresentMs: Int?,
-    val cleanGlassWindows: Int
+    val cleanGlassWindows: Int,
+    // Admission only: MotionVideoBudget must still prove projected pixel,
+    // codec and bandwidth headroom before resizing during a held gesture.
+    val allowInteractiveResolutionRecovery: Boolean = false
 ) {
     fun compact(): String {
         fun ratio(value: Double?): String =
@@ -42,7 +45,8 @@ internal data class PhotonPolicy(
             "ack=${ms(commandAckMs)} " +
             "postAck=${ms(postAckPresentMs)} " +
             "clean=$cleanGlassWindows " +
-            "promote=$allowCadencePromotion detail=$allowResolutionRecovery"
+            "promote=$allowCadencePromotion detail=$allowResolutionRecovery " +
+            "interactiveDetail=$allowInteractiveResolutionRecovery"
     }
 }
 
@@ -295,10 +299,13 @@ internal class PhotonFreshnessGovernor {
         val allowCadencePromotion =
             state == PhotonFreshnessState.CLEAN &&
                 cleanGlassWindows >= CLEAN_WINDOWS_FOR_CADENCE
-        val allowResolutionRecovery =
+        val detailRecoveryProven =
             state == PhotonFreshnessState.CLEAN &&
-                cleanGlassWindows >= CLEAN_WINDOWS_FOR_DETAIL &&
-                !interactionActive
+                cleanGlassWindows >= CLEAN_WINDOWS_FOR_DETAIL
+        val allowResolutionRecovery =
+            detailRecoveryProven && !interactionActive
+        val allowInteractiveResolutionRecovery =
+            detailRecoveryProven && interactionActive && actualNewGlassWindow
 
         return PhotonPolicy(
             state = state,
@@ -309,7 +316,8 @@ internal class PhotonFreshnessGovernor {
             inputToGlassUpperBoundMs = inputUpper,
             commandAckMs = commandAck,
             postAckPresentMs = postAckPresent,
-            cleanGlassWindows = cleanGlassWindows
+            cleanGlassWindows = cleanGlassWindows,
+            allowInteractiveResolutionRecovery = allowInteractiveResolutionRecovery
         ).also { lastPolicy = it }
     }
 
@@ -323,6 +331,7 @@ internal class PhotonFreshnessGovernor {
                 state = PhotonFreshnessState.UNKNOWN,
                 allowCadencePromotion = false,
                 allowResolutionRecovery = false,
+                allowInteractiveResolutionRecovery = false,
                 cleanGlassWindows = 0
             )
     }
