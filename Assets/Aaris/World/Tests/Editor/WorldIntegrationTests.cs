@@ -71,6 +71,35 @@ namespace Aaris.World.Tests
         }
 
         [Test]
+        public void ProceduralTreesKeepStaticTrunksAndSeparateCanopyWindPivots()
+        {
+            WorldEditor.Compile();
+            var treeAssets = WorldEditor.ReadRegistry().assets
+                .Where(a => a.archetype == "oak" || a.archetype == "pine")
+                .Select(a => a.id).ToArray();
+            var trees = Object.FindObjectsByType<WorldObjectIdentity>(FindObjectsSortMode.None)
+                .Where(o => treeAssets.Contains(o.assetId)).Take(2).ToArray();
+            Assert.That(trees.Length, Is.EqualTo(2));
+
+            foreach (var tree in trees)
+            {
+                var wind = tree.GetComponent<FoliageWind>();
+                Assert.That(wind, Is.Not.Null);
+                Assert.That(wind.canopyPivots, Has.Length.EqualTo(3));
+                Assert.That(tree.GetComponent<MeshCollider>(), Is.Not.Null);
+                Assert.That(tree.GetComponent<LODGroup>().GetLODs(), Has.Length.EqualTo(3));
+                foreach (var pivot in wind.canopyPivots)
+                {
+                    Assert.That(pivot, Is.Not.Null);
+                    Assert.That(pivot.localPosition.y, Is.GreaterThan(0));
+                    Assert.That(pivot.childCount, Is.GreaterThan(0));
+                    foreach (Transform foliage in pivot)
+                        Assert.That(foliage.localPosition, Is.EqualTo(-pivot.localPosition));
+                }
+            }
+        }
+
+        [Test]
         public void BiomeShaderImportsWithoutCompilerErrors()
         {
             var shader = Shader.Find("Aaris/Biome Terrain");
