@@ -15,6 +15,8 @@ namespace Aaris.World
         public Damageable[] targets = System.Array.Empty<Damageable>();
         public Rigidbody[] props = System.Array.Empty<Rigidbody>();
         public LocalLootPickup[] loot = System.Array.Empty<LocalLootPickup>();
+        public LocalBotDirector botDirector;
+        public LocalMatchOutcome Outcome { get; private set; } = LocalMatchOutcome.Running;
         public Vector3 playerStart;
         public Vector3[] propStarts;
         public Quaternion[] propRotations;
@@ -36,7 +38,8 @@ namespace Aaris.World
         {
             if (owner != null && owner != this) { Debug.LogError("Only one sandbox session can own global physics settings."); enabled = false; return; }
             owner = this; ownsGlobals = true;
-            PlayerHealth = 100; zoneClock = 0; nextZoneVisualUpdate = 0; lootClock = 0;
+            PlayerHealth = 100; Outcome = LocalMatchOutcome.Running;
+            zoneClock = 0; nextZoneVisualUpdate = 0; lootClock = 0;
             if (settings.zone != null && settings.zone.enabled) CurrentZone = BattleZoneTimeline.At(settings.zone, 0);
             oldGravity = Physics.gravity; oldStep = Time.fixedDeltaTime; oldMaxTime = Time.maximumDeltaTime;
             oldMode = Physics.simulationMode; oldSync = Physics.autoSyncTransforms; oldReuse = Physics.reuseCollisionCallbacks;
@@ -61,7 +64,7 @@ namespace Aaris.World
         }
         private void FixedUpdate()
         {
-            if (pawn == null) return;
+            if (pawn == null || Outcome != LocalMatchOutcome.Running) return;
             CollectNearbyLoot();
             if (settings.zone == null || !settings.zone.enabled) return;
             zoneClock += Time.fixedDeltaTime;
@@ -70,7 +73,11 @@ namespace Aaris.World
             if (CurrentZone.Outside(feet.x, feet.z, settings.movement.radius))
             {
                 PlayerHealth = System.Math.Max(0, PlayerHealth - settings.zone.damagePerSecond * Time.fixedDeltaTime);
-                if (PlayerHealth <= 0) ResetSandbox(); // Local practice restart, not network elimination.
+                if (PlayerHealth <= 0)
+                {
+                    if (botDirector != null && settings.bots != null && settings.bots.enabled) EndMatch(false);
+                    else ResetSandbox(); // Preserve original local-practice behaviour.
+                }
             }
         }
         // One bounded scan every 0.2s. World-only line of sight prevents items
@@ -124,13 +131,34 @@ namespace Aaris.World
         }
         private bool InvalidPosition(Vector3 p) => !WorldValidator.Finite(p.x) || !WorldValidator.Finite(p.y) || !WorldValidator.Finite(p.z) || p.y < -50 || p.x < worldMin.x - 10 || p.z < worldMin.y - 10 || p.x > worldMax.x + 10 || p.z > worldMax.y + 10;
         private void ResetProp(int i) { props[i].position = propStarts[i]; props[i].rotation = propRotations[i]; props[i].linearVelocity = props[i].angularVelocity = Vector3.zero; props[i].WakeUp(); }
+        public void DamagePlayer(double amount)
+        {
+            if (Outcome != LocalMatchOutcome.Running || !WorldValidator.Finite(amount) || amount <= 0) return;
+            PlayerHealth = System.Math.Max(0, PlayerHealth - amount);
+            if (PlayerHealth <= 0)
+            {
+                if (botDirector != null && settings.bots != null && settings.bots.enabled) EndMatch(false);
+                else ResetSandbox();
+            }
+        }
+        public void EndMatch(bool winner)
+        {
+            if (Outcome != LocalMatchOutcome.Running) return;
+            Outcome = winner ? LocalMatchOutcome.Won : LocalMatchOutcome.Lost;
+            if (pawn != null) pawn.enabled = false;
+            if (weapon != null) weapon.enabled = false;
+            if (input != null) input.Clear();
+        }
         public void ResetSandbox()
         {
             if (pawn == null) return;
             pawn.Teleport(playerStart); input.Clear(); weapon.ResetWeapon(); cameraRig.ResetView();
-            PlayerHealth = 100; zoneClock = 0; nextZoneVisualUpdate = 0;
+            PlayerHealth = 100; Outcome = LocalMatchOutcome.Running;
+            pawn.enabled = true; weapon.enabled = true;
+            zoneClock = 0; nextZoneVisualUpdate = 0;
             if (settings.zone != null && settings.zone.enabled) CurrentZone = BattleZoneTimeline.At(settings.zone, 0);
             foreach (var target in targets) target.ResetHealth();
+            if (botDirector != null) botDirector.ResetMatch();
             foreach (var item in loot) if (item != null) item.gameObject.SetActive(true);
             for (int i = 0; i < props.Length; i++) ResetProp(i);
             Physics.SyncTransforms(); // Explicit reset only; ordinary movement stays in the solver.

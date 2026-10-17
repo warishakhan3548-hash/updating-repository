@@ -111,6 +111,45 @@ namespace Aaris.World.Editor
                 }
             }
             session.loot = pickups.ToArray();
+            if (spec.bots != null && spec.bots.enabled)
+            {
+                // One shared mesh/material set; 50-100 kinematic character controllers,
+                // not 50-100 continuously simulated dynamic rigidbodies.
+                var botArt = Material("BattleBotsCloth", new Color(0.35f, 0.38f, 0.42f));
+                var botHeadArt = Material("BattleBotsHelmet", new Color(0.16f, 0.24f, 0.29f));
+                var botRoot = new GameObject("Local battle bots - generated");
+                botRoot.transform.SetParent(rootObject.transform, false);
+                var director = botRoot.AddComponent<LocalBotDirector>();
+                director.session = session; director.settings = spec.bots;
+                var bots = new List<LocalBotAgent>();
+                foreach (var spawn in BotSpawnPlanner.Generate(world, registry, spec))
+                {
+                    var actor = new GameObject(spawn.id);
+                    actor.transform.SetParent(botRoot.transform, false);
+                    actor.transform.position = Feet(new SpawnSpec { x = spawn.x, z = spawn.z });
+                    actor.transform.rotation = Quaternion.Euler(0, (float)spawn.yaw, 0);
+                    var mover = actor.AddComponent<CharacterController>();
+                    mover.radius = 0.35f; mover.height = 1.8f; mover.center = Vector3.up * 0.9f;
+                    mover.stepOffset = 0.22f; mover.slopeLimit = 46f; mover.skinWidth = 0.04f;
+                    var health = actor.AddComponent<Damageable>();
+                    health.maxHealth = (float)spec.bots.health;
+                    var torso = Part(actor.transform, PrimitiveType.Capsule, new Vector3(0, 0.84f, 0),
+                        new Vector3(0.61f, 0.73f, 0.61f), botArt, true);
+                    var head = Part(actor.transform, PrimitiveType.Sphere, new Vector3(0, 1.55f, 0),
+                        Vector3.one * 0.40f, botHeadArt, true);
+                    var rootRegion = actor.AddComponent<HitRegion>(); rootRegion.receiver = health;
+                    var bodyRegion = torso.AddComponent<HitRegion>(); bodyRegion.receiver = health;
+                    var headRegion = head.AddComponent<HitRegion>(); headRegion.receiver = health; headRegion.head = true;
+                    SandboxLayers.SetRecursively(actor, SandboxLayers.Target);
+                    var ai = actor.AddComponent<LocalBotAgent>();
+                    ai.damageable = health; ai.mover = mover; ai.director = director;
+                    ai.spawn = actor.transform.position; ai.index = bots.Count;
+                    health.ResetHealth();
+                    bots.Add(ai);
+                }
+                director.agents = bots.ToArray();
+                session.botDirector = director;
+            }
             session.pawn = pawn; session.weapon = weapon; session.cameraRig = rig; session.targets = targets.ToArray(); session.props = props.ToArray();
             session.playerStart = player.transform.position; session.propStarts = props.Select(p => p.position).ToArray(); session.propRotations = props.Select(p => p.rotation).ToArray();
             session.worldMin = new Vector2((float)world.grid.originX, (float)world.grid.originZ);
@@ -133,7 +172,7 @@ namespace Aaris.World.Editor
             rootObject.AddComponent<SandboxHud>().session = session;
             AssetDatabase.SaveAssets();
             if (!EditorSceneManager.SaveScene(scene, ScenePath)) throw new IOException("Unable to save physics sandbox scene.");
-            Debug.Log("Physics sandbox authored: native Rigidbody capsule, touch combat, bounded props and district practice loot. No APK compiled; run Unity physics tests and Play Mode before acceptance.");
+            Debug.Log("Physics sandbox authored: local bot battle match, native Rigidbody player, bounded props and district loot. No APK compiled; Unity compile, EditMode and Android device performance remain unverified.");
         }
 
         private static GameObject Part(Transform parent, PrimitiveType primitive, Vector3 position, Vector3 scale, Material material, bool collision)

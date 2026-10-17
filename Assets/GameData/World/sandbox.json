@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "revision": 3,
+  "revision": 4,
   "fixedHz": 50,
   "maxCatchUpSteps": 4,
   "gravity": 9.81,
@@ -130,6 +130,18 @@
     "healing": 30,
     "minSpacing": 18,
     "pickupRadius": 1.4
+  },
+  "bots": {
+    "enabled": true,
+    "count": 50,
+    "seed": 701,
+    "health": 100,
+    "speed": 3.6,
+    "detectionRange": 90,
+    "attackRange": 48,
+    "damage": 8,
+    "secondsPerShot": 0.95,
+    "decisionsPerStep": 4
   },
   "zone": {
     "enabled": true,

@@ -50,6 +50,11 @@ namespace Aaris.World
                 {
                     LastHeadshot = region.head;
                     LastHit = region.receiver.Apply((float)(settings.damage * (region.head ? settings.headMultiplier : 1)));
+                    if (LastHit && region.receiver.Dead)
+                    {
+                        var bot = region.receiver.GetComponent<LocalBotAgent>();
+                        if (bot != null && bot.director != null) bot.director.CreditPlayerElimination(bot);
+                    }
                 }
                 var body = result.contact.rigidbody;
                 if (body != null && !body.isKinematic)
