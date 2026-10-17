@@ -19,6 +19,8 @@ namespace Aaris.World
         private static readonly Color CurrentZoneColor = new Color(0.35f, 0.94f, 0.92f);
         private static readonly Color FinalZoneColor = new Color(0.96f, 0.97f, 0.88f, 0.85f);
         private static readonly Color GuidanceColor = new Color(1f, 0.72f, 0.25f);
+        private static readonly Color AmmoColor = new Color(1f, 0.76f, 0.25f);
+        private static readonly Color MedkitColor = new Color(0.32f, 1f, 0.55f);
 
         public void EnsureWorld(WorldSpec world)
         {
@@ -86,7 +88,8 @@ namespace Aaris.World
             scaleLabel = new GUIContent(metres.ToString("0") + " m");
         }
 
-        public void Draw(Rect panel, Vector3 position, float yaw, BattleZoneSnapshot zone, BattleZoneSpec settings, float capsuleRadius)
+        public void Draw(Rect panel, Vector3 position, float yaw, BattleZoneSnapshot zone, BattleZoneSpec settings, float capsuleRadius,
+            LootSpawn[] supplies, Transform[] supplyVisuals)
         {
             if (texture == null || source == null || panel.width < 24 || panel.height < 24) return;
             if (label == null)
@@ -131,6 +134,20 @@ namespace Aaris.World
                             Mathf.Clamp(point.y + 3, 13, Mathf.Max(13, local.height - 25)), width, 13);
                         Fill(caption, new Color(0.025f, 0.045f, 0.04f, 0.78f));
                         GUI.Label(caption, landmarkLabels[i], label);
+                    }
+                }
+                // Cheap live pickup overlay; consumed objects disappear without rebaking the cached terrain texture.
+                if (supplies != null && supplyVisuals != null)
+                {
+                    int count = Math.Min(supplies.Length, supplyVisuals.Length);
+                    for (int i = 0; i < count; i++)
+                    {
+                        if (supplyVisuals[i] == null || !supplyVisuals[i].gameObject.activeSelf) continue;
+                        var projected = projection.Project(supplies[i].x, supplies[i].z);
+                        if (projected.clipped) continue;
+                        Vector2 point = MapPoint(local, projected);
+                        Color tint = supplies[i].kind == LootKind.Medkit ? MedkitColor : AmmoColor;
+                        Fill(new Rect(point.x - 1.7f, point.y - 1.7f, 3.4f, 3.4f), tint);
                     }
                 }
                 DrawPlayer(local, position, yaw);

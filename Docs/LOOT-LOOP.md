@@ -23,3 +23,7 @@ dotnet run --project Tools/WorldTool -- validate-sandbox
 Native Unity 6000.3.26f1 import, Editor/PlayMode physics and GPU frame timing **must still be tested** before calling this game feature accepted. On a target Android phone confirm pickup radii near ramps/walls/roofs, LOS around crates and geometry, reset/resupply repeatability, health recovery only after damage and touch controls. This draft has no Android build trigger, no multiplayer network or final AAA textures.
 
 Research: official PUBG gameplay overview (landing, looting, rotations and shrinking zone), Garena Free Fire Gloo Maker notes (combat resource loops), Unity URP mobile profiling docs and Unity Addressables samples are design references only; none is copied into this repo.
+
+## Tactical display extension
+
+Remaining medkit/ammo pickup positions are shown as small green/gold markers on the **already cached** north-up minimap. Consumed pickups disappear without recomputing terrain/roads/POI textures. HUD now shows collected/total supplies in the existing safe-area information panel. Native integration tests additionally assert that generated pickups are visual-only and that the compiled landmark supply count is correct. These editor tests have been authored but have not yet been executed in a licensed Unity runtime.

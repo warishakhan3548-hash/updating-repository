@@ -40,7 +40,8 @@ namespace Aaris.World
             int heading = Mathf.RoundToInt((float)TacticalNavigation.NormalizeHeading(session.cameraRig.Yaw)) % 360;
             navigation = Headings[((heading + 22) / 45) % 8] + " " + heading.ToString("000") + "   " +
                 (!session.cameraRig.ClearView ? "VIEW BLOCKED" : session.weapon.BarrelBlocked ? "BARREL BLOCKED" :
-                session.pawn.Grounded ? "GROUNDED" : "AIRBORNE");
+                session.pawn.Grounded ? "GROUNDED" : "AIRBORNE") + "   LOOT " +
+                session.PickupsCollected + "/" + session.lootSpawns.Length;
             health = "HP " + Mathf.CeilToInt((float)session.PlayerHealth);
             outsideZone = false;
             if (session.settings.zone != null && session.settings.zone.enabled)
@@ -90,7 +91,8 @@ namespace Aaris.World
                 if (Event.current.type != EventType.Repaint) return;
                 Vector3 p = session.pawn.Body.position;
                 minimap.Draw(map, p, session.cameraRig.Yaw, session.CurrentZone,
-                    session.settings.zone, (float)session.settings.movement.radius);
+                    session.settings.zone, (float)session.settings.movement.radius,
+                    session.lootSpawns, session.lootVisuals);
                 for (int i = 0; i < Buttons.Length; i++)
                 {
                     ControlRect r = ControlLayout.Rect(Buttons[i]);
