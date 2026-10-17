@@ -81,6 +81,28 @@ namespace Aaris.World.Tests
         }
 
         [Test]
+        public void CollinearArmTargetAndPoleStillProduceAValidElbowBend()
+        {
+            // The old fallback crossed two parallel directions, yielding a zero
+            // elbow offset and a visibly collapsed arm at this exact pose.
+            var solve = typeof(CharacterPresentation).GetMethod("SolveLimb",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+            Assert.That(solve, Is.Not.Null);
+            Transform upper = character.leftArm, lower = character.leftForearm;
+            Vector3 shoulder = upper.position, along = upper.parent.right;
+            Vector3 target = shoulder + along * Height * 0.16f;
+            Vector3 collinearPole = shoulder + along * Height * 0.5f;
+            solve.Invoke(null, new object[] { upper, lower, target, collinearPole, Height * 0.17f, Height * 0.16f });
+            Vector3 elbowOffset = Vector3.ProjectOnPlane(lower.position - shoulder, along);
+            Assert.That(elbowOffset.magnitude, Is.GreaterThan(Height * 0.05f),
+                "The IK pole must not collapse an otherwise reachable elbow onto the target axis.");
+            Assert.That(Vector3.Distance(lower.TransformPoint(Vector3.down * Height * 0.16f), target),
+                Is.LessThan(0.002f), "The lower arm must still reach its target.");
+            Assert.That(WorldValidator.Finite(upper.rotation.x, upper.rotation.y, upper.rotation.z, upper.rotation.w), Is.True);
+            Assert.That(WorldValidator.Finite(lower.rotation.x, lower.rotation.y, lower.rotation.z, lower.rotation.w), Is.True);
+        }
+
+        [Test]
         public void VelocityDrivesBoundedFootStrideAndInvalidPoseInputIsRejected()
         {
             Vector3 rest = character.leftFoot.position;
