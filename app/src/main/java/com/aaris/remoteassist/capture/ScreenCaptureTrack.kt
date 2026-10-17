@@ -226,9 +226,12 @@ class ScreenCaptureTrack(
 
     fun update(profile: CaptureProfile) {
         if (closed.get() || !started) return
-        adaptOutput(profile)
 
-        val source = sourceGeometry ?: return
+        val source = sourceGeometry
+        if (source == null) {
+            adaptOutput(profile)
+            return
+        }
 
         /*
          * ScreenCapturerAndroid ignores the FPS argument. On Android 12+ its
@@ -236,19 +239,49 @@ class ScreenCaptureTrack(
          * before Android 12 it recreates the display, which is where vendor
          * mirroring-scale regressions have historically appeared.
          *
-         * Let the producer follow our already-hysteresis-gated spatial budget
-         * only on the safe resize path. This moves pixel relief in front of
-         * SurfaceTexture/GPU production instead of scaling an expensive native
-         * frame only after it has already been captured.
+         * Treat producer + VideoSource geometry as one ordered transaction:
+         *
+         *  - upshift / equal-area reshape: make the producer supply the new
+         *    pixels first, then let VideoSource demand the larger/new geometry;
+         *  - spatial relief: cap VideoSource first, then shrink the producer so
+         *    expensive pixels stop entering the pipeline without a transient
+         *    larger downstream request.
+         *
+         * StableCaptureGeometry is committed only after the vendor
+         * changeCaptureFormat() call succeeds. A failed resize therefore stays
+         * retryable on the next policy pass instead of poisoning our source
+         * state with geometry the VirtualDisplay never accepted.
          */
         val allowAdaptiveProducerResize =
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-        if (source.update(profile, allowAdaptiveProducerResize)) {
+        val resize =
+            source.planUpdate(
+                profile = profile,
+                allowAdaptiveResize = allowAdaptiveProducerResize
+            )
+
+        if (!resize.changed) {
+            source.commit(resize)
+            adaptOutput(profile)
+            return
+        }
+
+        if (resize.producerBeforeOutput) {
             capturer.changeCaptureFormat(
-                source.width,
-                source.height,
+                resize.width,
+                resize.height,
                 profile.fps
             )
+            source.commit(resize)
+            adaptOutput(profile)
+        } else {
+            adaptOutput(profile)
+            capturer.changeCaptureFormat(
+                resize.width,
+                resize.height,
+                profile.fps
+            )
+            source.commit(resize)
         }
     }
 
