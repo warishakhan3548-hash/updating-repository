@@ -42,6 +42,15 @@ namespace Aaris.World
         public bool Reloading { get; private set; }
         public WeaponState(WeaponSpec spec) { this.spec = spec; Reset(); }
         public void Reset() { Ammo = spec.magazine; Reserve = spec.reserve; nextShot = 0; Reloading = false; reloadEnd = double.PositiveInfinity; lastTime = double.NegativeInfinity; }
+        // Grants local practice reserve only; avoids overflow and preserves the
+        // validated <=1000 ammunition budget even during repeated pickups.
+        public bool TryAddReserve(int amount)
+        {
+            if (amount <= 0 || amount > 200) throw new ArgumentOutOfRangeException(nameof(amount));
+            if (Reserve >= 1000) return false;
+            Reserve = Math.Min(1000, Reserve + amount);
+            return true;
+        }
         public bool Tick(double now, bool fire, bool reload)
         {
             if (!WorldValidator.Finite(now) || now < lastTime) throw new ArgumentException("Weapon clock must be finite and monotonic.");
