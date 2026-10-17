@@ -13,6 +13,16 @@ Reviewed 17 October 2026. These sources inform design; the numbers below are **A
 | [Guerrilla: GPU-Based Procedural Placement in Horizon Zero Dawn](https://www.guerrilla-games.com/read/gpu-based-procedural-placement-in-horizon-zero-dawn) | Artist-authored placement rules drive environment generation. | Bounded authoring recipes combine biome, water, slope, road and corridor masks. Our generator is offline C#, not Guerrilla’s GPU runtime system. |
 | [LIRIS: Procedural Generation of Roads (2010)](https://perso.liris.cnrs.fr/egalin/Articles/2010-roads.pdf) and [Mango technology transfer](https://perso.liris.cnrs.fr/apeytavi/website/project/mango/) | Terrain-weighted graph paths; related road/village research reached Ubisoft’s production engine. | Bounded A* proposals penalize elevation change and avoid water/obstacles; exact endpoints and rechecked shortcuts. Our simpler solver does not implement their curvature masks, cut/fill, tunnels or bridges. |
 
+## Revision 4 implementation references
+
+- [Unity 6.3 Android optimized frame pacing property](https://docs.unity.com/en-us/engine/6000.3/script-reference/unityeditor/playersettings/android/optimizedframepacing): use built-in frame pacing configuration rather than a custom timing loop.
+- [Google Android Unity/ADPF best practices](https://developer.android.com/games/engines/unity/unity-adpf): device-specific quality and thermal adaptation are follow-on profiling work, not proven by static code.
+- [Unity Technologies multiplayer reference](https://github.com/Unity-Technologies/U6-First-Person-Multiplayer): illustrates server-authoritative locomotion and networking; its 4-player co-op reference is not a ready-made 100-player battle royale engine.
+- [Garena official maps](https://ff.garena.com/en/maps/): referenced for varied mobile battle environments, not copied assets, layouts or proprietary algorithms.
+- [PUBG MOBILE Classic Mode description](https://play.google.com/store/apps/details?id=com.tencent.ig): last-survivor gameplay and large-match scope are future design targets, not capabilities already delivered by Aaris.
+
+All implementation code and visual geometry here remain original. External samples were consulted for concepts, not pasted into the game.
+
 ## Aaris targets
 
 - Six districts with 6–14 buildings each now; global cap 72 and anchor cap 9 buildings per 128 m cell.
