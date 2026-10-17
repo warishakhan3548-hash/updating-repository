@@ -55,6 +55,7 @@ namespace Aaris.World.Editor
             var cameraObject = new GameObject("Third Person Camera"); cameraObject.tag = "MainCamera";
             var camera = cameraObject.AddComponent<Camera>(); camera.nearClipPlane = 0.03f; camera.farClipPlane = 1400; camera.fieldOfView = 65;
             cameraObject.transform.SetPositionAndRotation(player.transform.position + Quaternion.Euler(12, (float)spec.player.yaw, 0) * new Vector3(0.6f, 1.5f, -3.7f), Quaternion.Euler(12, (float)spec.player.yaw, 0));
+            cameraObject.AddComponent<MobileQualityGovernor>();
             var rig = cameraObject.AddComponent<ThirdPersonRig>(); rig.target = player.transform; rig.input = input; rig.initialYaw = (float)spec.player.yaw; rig.pivotHeight = height * 0.83f; rig.ResetView(); pawn.cameraRig = rig;
             var weapon = player.AddComponent<PhysicsWeapon>(); weapon.settings = spec.weapon; weapon.input = input; weapon.cameraRig = rig; weapon.muzzle = muzzle; weapon.barrelHeight = barrelHeight; weapon.ResetWeapon();
             var trace = new GameObject("Shot tracer").AddComponent<LineRenderer>(); trace.transform.SetParent(player.transform, false);
