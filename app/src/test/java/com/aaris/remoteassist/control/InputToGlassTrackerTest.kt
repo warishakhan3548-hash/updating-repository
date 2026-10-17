@@ -57,6 +57,27 @@ class InputToGlassTrackerTest {
     }
 
     @Test
+    fun rollingHistoryIsRecordedAfterLeavingTheRenderFastPath() {
+        val tracker = InputToGlassTracker()
+        tracker.applied(
+            AppliedCommandAck(
+                sequence = 1,
+                sentAtMs = 1_000,
+                acknowledgedAtMs = 1_040
+            )
+        )
+
+        val sample = checkNotNull(tracker.onPresented(1_060))
+
+        // onPresented() models the EGL render lane and must not take the
+        // rolling-history monitor. History is committed by the session lane.
+        assertTrue(tracker.summary().contains("waiting"))
+        tracker.record(sample)
+        assertTrue(tracker.summary().contains("n=1"))
+        assertTrue(tracker.summary().contains("postAck p95=20ms"))
+    }
+
+    @Test
     fun summaryUsesBoundedRollingPhotonSamples() {
         val tracker = InputToGlassTracker()
         for (i in 1L..80L) {
@@ -68,7 +89,9 @@ class InputToGlassTrackerTest {
                     acknowledgedAtMs = sent + 40
                 )
             )
-            checkNotNull(tracker.onPresented(sent + 60))
+            tracker.record(
+                checkNotNull(tracker.onPresented(sent + 60))
+            )
         }
         val summary = tracker.summary()
         assertTrue(summary.contains("n=64"))
