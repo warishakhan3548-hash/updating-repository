@@ -17,6 +17,7 @@ namespace Aaris.World
         public WeaponSpec weapon = new WeaponSpec();
         public BattleZoneSpec zone = new BattleZoneSpec();
         public LootSpec loot = new LootSpec();
+        public BotMatchSpec bots = new BotMatchSpec();
         public SpawnSpec player = new SpawnSpec { id = "PLAYER_LOCAL", x = -100, z = -190, yaw = 180 };
         public PropSpec[] props = Array.Empty<PropSpec>();
         public SpawnSpec[] targets = Array.Empty<SpawnSpec>();
@@ -97,6 +98,15 @@ namespace Aaris.World
                 s.loot.healing < 1 || s.loot.healing > 100 ||
                 !Range(s.loot.minSpacing, 3, 50) || !Range(s.loot.pickupRadius, 0.8, 2.5)))
                 errors.Add("Loot density, rewards, radius and memory/CPU budget must be bounded.");
+            if (s.bots == null) errors.Add("Bot settings must be present.");
+            else if (s.bots.enabled && (s.bots.count < 1 || s.bots.count > 100 ||
+                s.bots.decisionsPerStep < 1 || s.bots.decisionsPerStep > 16 ||
+                !Range(s.bots.health, 20, 500) || !Range(s.bots.speed, 0.5, 8) ||
+                !Range(s.bots.detectionRange, 10, 200) ||
+                !Range(s.bots.attackRange, 5, s.bots.detectionRange) ||
+                !Range(s.bots.damage, 0.5, 50) ||
+                !Range(s.bots.secondsPerShot, 0.3, 5)))
+                errors.Add("Bot count, AI decision budget, movement, detection and damage must be bounded.");
             if (errors.Count != 0) return errors;
             var sourceErrors = WorldValidator.Validate(w, registry);
             if (sourceErrors.Count != 0) { errors.Add("World must validate before checking sandbox spawns: " + sourceErrors[0]); return errors; }
@@ -142,6 +152,11 @@ namespace Aaris.World
                 Spawn(p, p.sizeX + 0.2, p.sizeZ + 0.2, 25);
             }
             foreach (var target in s.targets) Spawn(target, 1, 1, 25);
+            if (errors.Count == 0 && s.bots.enabled)
+            {
+                try { BotSpawnPlanner.Generate(w, registry, s); }
+                catch (ArgumentException ex) { errors.Add("Unsafe bot layout: " + ex.Message); }
+            }
             return errors;
         }
     }
