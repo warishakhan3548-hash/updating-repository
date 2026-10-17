@@ -14,7 +14,12 @@ namespace Aaris.World
         public ThirdPersonRig cameraRig;
         public Transform visual;
         private Rigidbody body;
+        private CapsuleCollider capsule;
+        private readonly Collider[] standObstacles = new Collider[16];
         private JumpGate jump;
+        private Vector3 visualOriginalScale = Vector3.one;
+        private bool visualScaleCaptured;
+        public bool Crouched { get; private set; }
         private double ignoreGroundUntil;
         public bool Grounded { get; private set; }
         public Vector3 GroundNormal { get; private set; } = Vector3.up;
@@ -31,16 +36,18 @@ namespace Aaris.World
             body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             body.solverIterations = 8; body.solverVelocityIterations = 2;
             body.maxDepenetrationVelocity = 4; body.maxLinearVelocity = 60;
-            var capsule = GetComponent<CapsuleCollider>();
+            capsule = GetComponent<CapsuleCollider>();
             capsule.radius = (float)settings.radius; capsule.height = (float)settings.height;
             capsule.center = Vector3.up * (float)(settings.height * 0.5); capsule.direction = 1;
             jump = new JumpGate(settings.coyoteTime, settings.jumpBuffer);
+            Crouched = false;
         }
 
         private void FixedUpdate()
         {
             if (input == null || cameraRig == null) return;
-            Step(input.Move, cameraRig.Yaw, input.Sprint && !input.Aim, input.ConsumeJump(), Time.fixedDeltaTime, Time.fixedTimeAsDouble);
+            if (input.ConsumeCrouch()) ToggleCrouch();
+            Step(input.Move, cameraRig.Yaw, input.Sprint && !input.Aim && !Crouched, input.ConsumeJump(), Time.fixedDeltaTime, Time.fixedTimeAsDouble);
             if (visual != null) visual.localRotation = Quaternion.Euler(0, cameraRig.Yaw, 0);
         }
 
@@ -65,7 +72,7 @@ namespace Aaris.World
             if (!Grounded) supportVelocity = Vector3.zero;
             move = Vector2.ClampMagnitude(move, 1);
             Vector3 wish = Quaternion.Euler(0, yaw, 0) * new Vector3(move.x, 0, move.y);
-            float speed = (float)(sprint ? settings.sprintSpeed : settings.walkSpeed);
+            float speed = (float)(Crouched ? settings.crouchSpeed : sprint ? settings.sprintSpeed : settings.walkSpeed);
             Vector3 normal = Grounded ? GroundNormal : Vector3.up;
             Vector3 target = Vector3.ProjectOnPlane(wish, normal).normalized * (speed * move.magnitude);
             if (!Grounded && support && hit.normal.y > 0.01f && hit.normal.y < Mathf.Cos((float)settings.maxSlope * Mathf.Deg2Rad))
@@ -90,11 +97,44 @@ namespace Aaris.World
             }
         }
 
+        // Expand the collider only if overhead space is free; no transform teleport.
+        public bool ToggleCrouch()
+        {
+            if (body == null || capsule == null) Configure();
+            if (Crouched)
+            {
+                float radius = (float)settings.radius * 0.95f;
+                Vector3 feet = body.position;
+                Vector3 lower = feet + Vector3.up * ((float)settings.crouchHeight - radius);
+                Vector3 upper = feet + Vector3.up * ((float)settings.height - radius - 0.02f);
+                if (gameObject.scene.GetPhysicsScene().OverlapCapsule(lower, upper, radius, standObstacles,
+                    SandboxLayers.SolidMask, QueryTriggerInteraction.Ignore) != 0) return false;
+            }
+            Crouched = !Crouched;
+            ApplyStance();
+            return true;
+        }
+
+        private void ApplyStance()
+        {
+            float height = (float)(Crouched ? settings.crouchHeight : settings.height);
+            capsule.height = height;
+            capsule.center = Vector3.up * (height * 0.5f);
+            if (visual != null)
+            {
+                if (!visualScaleCaptured) { visualOriginalScale = visual.localScale; visualScaleCaptured = true; }
+                Vector3 scale = visualOriginalScale;
+                scale.y *= height / (float)settings.height;
+                visual.localScale = scale;
+            }
+        }
+
         public void Teleport(Vector3 feet)
         {
             if (body == null) Configure();
             body.position = feet; body.linearVelocity = body.angularVelocity = Vector3.zero;
             jump.Reset(); Grounded = false; ignoreGroundUntil = 0;
+            Crouched = false; ApplyStance();
         }
     }
 }
