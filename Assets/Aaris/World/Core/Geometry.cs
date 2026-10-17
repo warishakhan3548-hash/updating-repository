@@ -5,6 +5,18 @@ namespace Aaris.World
 {
     public static class Geometry
     {
+        // Scale before squaring so finite map/zone distances do not overflow early.
+        internal static double PlanarDistance(double dx, double dz)
+        {
+            if (!WorldValidator.Finite(dx, dz)) throw new ArgumentException("Finite planar displacement required.");
+            double largest = Math.Max(Math.Abs(dx), Math.Abs(dz));
+            if (largest == 0) return 0;
+            double sx = dx / largest, sz = dz / largest;
+            double result = largest * Math.Sqrt(sx * sx + sz * sz);
+            if (!WorldValidator.Finite(result)) throw new ArgumentException("Planar distance exceeds representable range.");
+            return result;
+        }
+
         public static Point2[] Footprint(ObjectSpec o, AssetSpec asset, double extra = 0)
         {
             double hx = asset.width * o.scale * 0.5 + extra;

@@ -71,7 +71,7 @@ namespace Aaris.World
         {
             if (!WorldValidator.Finite(px) || !WorldValidator.Finite(pz) || !WorldValidator.Finite(capsuleRadius) || capsuleRadius < 0) throw new ArgumentException("Finite zone query required.");
             double dx = px - x, dz = pz - z;
-            return Math.Max(0, Math.Sqrt(dx * dx + dz * dz) - radius - capsuleRadius);
+            return Math.Max(0, Geometry.PlanarDistance(dx, dz) - radius - capsuleRadius);
         }
         public bool Outside(double px, double pz, double capsuleRadius = 0) => ExcessDistance(px, pz, capsuleRadius) > 0;
     }
@@ -81,10 +81,15 @@ namespace Aaris.World
         {
             if (spec == null || !WorldValidator.Finite(elapsed) || elapsed < 0 ||
                 (!WorldValidator.Finite(spec.startRadius) || !WorldValidator.Finite(spec.endRadius)) || spec.startRadius <= spec.endRadius ||
+                spec.endRadius <= 0 ||
                 !WorldValidator.Finite(spec.shrinkSeconds) || spec.shrinkSeconds <= 0 ||
                 !WorldValidator.Finite(spec.waitSeconds) || spec.waitSeconds < 0 ||
                 !WorldValidator.Finite(spec.startX) || !WorldValidator.Finite(spec.startZ) || !WorldValidator.Finite(spec.endX) || !WorldValidator.Finite(spec.endZ))
                 throw new ArgumentException("Finite nonnegative battle-zone time and valid settings are required.");
+            double dx = spec.endX - spec.startX, dz = spec.endZ - spec.startZ;
+            double shift = Geometry.PlanarDistance(dx, dz);
+            if (!WorldValidator.Finite(shift) || shift > spec.startRadius - spec.endRadius + 1e-8)
+                throw new ArgumentException("Battle-zone movement must keep successive circles nested.");
             if (elapsed < spec.waitSeconds)
                 return new BattleZoneSnapshot { x = spec.startX, z = spec.startZ, radius = spec.startRadius,
                     phase = BattleZonePhase.Waiting, timeRemaining = spec.waitSeconds - elapsed };

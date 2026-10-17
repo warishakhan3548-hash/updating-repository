@@ -1,5 +1,10 @@
 # Asset integration contract
 
+The local sandbox also generates an original proportioned humanoid with equipment
+and procedural locomotion. It uses Unity primitive meshes and shared project-owned
+materials, with no downloaded character assets. It remains development art; its
+visual parts do not replace the native capsule collider or add physics bodies.
+
 Revision 2 has thirteen original procedural development asset types: several architectural styles, a tower, oak/pine trees, a boulder and cover props. All three LODs and material data are generated in shared C#; Unity template instances reuse meshes/materials. No downloaded game assets, third-party character models or textures are bundled.
 
 Every registry entry records dimensions, preview shape/color, origin, license and conservative cost estimates. A real replacement must be a Unity prefab below `Assets/Art/`, with a ground-centred pivot, local +Z entrance/front and dimensions consistent with its registered footprint. Set `prefabPath` to switch the compiler from the blockout to the prefab without changing permanent object IDs.
