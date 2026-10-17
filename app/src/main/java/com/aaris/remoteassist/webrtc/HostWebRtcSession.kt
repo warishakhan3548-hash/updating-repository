@@ -1436,11 +1436,22 @@ class HostWebRtcSession(
                                     requestedFps = requestedFps
                                 ),
                         minimumSpatialShortEdge =
-                            if (preferSpatialReliefBeforeCadence) {
-                                LOCAL_COMPUTE_SPATIAL_FLOOR_SHORT_EDGE
-                            } else {
-                                DEFAULT_SPATIAL_FLOOR_SHORT_EDGE
-                            }
+                            maxOf(
+                                RealtimeMediaPolicy.minimumMotionSpatialShortEdge(
+                                    profileShortEdgePx =
+                                        minOf(
+                                            profile.captureWidthPx,
+                                            profile.captureHeightPx
+                                        ),
+                                    hardwareRealtimeEncoderAvailable =
+                                        hardwareRealtimeEncoderAvailable
+                                ),
+                                if (preferSpatialReliefBeforeCadence) {
+                                    LOCAL_COMPUTE_SPATIAL_FLOOR_SHORT_EDGE
+                                } else {
+                                    DEFAULT_SPATIAL_FLOOR_SHORT_EDGE
+                                }
+                            )
                     )
                 }
 
@@ -2421,9 +2432,10 @@ class HostWebRtcSession(
         private const val MAX_WARM_START_EVIDENCE_AGE_MS = 2_500L
         private const val MAX_SESSION_VIDEO_FPS = 60
         /*
-         * Keep these local to the orchestration policy: MotionVideoBudget's
-         * default contract remains 360, while only the classified clean
-         * local-compute lane temporarily protects a 540px detail floor.
+         * These are fallback orchestration floors. RealtimeMediaPolicy raises
+         * the ordinary floor to 540/720 when the active CaptureProfile and a
+         * hardware screen encoder can sustain that clarity class. The local
+         * compute lane still protects at least 540 on compatibility paths.
          */
         private const val DEFAULT_SPATIAL_FLOOR_SHORT_EDGE = 360
         private const val LOCAL_COMPUTE_SPATIAL_FLOOR_SHORT_EDGE = 540
