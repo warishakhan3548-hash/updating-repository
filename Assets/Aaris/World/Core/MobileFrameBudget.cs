@@ -80,6 +80,15 @@ namespace Aaris.World
             // Respect a 540-pixel short-edge target whenever the native display allows it.
             return Math.Max(proposed, Math.Min(1, 540.0 / shortEdgePixels));
         }
+        // Honour the author's URP baseline while avoiding an additional unreadable downgrade.
+        public double EffectiveRenderScale(int shortEdgePixels, double authoredScale)
+        {
+            if (shortEdgePixels <= 0 || !WorldValidator.Finite(authoredScale) || authoredScale <= 0 || authoredScale > 2)
+                throw new ArgumentOutOfRangeException(nameof(authoredScale));
+            double reduced = authoredScale * RenderScale(shortEdgePixels);
+            double minimum = Math.Min(authoredScale, 540.0 / shortEdgePixels);
+            return Math.Max(minimum, Math.Min(authoredScale, reduced));
+        }
         public double LodMultiplier => Tier == 0 ? 1 : Tier == 1 ? 0.93 : Tier == 2 ? 0.84 : 0.75;
         public double ShadowDistanceMetres => Tier == 0 ? double.PositiveInfinity :
             Tier == 1 ? 65 : Tier == 2 ? 50 : 35;
